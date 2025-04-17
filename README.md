@@ -5,7 +5,7 @@ This project is a real-time industrial piece identification and verification sys
 📌 Features
 ✅ Detection & Verification
 YOLOv8-based object detection to classify and locate industrial parts.
-
+ 
 Label consistency checking between physical and predicted labels.
 
 Misplaced piece detection and real-time validation in a lot.
