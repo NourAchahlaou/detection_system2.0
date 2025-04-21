@@ -1,7 +1,8 @@
-import Dashboard from "./layout/dashboard/Dashboard";
+import router from "./routes/Router.js";
+import { RouterProvider } from 'react-router-dom';
 
 function App() {
-  return <Dashboard />;
+  return <RouterProvider router={router} />;
 }
 
 export default App;

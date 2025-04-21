@@ -3,14 +3,14 @@ import Grid from '@mui/material/Grid';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import Copyright from '../internals/components/Copyright';
-import ChartUserByCountry from './ChartUserByCountry';
-import CustomizedTreeView from './CustomizedTreeView';
-import CustomizedDataGrid from './CustomizedDataGrid';
-import HighlightedCard from './HighlightedCard';
-import PageViewsBarChart from './PageViewsBarChart';
-import SessionsChart from './SessionsChart';
-import StatCard from './StatCard';
+import Copyright from '../../components/internals/components/Copyright';
+import ChartUserByCountry from '../../components/components/charts/ChartUserByCountry';
+import CustomizedTreeView from '../../layouts/full/header/CustomizedTreeView';
+import CustomizedDataGrid from '../../components/components/grid/CustomizedDataGrid';
+import HighlightedCard from '../../components/components/cards/HighlightedCard';
+import PageViewsBarChart from '../../components/components/charts/PageViewsBarChart';
+import SessionsChart from '../../components/components/charts/SessionsChart';
+import StatCard from '../../components/components/cards/StatCard';
 
 const data = [
   {
@@ -87,7 +87,7 @@ export default function MainGrid() {
           </Stack>
         </Grid>
       </Grid>
-      <Copyright sx={{ my: 4 }} />
+      
     </Box>
   );
 }

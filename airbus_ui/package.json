@@ -5,6 +5,7 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
+    "@fontsource/titillium-web": "^5.2.5",
     "@mui/icons-material": "^7.0.2",
     "@mui/material": "^7.0.2",
     "@mui/x-charts": "^8.0.0",
@@ -19,6 +20,7 @@
     "dayjs": "^1.11.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^7.5.1",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
   },
