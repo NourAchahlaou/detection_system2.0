@@ -2,41 +2,90 @@
 import React from 'react';
 import List from '@mui/material/List';
 import Stack from '@mui/material/Stack';
+import ListSubheader from '@mui/material/ListSubheader';
+
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
-import AnalyticsRoundedIcon from '@mui/icons-material/AnalyticsRounded';
-import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
-import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
+import CameraAltRoundedIcon from '@mui/icons-material/CameraAltRounded';
+import LabelRoundedIcon from '@mui/icons-material/LabelRounded';
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import FindInPageRoundedIcon from '@mui/icons-material/FindInPageRounded';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
-import InfoRoundedIcon from '@mui/icons-material/InfoRounded';
-import HelpRoundedIcon from '@mui/icons-material/HelpRounded';
+import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
+import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded';
+import ModelTrainingRoundedIcon from '@mui/icons-material/ModelTrainingRounded';
+
 import SidebarItem from './SidebarItem';
 
-const mainListItems = [
-  { text: 'Home', icon: <HomeRoundedIcon />, to: '/' },
-  { text: 'Analytics', icon: <AnalyticsRoundedIcon />, to: '/analytics' },
-  { text: 'Clients', icon: <PeopleRoundedIcon />, to: '/clients' },
-  { text: 'Tasks', icon: <AssignmentRoundedIcon />, to: '/tasks' },
-];
+const menuSections = [
+  {
+    title: 'Main',
+    items: [
+      { text: 'Dashboard', icon: <HomeRoundedIcon />, to: '/' },
+    ],
+  },
+  {
+    title: 'Image Operations',
+    items: [
+      { text: 'Capture Image', icon: <CameraAltRoundedIcon />, to: '/captureImage' },
+      { text: 'Annotate Images', icon: <LabelRoundedIcon />, to: '/annotation' },
+      { text: 'Manage Dataset', icon: <FolderRoundedIcon />, to: '/dataset' },
+    ],
+  },
+  {
+    title: 'Inspection & Identification',
+    items: [
+      { text: 'Verify Piece', icon: <SearchRoundedIcon />, to: '/verify' },
+      { text: 'Identify Piece', icon: <FindInPageRoundedIcon />, to: '/identify' },
+      { text: 'Inspection History', icon: <HistoryRoundedIcon />, to: '/history' },
+    ],
+  },
+  {
+    title: 'Reports & Traceability',
+    items: [
+      { text: 'Generate Reports', icon: <DescriptionRoundedIcon />, to: '/reports' },
+      { text: 'Traceability Logs', icon: <HistoryRoundedIcon />, to: '/traceability' },
+    ],
+  },
 
-const secondaryListItems = [
-  { text: 'Settings', icon: <SettingsRoundedIcon />, to: '/settings' },
-  { text: 'About', icon: <InfoRoundedIcon />, to: '/about' },
-  { text: 'Feedback', icon: <HelpRoundedIcon />, to: '/feedback' },
+  {
+    title: 'Admin Panel',
+    items: [
+      { text: 'User Management', icon: <AdminPanelSettingsRoundedIcon />, to: '/admin/users' },
+      { text: 'System Logs', icon: <BugReportRoundedIcon />, to: '/admin/logs' },
+      { text: 'Model Management', icon: <ModelTrainingRoundedIcon />, to: '/admin/models' },
+    ],
+  },
 ];
 
 const MenuContent = () => {
   return (
     <Stack sx={{ flexGrow: 1, p: 1, justifyContent: 'space-between' }}>
-      <List dense>
-        {mainListItems.map((item, index) => (
-          <SidebarItem key={index} text={item.text} icon={item.icon} to={item.to} />
-        ))}
-      </List>
-      <List dense>
-        {secondaryListItems.map((item, index) => (
-          <SidebarItem key={index} text={item.text} icon={item.icon} to={item.to} />
-        ))} 
-      </List>
+      {menuSections.map((section, idx) => (
+        <List
+          key={idx}
+          dense
+          subheader={
+            <ListSubheader component="div" sx={{ bgcolor: 'inherit' }}>
+              {section.title}
+            </ListSubheader>
+          }
+        >
+          {section.items.map((item, index) => (
+            <SidebarItem
+              key={index}
+              text={item.text}
+              icon={item.icon}
+              to={item.to}
+            />
+          ))}
+        </List>
+      ))}
     </Stack>
   );
 };

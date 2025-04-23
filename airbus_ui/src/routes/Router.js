@@ -7,7 +7,7 @@ const BlankLayout = lazy(() => import('../layouts/blank/BlankLayout'));
 
 /* ****Pages***** */
 const Dashboard = lazy(() => import('../views/dashboard/Dashboard'))
-const Clients = lazy(() => import('../views/airbus/Dashboard'))
+const CaptureImage = lazy(() => import('../views/captureImage/CaptureImage'))
 const Router = [
   {
     path: '/',
@@ -15,7 +15,7 @@ const Router = [
     children: [
       { path: '/', element: <Navigate to="/dashboard" /> },
       { path: '/dashboard', exact: true, element: <Dashboard /> },
-      { path : '/clients', element : <Clients />},
+      { path : '/captureImage', element : <CaptureImage />},
     ],
   },
   {

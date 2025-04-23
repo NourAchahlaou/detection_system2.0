@@ -2,7 +2,6 @@ import * as React from 'react';
 import PropTypes from 'prop-types';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
-import SelectContent from './SelectContent';
 import OptionsMenu from './OptionsMenu';
 
 import Divider from '@mui/material/Divider';
@@ -11,7 +10,6 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
 import MenuContent from './MenuContent';
-import CardAlert from '../../../components/components/cards/CardAlert';
 
 function SideMenuMobile({ open, toggleDrawer }) {
   return (
@@ -63,7 +61,7 @@ function SideMenuMobile({ open, toggleDrawer }) {
         }}
       >
         <MenuContent />
-        <CardAlert />
+        
       </Box>
       <Stack
         direction="row"
