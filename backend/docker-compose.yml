@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  user_management:
+    build:
+      context: ./user_management
+      dockerfile: Dockerfile
+    env_file:
+      - ./user_management/.env
+    ports:
+      - "8001:8000"
+    depends_on:
+      - user-postgres
+    networks:
+      - airbus-net
+    volumes:
+      - ./user_management:/usr/src/app
+
+  user-postgres:
+    image: postgres:15
+    container_name: user_postgres
+    restart: unless-stopped
+    env_file:
+      - ./user_management/.env
+    volumes:
+      - user_postgres_data:/var/lib/postgresql/data
+    networks:
+      - airbus-net
+    ports:
+      - "5433:5432"  # expose only if you need it outside
+
+networks:
+  airbus-net:
+
+volumes:
+  user_postgres_data:
+  defect_postgres_data:
