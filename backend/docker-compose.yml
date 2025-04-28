@@ -3,8 +3,8 @@ version: "3.9"
 services:
   user_management:
     build:
-      context: ./user_management
-      dockerfile: Dockerfile
+      context: .  # use backend/ as context
+      dockerfile: user_management/Dockerfile
     env_file:
       - ./user_management/.env
     ports:
@@ -14,20 +14,26 @@ services:
     networks:
       - airbus-net
     volumes:
-      - ./user_management:/usr/src/app
+      - .:/usr/srv  # mount the full backend dir to match Dockerfile's COPY
 
   user-postgres:
     image: postgres:15
-    container_name: user_postgres
+    container_name: userpostgres
     restart: unless-stopped
     env_file:
       - ./user_management/.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airbususer -d userdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5 
+
     volumes:
       - user_postgres_data:/var/lib/postgresql/data
     networks:
       - airbus-net
     ports:
-      - "5433:5432"  # expose only if you need it outside
+      - "5433:5432"
 
 networks:
   airbus-net:

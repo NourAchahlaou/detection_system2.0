@@ -12,6 +12,6 @@ def create_application():
 app = create_application()
 
 
-@userget("/")
+@app.get("/")
 async def root():
     return {"message": "Hi, I am Describly. Awesome - Your setrup is done & working."}

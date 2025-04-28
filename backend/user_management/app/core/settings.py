@@ -15,14 +15,19 @@ class Settings(BaseSettings):
     DEBUG: bool = bool(os.environ.get("DEBUG", False))
     
     # FrontEnd Application
-    FRONTEND_HOST: str = os.environ.get("FRONTEND_HOST", "http://localhost:3000")
 
     # PostgreSQL Database Config
-    POSTGRES_HOST: str = os.environ.get("POSTGRES_HOST", 'localhost')
-    POSTGRES_USER: str = os.environ.get("POSTGRES_USER", 'postgres')
-    POSTGRES_PASS: str = os.environ.get("POSTGRES_PASSWORD", 'secret')
-    POSTGRES_PORT: int = int(os.environ.get("POSTGRES_PORT", 5432))
-    POSTGRES_DB: str = os.environ.get("POSTGRES_DB", 'fastapi')
+    POSTGRES_HOST: str = os.environ.get("POSTGRES_HOST")
+    POSTGRES_USER: str = os.environ.get("POSTGRES_USER")
+    POSTGRES_PASS: str = os.environ.get("POSTGRES_PASSWORD")
+    POSTGRES_PORT: int = int(os.environ.get("POSTGRES_PORT"))
+    POSTGRES_DB: str = os.environ.get("POSTGRES_DB")
+
+    print(os.environ.get("POSTGRES_HOST"))
+    print(os.environ.get("POSTGRES_USER"))
+    print(os.environ.get("POSTGRES_PASSWORD"))
+    print(os.environ.get("POSTGRES_DB"))
+
     
     # PostgreSQL URI
     DATABASE_URI: str = f"postgresql://{POSTGRES_USER}:{quote_plus(POSTGRES_PASS)}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"

@@ -10,11 +10,25 @@ ENV PYTHONUNBUFFERED 1
 # create non-root user and set working directory
 RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+
 # copy requirements file
-COPY ./requirements.txt /usr/srv/requirements.txt
+COPY ./user_management/requirements.txt /usr/srv/requirements.txt
 
 # install requirements
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
+
+# copy project files
+COPY ./user_management /usr/srv/user_management
+
+# make sure migrations directory exists
+RUN mkdir -p /usr/srv/user_management/migrations
+
+RUN chmod +x /usr/srv/user_management/entrypoint.sh
+
+# give ubuntu user ownership of the project files
+RUN chown -R ubuntu:ubuntu /usr/srv
 
 # switch to non-root user
 USER ubuntu
@@ -22,5 +36,5 @@ USER ubuntu
 # expose port
 EXPOSE 8000
 
-# run the FastAPI app
-CMD bash -c 'uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
+# use the entrypoint script to run migrations before starting the app
+ENTRYPOINT ["/usr/srv/user_management/entrypoint.sh"]
