@@ -41,7 +41,7 @@ cd /usr/srv/user_management
 
 # Only apply existing migrations
 alembic upgrade head || echo "Migration failed, but continuing startup"
-sleep 21
+
 
 cd ..
 # Start the application

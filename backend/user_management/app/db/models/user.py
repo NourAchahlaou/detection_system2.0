@@ -13,7 +13,8 @@ class User(Base):
     verified_at = Column(DateTime, nullable=True, default=None)
     updated_at = Column(DateTime, nullable=True, default=None, onupdate=datetime.now)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
-    
+    activation_code = Column(String(8), nullable=True)
+    activation_code_expires_at = Column(DateTime, nullable=True)
     tokens = relationship("UserToken", back_populates="user")
 
     def get_context_string(self, context: str):

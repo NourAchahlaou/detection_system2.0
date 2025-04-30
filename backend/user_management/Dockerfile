@@ -12,6 +12,7 @@ RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates
 
 # copy requirements file
 COPY ./user_management/requirements.txt /usr/srv/requirements.txt
