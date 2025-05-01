@@ -15,13 +15,13 @@ RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/ap
 RUN apt-get update && apt-get install -y ca-certificates
 
 # copy requirements file
-COPY ./user_management/requirements.txt /usr/srv/requirements.txt
+COPY ./requirements.txt /usr/srv/requirements.txt
 
 # install requirements
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # copy project files
-COPY ./user_management /usr/srv/user_management
+COPY . /usr/srv/user_management
 
 # make sure migrations directory exists
 RUN mkdir -p /usr/srv/user_management/migrations
@@ -37,5 +37,7 @@ USER ubuntu
 # expose port
 EXPOSE 8000
 
+RUN ls 
+RUN pwd
 # use the entrypoint script to run migrations before starting the app
 ENTRYPOINT ["/usr/srv/user_management/entrypoint.sh"]
