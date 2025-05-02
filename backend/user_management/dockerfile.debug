@@ -1,0 +1,43 @@
+FROM python:3.12
+
+WORKDIR /usr/srv
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
+
+RUN apt-get update && apt-get install -y postgresql-client ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY ./requirements.txt /usr/srv/requirements.txt
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
+
+# Debug step - show contents before copy
+RUN echo "Contents of current directory before copy:" && ls -la
+
+COPY . /usr/srv/user_management
+
+# Debug step - show contents after copy
+RUN echo "Contents of /usr/srv/user_management after copy:" && ls -la /usr/srv/user_management
+
+RUN mkdir -p /usr/srv/user_management/migrations
+
+# Debug the entrypoint file specifically
+RUN if [ -f "/usr/srv/user_management/entrypoint.sh" ]; then \
+      echo "entrypoint.sh exists"; \
+      cat /usr/srv/user_management/entrypoint.sh | head -5; \
+    else \
+      echo "entrypoint.sh DOES NOT EXIST"; \
+      find /usr/srv -name "*.sh"; \
+    fi
+
+# Make executable in case it exists
+RUN chmod +x /usr/srv/user_management/entrypoint.sh || echo "Could not chmod entrypoint.sh - file may not exist"
+RUN chown -R ubuntu:ubuntu /usr/srv
+
+USER ubuntu
+
+EXPOSE 8000
+
+# Use shell form for more flexible debugging
+CMD ["bash", "-c", "ls -la /usr/srv/user_management && echo 'Looking for entrypoint...' && if [ -f /usr/srv/user_management/entrypoint.sh ]; then echo 'Found entrypoint, executing...' && exec /usr/srv/user_management/entrypoint.sh; else echo 'Entrypoint not found, listing directory:' && find /usr/srv -type f -name '*.sh' && echo 'Starting with fallback command' && exec uvicorn user_management.app.main:app --host 0.0.0.0 --port 8000; fi"]

@@ -15,7 +15,20 @@ from user_management.app.db.session import Base
 from user_management.app.core.settings import get_settings
 
 # Explicitly import models to populate Base.metadata
-from user_management.app.db.models.user import User, UserToken
+from user_management.app.db.models import (
+    user,
+    shift,
+    activities,
+    workHours,
+    task,
+)
+
+User = user.User
+UserToken = user.UserToken
+Shift = shift.Shift
+Activity = activities.Activity
+WorkHours = workHours.WorkHours
+Task = task.Task
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

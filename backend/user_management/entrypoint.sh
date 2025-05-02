@@ -12,9 +12,9 @@ MAX_RETRIES=30
 RETRY_INTERVAL=2
 RETRIES=0
 
-DB_HOST=${POSTGRES_HOST:-localhost}
-DB_USER=${POSTGRES_USER:-postgres}
-DB_NAME=${POSTGRES_DB:-postgres}
+DB_HOST=${POSTGRES_HOST}
+DB_USER=${POSTGRES_USER}
+DB_NAME=${POSTGRES_DB}
 
 while [ $RETRIES -lt $MAX_RETRIES ]; do
     echo "Attempt $RETRIES: Checking if database is ready..."

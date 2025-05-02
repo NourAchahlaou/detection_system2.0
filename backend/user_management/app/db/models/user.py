@@ -1,7 +1,9 @@
 from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, func, ForeignKey
+from user_management.app.db.models.roleType import RoleType
 from user_management.app.db.session import Base
 from sqlalchemy.orm import mapped_column, relationship
+from sqlalchemy import Enum as SQLEnum
 
 class User(Base):
     __tablename__ = 'users'
@@ -16,6 +18,11 @@ class User(Base):
     activation_code = Column(String(8), nullable=True)
     activation_code_expires_at = Column(DateTime, nullable=True)
     tokens = relationship("UserToken", back_populates="user")
+
+    role = Column(SQLEnum(RoleType), nullable=False)
+    shifts = relationship("Shift", back_populates="user")
+    activities = relationship("Activity", back_populates="user")
+    assigned_tasks = relationship("Task", back_populates="assigned_user")
 
     def get_context_string(self, context: str):
         return f"{context}{self.password[-6:]}{self.updated_at.strftime('%m%d%Y%H%M%S')}".strip()

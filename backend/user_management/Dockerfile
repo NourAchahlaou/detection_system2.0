@@ -1,43 +1,27 @@
 FROM python:3.12
 
-# set work directory
 WORKDIR /usr/srv
 
-# set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# create non-root user and set working directory
 RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
-RUN apt-get update && apt-get install -y ca-certificates
+RUN apt-get update && apt-get install -y postgresql-client ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# copy requirements file
 COPY ./requirements.txt /usr/srv/requirements.txt
-
-# install requirements
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# copy project files
 COPY . /usr/srv/user_management
-
-# make sure migrations directory exists
 RUN mkdir -p /usr/srv/user_management/migrations
-
-RUN chmod +x /usr/srv/user_management/entrypoint.sh
-
-# give ubuntu user ownership of the project files
+RUN chmod 755 /usr/srv/user_management/entrypoint.sh
 RUN chown -R ubuntu:ubuntu /usr/srv
 
-# switch to non-root user
+# Verify that the entrypoint file exists and has correct permissions
+RUN ls -la /usr/srv/user_management/entrypoint.sh
+
 USER ubuntu
 
-# expose port
 EXPOSE 8000
 
-RUN ls 
-RUN pwd
-# use the entrypoint script to run migrations before starting the app
 ENTRYPOINT ["/usr/srv/user_management/entrypoint.sh"]

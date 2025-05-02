@@ -1,8 +1,6 @@
 # Ignore node_modules - don't copy host dependencies
 ./airbus_ui/node_modules
 
-
-
 .git
 
 # Logs
@@ -21,7 +19,7 @@ dist
 
 # OS / IDE files
 .DS_Store
-.env
+# .env              <-- comment this out or remove
 .env.local
 .env.*.local
 

@@ -2,35 +2,38 @@ version: "3.9"
 
 services:
   user_management:
-    container_name: userManagement
+    container_name: userManagementMicroservice
     build:
       context: ./backend/user_management
     env_file:
-      - ./backend/user_management/.env
+      - ./.env
     ports:
       - "8001:8000"
     depends_on:
-      - user-postgres
+      - databasePostgres
     networks:
-      - airbus-net
+      - airvision-net
     volumes:
       - ./backend/user_management:/usr/srv/user_management
+      - ./.env:/usr/srv/.env  
+    # Remove the custom command that tries to copy the entrypoint
+    # command: ["bash", "-c", "cp /app/entrypoint.sh /tmp/entrypoint.sh && chmod +x /tmp/entrypoint.sh && /tmp/entrypoint.sh"]
 
-  user-postgres:
+  databasePostgres:
     image: postgres:15
-    container_name: userpostgres
+    container_name: postgres
     restart: unless-stopped
     env_file:
-      - ./backend/user_management/.env
+      - ./.env
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airbususer -d userdb"]
+      test: ["CMD-SHELL", "pg_isready -U airbususer -d airvisiondb"]
       interval: 5s
       timeout: 5s
       retries: 5
     volumes:
       - user_postgres_data:/var/lib/postgresql/data
     networks:
-      - airbus-net
+      - airvision-net
     ports:
       - "5433:5432"
 
@@ -40,11 +43,13 @@ services:
       dockerfile: ./airbus_ui/Dockerfile
     ports:
       - "3000:80"
+    depends_on:
+      - user_management  
     networks:
-      - airbus-net
+      - airvision-net
 
 networks:
-  airbus-net:
+  airvision-net:
 
 volumes:
   user_postgres_data:
