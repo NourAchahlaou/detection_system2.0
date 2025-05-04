@@ -20,10 +20,8 @@ FROM nginx:alpine
 # Copy built React files to Nginx's html directory
 COPY --from=build /app/build /usr/share/nginx/html
 
-# Copy custom Nginx config if needed
-# COPY ./frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy the custom nginx config
+COPY ./airbus_ui/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80
 EXPOSE 80
-
 CMD ["nginx", "-g", "daemon off;"]

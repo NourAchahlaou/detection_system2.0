@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import logging
 from sqlalchemy.orm import joinedload
 from fastapi import HTTPException
+from user_management.app.db.models.roleType import RoleType
 from user_management.app.core.security import generate_token, get_token_payload, hash_password, is_password_strong_enough, load_user, str_decode, str_encode, verify_password
 from user_management.app.db.models.user import User, UserToken
 from user_management.app.services.email import send_account_activation_confirmation_email, send_account_verification_email, send_password_reset_email
@@ -14,28 +15,30 @@ from user_management.app.core.settings import get_settings
 settings = get_settings()
 
 async def create_user_account(data, session, background_tasks):
-    
     user_exist = session.query(User).filter(User.email == data.email).first()
     if user_exist:
         raise HTTPException(status_code=400, detail="Email is already exists.")
-    
+
     if not is_password_strong_enough(data.password):
         raise HTTPException(status_code=400, detail="Please provide a strong password.")
+
+    user = User(
+        name=data.name,
+        email=data.email,
+        password=hash_password(data.password),
+        is_active=False,
+        updated_at=datetime.utcnow(),
+        role=RoleType.AUDITOR  # Or whatever default makes sense: ADMIN, TECHNICIAN, etc.
+    )
     
-    
-    user = User()
-    user.name = data.name
-    user.email = data.email
-    user.password = hash_password(data.password)
-    user.is_active = False
-    user.updated_at = datetime.utcnow()
     session.add(user)
     session.commit()
     session.refresh(user)
-    
+
     # Account Verification Email
     await send_account_verification_email(user, background_tasks=background_tasks)
     return user
+
     
     
 async def activate_user_account(data, session, background_tasks):

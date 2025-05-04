@@ -16,7 +16,7 @@ class Activity(Base):
     
     # Relationships
     user = relationship("User", back_populates="activities")
-    piece = relationship("Piece", back_populates="activities")
+    # piece = relationship("Piece", back_populates="activities")
     
  
 

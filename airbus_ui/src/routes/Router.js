@@ -1,35 +1,48 @@
+// Router.js
 import { lazy } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
+import PrivateRoute from './PrivateRoute';
 
-/* ***Layouts**** */
+/* Layouts */
 const FullLayout = lazy(() => import('../layouts/full/FullLayout'));
 const BlankLayout = lazy(() => import('../layouts/blank/BlankLayout'));
 
-/* ****Pages***** */
-const Dashboard = lazy(() => import('../views/dashboard/Dashboard'))
-const CaptureImage = lazy(() => import('../views/captureImage/CaptureImage'))
-const Router = [
+/* Pages */
+const Dashboard = lazy(() => import('../views/dashboard/Dashboard'));
+const CaptureImage = lazy(() => import('../views/captureImage/CaptureImage'));
+const SignInSide = lazy(() => import('../views/auth/sign-in-side/SignInSide'));
+
+const router = createBrowserRouter([
   {
     path: '/',
-    element: <FullLayout />,
+    element: <FullLayout/>,
     children: [
       { path: '/', element: <Navigate to="/dashboard" /> },
-      { path: '/dashboard', exact: true, element: <Dashboard /> },
-      { path : '/captureImage', element : <CaptureImage />},
+      {
+        path: '/dashboard',
+        element: (
+          <PrivateRoute>
+            <Dashboard />
+          </PrivateRoute>
+        ),
+      },
+      {
+        path: '/captureImage',
+        element: (
+          <PrivateRoute>
+            <CaptureImage />
+          </PrivateRoute>
+        ),
+      },
     ],
   },
   {
     path: '/auth',
     element: <BlankLayout />,
-    // children: [
-    //   { path: '404', element: <Error /> },
-    //   { path: '/auth/register', element: <Register /> },
-    //   { path: '/auth/login', element: <Login /> },
-    //   { path: '*', element: <Navigate to="/auth/404" /> },
-    // ],
+    children: [
+      { path: 'login', element: <SignInSide /> },
+    ],
   },
-];
-
-const router = createBrowserRouter(Router);
+]);
 
 export default router;

@@ -13,22 +13,24 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 # Import your models and database configuration
 from user_management.app.db.session import Base
 from user_management.app.core.settings import get_settings
+# Instead of individual model imports:
+from user_management.app.db.models import User, UserToken, Shift, Activity, WorkHours, Task
 
-# Explicitly import models to populate Base.metadata
-from user_management.app.db.models import (
-    user,
-    shift,
-    activities,
-    workHours,
-    task,
-)
+# # Explicitly import models to populate Base.metadata
+# from user_management.app.db.models import (
+#     user,
+#     shift,
+#     activities,
+#     workHours,
+#     task,
+# )
 
-User = user.User
-UserToken = user.UserToken
-Shift = shift.Shift
-Activity = activities.Activity
-WorkHours = workHours.WorkHours
-Task = task.Task
+# User = user.User
+# UserToken = user.UserToken
+# Shift = shift.Shift
+# Activity = activities.Activity
+# WorkHours = workHours.WorkHours
+# Task = task.Task
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
