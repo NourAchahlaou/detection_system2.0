@@ -1,7 +1,8 @@
-// Router.js
 import { lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import PrivateRoute from './PrivateRoute';
+
+const SignUp = lazy(()=> import( '../views/auth/sign-up/SignUp'));
 
 /* Layouts */
 const FullLayout = lazy(() => import('../layouts/full/FullLayout'));
@@ -13,34 +14,45 @@ const CaptureImage = lazy(() => import('../views/captureImage/CaptureImage'));
 const SignInSide = lazy(() => import('../views/auth/sign-in-side/SignInSide'));
 
 const router = createBrowserRouter([
+  // Root redirect to dashboard
   {
     path: '/',
-    element: <FullLayout/>,
+    element: <Navigate to="/dashboard" replace />,
+  },
+
+  // Protected layout and routes
+  {
+    path: '/',
+    element: (
+      <PrivateRoute>
+        <FullLayout />
+      </PrivateRoute>
+    ),
     children: [
-      { path: '/', element: <Navigate to="/dashboard" /> },
       {
-        path: '/dashboard',
-        element: (
-          <PrivateRoute>
-            <Dashboard />
-          </PrivateRoute>
-        ),
+        path: 'dashboard',
+        element: <Dashboard />,
       },
       {
-        path: '/captureImage',
-        element: (
-          <PrivateRoute>
-            <CaptureImage />
-          </PrivateRoute>
-        ),
+        path: 'captureImage',
+        element: <CaptureImage />,
       },
     ],
   },
+
+  // Public login route
   {
     path: '/auth',
     element: <BlankLayout />,
     children: [
-      { path: 'login', element: <SignInSide /> },
+      {
+        path: 'login',
+        element: <SignInSide />,
+      },
+      {
+        path: 'signup',
+        element: <SignUp />,
+      },
     ],
   },
 ]);

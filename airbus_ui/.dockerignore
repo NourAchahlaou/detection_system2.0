@@ -1,7 +1,5 @@
 # Ignore node_modules - don't copy host dependencies
-./airbus_ui/node_modules
 node_modules
-./node_modules
 .git
 
 # Logs

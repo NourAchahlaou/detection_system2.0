@@ -15,9 +15,7 @@ services:
       - airvision-net
     volumes:
       - ./backend/user_management:/usr/srv/user_management
-      - ./.env:/usr/srv/.env  
-    # Remove the custom command that tries to copy the entrypoint
-    # command: ["bash", "-c", "cp /app/entrypoint.sh /tmp/entrypoint.sh && chmod +x /tmp/entrypoint.sh && /tmp/entrypoint.sh"]
+      - ./.env:/usr/srv/.env
 
   databasePostgres:
     image: postgres:15
@@ -39,14 +37,22 @@ services:
 
   airbus_ui:
     build:
-      context: .
-      dockerfile: ./airbus_ui/Dockerfile
+      context: ./airbus_ui  # Adjusted to point to frontend directory
+      dockerfile: Dockerfile
+    container_name: airbus_ui
     ports:
-      - "3000:80"
+      - "3000:3000"  # Changed to default React dev port
     depends_on:
-      - user_management  
+      - user_management
     networks:
       - airvision-net
+    volumes:
+      - ./airbus_ui:/app  # Mount source code for hot reloading
+      - /app/node_modules  # Keep node_modules in container to avoid host conflicts
+    environment:
+      - CHOKIDAR_USEPOLLING=true  # Helps with file watching in Docker
+      - WDS_SOCKET_PORT=3000  # WebSocket port for hot reload
+
 
 networks:
   airvision-net:

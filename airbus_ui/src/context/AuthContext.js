@@ -5,6 +5,7 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [auth, setAuth] = useState({ token: null, user: null });
+  const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
     localStorage.removeItem('access_token');
@@ -14,11 +15,19 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUser = useCallback(async () => {
     try {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      
       const res = await api.get('/users/me');
-      setAuth((prev) => ({ ...prev, user: res.data }));
+      setAuth({ token, user: res.data });
     } catch (error) {
       console.error('User fetch failed', error);
       logout();
+    } finally {
+      setLoading(false);
     }
   }, [logout]);
 
@@ -26,6 +35,7 @@ export const AuthProvider = ({ children }) => {
     const refreshToken = localStorage.getItem('refresh_token');
     if (!refreshToken) {
       logout();
+      setLoading(false);
       return;
     }
 
@@ -40,20 +50,28 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('access_token', access_token);
       localStorage.setItem('refresh_token', newRefreshToken);
 
-      setAuth({ token: access_token, user: null }); // We'll get user again
+      setAuth(prev => ({ ...prev, token: access_token }));
       await fetchUser();
     } catch (error) {
       console.error('Token refresh failed', error);
       logout();
+      setLoading(false);
     }
   }, [fetchUser, logout]);
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      setAuth((prev) => ({ ...prev, token }));
-      fetchUser();
-    }
+    const initAuth = async () => {
+      setLoading(true);
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        setAuth(prev => ({ ...prev, token }));
+        await fetchUser();
+      } else {
+        setLoading(false);
+      }
+    };
+    
+    initAuth();
   }, [fetchUser]);
 
   const login = async (token, refreshToken) => {
@@ -64,7 +82,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ auth, login, logout, refreshAccessToken }}>
+    <AuthContext.Provider value={{ 
+      auth, 
+      login, 
+      logout, 
+      refreshAccessToken,
+      loading
+    }}>
       {children}
     </AuthContext.Provider>
   );

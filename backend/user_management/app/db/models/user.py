@@ -8,6 +8,7 @@ from sqlalchemy import Enum as SQLEnum
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True, autoincrement=True)
+    airbus_id = Column(Integer, unique=True)
     name = Column(String(150))
     email = Column(String(255), unique=True, index=True)
     password = Column(String(100))

@@ -12,7 +12,8 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { styled } from '@mui/material/styles';
 import ForgotPassword from './ForgotPassword';
-import { GoogleIcon, FacebookIcon, SitemarkIcon } from './CustomIcons';
+import { GoogleIcon } from '../CustomIcons';
+import { ReactComponent as AirVisionLogo } from '../../../assets/Airvisionlogo_updated.svg';
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
@@ -58,7 +59,7 @@ export default function SignInCard() {
       password: data.get('password'),
     });
   };
-
+  const SPECIAL_CHARACTERS = /[!@#$%^&*(),.?":{}|<>]/;
   const validateInputs = () => {
     const email = document.getElementById('email');
     const password = document.getElementById('password');
@@ -74,22 +75,38 @@ export default function SignInCard() {
       setEmailErrorMessage('');
     }
 
-    if (!password.value || password.value.length < 6) {
+    if (password.value.length < 8) {
       setPasswordError(true);
-      setPasswordErrorMessage('Password must be at least 6 characters long.');
+      setPasswordErrorMessage('Password must be at least 8 characters long.');
+      isValid = false;
+    } else if (!/[A-Z]/.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one uppercase letter.');
+      isValid = false;
+    } else if (!/[a-z]/.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one lowercase letter.');
+      isValid = false;
+    } else if (!/\d/.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one number.');
+      isValid = false;
+    } else if (!SPECIAL_CHARACTERS.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one special character.');
       isValid = false;
     } else {
       setPasswordError(false);
       setPasswordErrorMessage('');
     }
-
+  
     return isValid;
   };
 
   return (
     <Card variant="outlined">
-      <Box sx={{ display: { xs: 'flex', md: 'none' } }}>
-        <SitemarkIcon />
+      <Box sx={{ display: {xs :'flex',md :'none'},color: '#00205B', marginBottom: -9 , marginTop:-10}}> {/* Optional: Add marginBottom for closer content */}
+        <AirVisionLogo width={150} height={200} />
       </Box>
       <Typography
         component="h1"
@@ -118,7 +135,8 @@ export default function SignInCard() {
             required
             fullWidth
             variant="outlined"
-            color={emailError ? 'error' : 'primary'}
+            color={emailError ? 'error' : 'transparent'}
+
           />
         </FormControl>
         <FormControl>
@@ -146,11 +164,11 @@ export default function SignInCard() {
             required
             fullWidth
             variant="outlined"
-            color={passwordError ? 'error' : 'primary'}
+            color={passwordError ? 'error' : 'transparent'}
           />
         </FormControl>
         <FormControlLabel
-          control={<Checkbox value="remember" color="primary" />}
+          control={<Checkbox value="remember" color="transparent" />}
           label="Remember me"
         />
         <ForgotPassword open={open} handleClose={handleClose} />
@@ -180,14 +198,7 @@ export default function SignInCard() {
         >
           Sign in with Google
         </Button>
-        <Button
-          fullWidth
-          variant="outlined"
-          onClick={() => alert('Sign in with Facebook')}
-          startIcon={<FacebookIcon />}
-        >
-          Sign in with Facebook
-        </Button>
+ 
       </Box>
     </Card>
   );
