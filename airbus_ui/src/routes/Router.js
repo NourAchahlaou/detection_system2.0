@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import PrivateRoute from './PrivateRoute';
 
 const SignUp = lazy(()=> import( '../views/auth/sign-up/SignUp'));
+const Profile = lazy(()=> import( '../views/auth/profile-completion/Profile'));
 
 /* Layouts */
 const FullLayout = lazy(() => import('../layouts/full/FullLayout'));
@@ -53,6 +54,11 @@ const router = createBrowserRouter([
         path: 'signup',
         element: <SignUp />,
       },
+      {
+        path: 'profile',
+        element: <Profile />,
+      },
+
     ],
   },
 ]);

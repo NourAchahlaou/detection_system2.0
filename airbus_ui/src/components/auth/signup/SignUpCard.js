@@ -1,5 +1,6 @@
-// src/components/auth/signup/SignUpCard.js
 import * as React from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import {
   Box,
   Button,
@@ -35,8 +36,8 @@ const Card = styled(MuiCard)(({ theme }) => ({
       'hsla(220, 30%, 5%, 0.5) 0px 5px 15px 0px, hsla(220, 25%, 10%, 0.08) 0px 15px 35px -5px',
   }),
 }));
-
 export default function SignUpCard() {
+  const navigate = useNavigate();
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState('');
   const [passwordError, setPasswordError] = React.useState(false);
@@ -62,30 +63,30 @@ export default function SignUpCard() {
     }
 
     if (password.value.length < 8) {
-        setPasswordError(true);
-        setPasswordErrorMessage('Password must be at least 8 characters long.');
-        isValid = false;
-      } else if (!/[A-Z]/.test(password.value)) {
-        setPasswordError(true);
-        setPasswordErrorMessage('Password must contain at least one uppercase letter.');
-        isValid = false;
-      } else if (!/[a-z]/.test(password.value)) {
-        setPasswordError(true);
-        setPasswordErrorMessage('Password must contain at least one lowercase letter.');
-        isValid = false;
-      } else if (!/\d/.test(password.value)) {
-        setPasswordError(true);
-        setPasswordErrorMessage('Password must contain at least one number.');
-        isValid = false;
-      } else if (!SPECIAL_CHARACTERS.test(password.value)) {
-        setPasswordError(true);
-        setPasswordErrorMessage('Password must contain at least one special character.');
-        isValid = false;
-      } else {
-        setPasswordError(false);
-        setPasswordErrorMessage('');
-      }
-  
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must be at least 8 characters long.');
+      isValid = false;
+    } else if (!/[A-Z]/.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one uppercase letter.');
+      isValid = false;
+    } else if (!/[a-z]/.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one lowercase letter.');
+      isValid = false;
+    } else if (!/\d/.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one number.');
+      isValid = false;
+    } else if (!SPECIAL_CHARACTERS.test(password.value)) {
+      setPasswordError(true);
+      setPasswordErrorMessage('Password must contain at least one special character.');
+      isValid = false;
+    } else {
+      setPasswordError(false);
+      setPasswordErrorMessage('');
+    }
+
     if (!name.value || name.value.length < 1) {
       setNameError(true);
       setNameErrorMessage('Name is required.');
@@ -98,39 +99,58 @@ export default function SignUpCard() {
     return isValid;
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    // Validate form inputs
     if (nameError || emailError || passwordError) {
-      event.preventDefault();
       return;
     }
-    const data = new FormData(event.currentTarget);
-    console.log({
-      name: data.get('name'),
-      lastName: data.get('lastName'),
-      email: data.get('email'),
-      password: data.get('password'),
-    });
+
+
+    const formData = new FormData(event.currentTarget);
+    const data = {
+      name: formData.get('name'),
+      email: formData.get('email'),
+      password: formData.get('password'),
+    };
+
+    // Make API request to register user
+    try {
+      const response = await fetch('http://localhost:8001/users/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('User registered successfully:', result);
+              // Redirect to profile completion
+        navigate('/complete-profile');
+        // Handle successful registration (e.g., redirect to login page)
+      } else {
+        const errorResult = await response.json();
+        console.error('Error registering user:', errorResult);
+        // Handle error (e.g., display error message)
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      // Handle network or other errors
+    }
   };
 
   return (
     <Card variant="outlined">
-      <Box sx={{    display: {xs :'none',md :'flex'},
-                    color: '#00205B',
-                    marginBottom: -9 ,
-                    marginTop:-10,
-                    flexDirection: 'column',
-                    alignSelf: 'center'}}
-                    > {/* Optional: Add marginBottom for closer content */}
+      <Box sx={{ display: { xs: 'none', md: 'flex' }, color: '#00205B', marginBottom: -9, marginTop: -10, flexDirection: 'column', alignSelf: 'center' }}>
         <AirVisionLogo width={150} height={200} />
       </Box>
       <Typography component="h1" variant="h4">
         Sign up
       </Typography>
-      <Box
-        component="form"
-        onSubmit={handleSubmit}
-        sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
-      >
+      <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <FormControl>
           <FormLabel htmlFor="name">Full name</FormLabel>
           <TextField

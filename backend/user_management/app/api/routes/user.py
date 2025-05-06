@@ -30,7 +30,7 @@ guest_router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@user_router.post("", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
+@user_router.post("/register", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
 async def register_user(data: RegisterUserRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     return await user.create_user_account(data, session, background_tasks)
 

@@ -2,7 +2,7 @@
 import { Stack, styled } from '@mui/material';
 
 const SignUpContainer = styled(Stack)(({ theme }) => ({
-  height: '100vh', // Fill full viewport height
+ // Fill full viewport height
   minHeight: '100vh',
   padding: theme.spacing(2),
   alignItems: 'center', // Center horizontally
