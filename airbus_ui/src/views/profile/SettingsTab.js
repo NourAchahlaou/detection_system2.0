@@ -26,8 +26,8 @@ export default function SettingsTab({ activeTab }) {
   return (
     <Box sx={{ p: 3 }}>
       <Grid container>
-        <Grid item xs={12}>
-          <Paper elevation={3}>
+        <Grid item xs={12} variant="outlined">
+         
             {/* Settings Tab Panel */}
             
               <Box sx={{ p: 3 }}>
@@ -196,7 +196,7 @@ export default function SettingsTab({ activeTab }) {
                   </Stack>
                 </Paper>
               </Box>
-          </Paper>
+       
         </Grid>
       </Grid>
     </Box>

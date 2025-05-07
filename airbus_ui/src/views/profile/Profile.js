@@ -56,15 +56,16 @@ export default function MainDashboard() {
   
   return (
     <Box sx={{ flexGrow: 1, bgcolor: 'background.default', p: 3 }}>
-      <Grid container spacing={3}>
+      <Grid container spacing={2}>
+          
         {/* User Profile Side Card */}
-        <Grid item xs={12} md={3}>
+        <Grid item xs={12} md={4} lg={3}>
           <SideCardProfile />
         </Grid>
         
         {/* Main Content Area */}
-        <Grid item xs={12} md={9}>
-          <Paper elevation={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={8} lg={9}>
+          <Box sx={{ width: '100%' }}>
             <Tabs 
               value={activeTab} 
               onChange={handleTabChange} 
@@ -126,7 +127,7 @@ export default function MainDashboard() {
             <TabPanel value={activeTab} index={5}>
               <SettingsTab />
             </TabPanel>
-          </Paper>
+          </Box>
         </Grid>
       </Grid>
     </Box>

@@ -1,131 +1,247 @@
 import * as React from 'react';
 import { 
-  Paper, 
   Box, 
   Typography, 
   Avatar, 
   Chip, 
-  Button, 
   Stack, 
-  IconButton, 
-  Divider 
+  Divider,
+  Card,
+  CardContent,
+  
+  alpha
 } from '@mui/material';
 import { 
   Schedule as ClockIcon, 
   Notifications as BellIcon, 
   PhotoCamera as CameraIcon, 
-  Logout as LogOutIcon, 
   Security as ShieldIcon,
-  Email as EmailIcon 
+  Email as EmailIcon,
+
 } from '@mui/icons-material';
 
 export default function SideCard() {
   return (
-    <Paper 
+    <Card 
       elevation={2} 
+      variant="outlined" 
       sx={{ 
-        p: 3, 
-        height: '100%', 
+        height: '100%',
         display: 'flex', 
         flexDirection: 'column',
-        alignItems: { xs: 'center', md: 'flex-start' }
+        borderRadius: 2,
+        overflow: 'auto',
+        border: '1px solid',
+        borderColor: 'divider',
+        backgroundColor: (theme) => theme.palette.mode === 'dark' ? alpha(theme.palette.background.paper, 0.8) : alpha(theme.palette.background.paper, 1),
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-        <Avatar 
-          src="/api/placeholder/400/400" 
-          alt="User avatar" 
-          sx={{ width: 120, height: 120, mb: 2 }}
-        />
-        <Typography variant="h5" fontWeight="bold">Achahlaou Nour</Typography>
-        
-        <Chip 
-          icon={<CameraIcon fontSize="small" />} 
-          label="Technician" 
-          color="primary" 
-          variant="outlined" 
-          sx={{ my: 1 }} 
-        />
-        
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+      <CardContent sx={{ 
+        p: 3,
+        '&:last-child': { pb: 3 },
+        display: 'flex', 
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 2
+      }}>
+        {/* Profile Header */}
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          width: '100%',
+          position: 'relative',
+          mb: 1
+        }}>
+
+          
+          <Typography variant="h5" fontWeight="700" sx={{ mb: 0.5 }}>Achahlaou Nour</Typography>
+          
           <Box sx={{ 
-            width: 10, 
-            height: 10, 
-            borderRadius: '50%', 
-            bgcolor: 'success.main', 
-            mr: 1 
-          }} />
-          <Typography color="success.main" fontWeight="medium">Active</Typography>
-        </Box>
-      </Box>
-      
-      <Box sx={{ width: '100%', mt: 2 }}>
-        <Stack spacing={1.5}>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <ClockIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-            <Typography variant="body2" color="text.secondary" mr={1}>Working Hours Today:</Typography>
-            <Typography variant="body2" fontWeight="medium">07h 45min</Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <EmailIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-            <Typography variant="body2" color="text.secondary">nour.achahlaou@airbus.com</Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <ClockIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-            <Typography variant="body2" color="text.secondary" mr={1}>Last Login:</Typography>
-            <Typography variant="body2" fontWeight="medium">07 May 2025, 08:15</Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <BellIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-            <Typography variant="body2" color="text.secondary" mr={1}>Alerts:</Typography>
-            <Chip
-              label="3"
-              color="error"
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1.5, 
+            my: 1,
+            flexWrap: 'wrap',
+            justifyContent: 'center'
+          }}>
+            <Chip 
+              icon={<CameraIcon fontSize="small" />} 
+              label="Technician" 
+              color="primary" 
+              sx={{
+                px: 1,
+                fontWeight: 500,
+                borderRadius: 1.5
+              }}
               size="small"
-              sx={{ height: 20, fontSize: '0.75rem' }}
+            />
+            
+            <Chip
+              sx={{ 
+                bgcolor: (theme) => alpha(theme.palette.success.main, 0.1),
+                color: 'success.dark',
+                fontWeight: 600,
+                borderRadius: 1.5,
+                '& .MuiChip-icon': {
+                  color: 'success.main'
+                }
+              }}
+              icon={
+                <Box component="span" sx={{ 
+                  width: 8, 
+                  height: 8, 
+                  borderRadius: '50%', 
+                  bgcolor: 'success.main',
+                  display: 'inline-block'
+                }}/>
+              }
+              iconColor="success"
+              label="Active Now"
+              size="small"
             />
           </Box>
-        </Stack>
-      </Box>
+        </Box>
+        
+        <Divider sx={{ width: '100%' }} />
+        
+        {/* User Info Section */}
+        <Box sx={{ width: '100%' }}>
+          <Stack spacing={2} sx={{ fontSize: '0.875rem' }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              pb: 1
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <ClockIcon fontSize="small" sx={{ mr: 1.5, color: 'primary.main', fontSize: '1.1rem' }} />
+                <Typography variant="body2" color="text.secondary" fontWeight={500}>Working Hours</Typography>
+              </Box>
+              <Typography variant="body2" fontWeight={600} sx={{ color: 'text.primary' }}>07h 45min</Typography>
+            </Box>
+            
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              pb: 1
+            }}>
+              <EmailIcon fontSize="small" sx={{ mr: 1.5, color: 'primary.main', fontSize: '1.1rem' }} />
+              <Typography 
+                variant="body2" 
+                color="text.primary" 
+                fontWeight={500} 
+                noWrap 
+                sx={{ 
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                nour.achahlaou@airbus.com
+              </Typography>
+            </Box>
+            
       
-      <Box sx={{ width: '100%', mt: 3, display: 'flex', gap: 1 }}>
-        <Button 
-          variant="contained" 
-          startIcon={<ClockIcon />}
-          fullWidth
-          size="small"
-        >
-          Start Shift
-        </Button>
-        <IconButton color="inherit" sx={{ border: 1, borderColor: 'divider' }}>
-          <LogOutIcon fontSize="small" />
-        </IconButton>
-      </Box>
-      
-      <Divider sx={{ width: '100%', my: 3 }} />
-      
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="subtitle1" fontWeight="medium" gutterBottom>Access Level</Typography>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.light' }}>
-            <ShieldIcon fontSize="small" />
-          </Avatar>
-          <Box>
-            <Typography variant="body2" fontWeight="medium">Level 2</Typography>
-            <Typography variant="caption" color="text.secondary">Standard Technician</Typography>
+
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              pb: 1
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <BellIcon fontSize="small" sx={{ mr: 1.5, color: 'primary.main', fontSize: '1.1rem' }} />
+                <Typography variant="body2" color="text.secondary" fontWeight={500}>Alerts</Typography>
+              </Box>
+              <Chip
+                label="3"
+                color="error"
+                size="small"
+                sx={{ 
+                  fontWeight: 'bold',
+                  borderRadius: 1,
+                  minWidth: '28px'
+                }}
+              />
+            </Box>
+          </Stack>
+        </Box>
+        
+        <Divider sx={{ width: '100%' }} />
+        
+        {/* Access Level Section */}
+        <Box sx={{ width: '100%' }}>
+          <Typography 
+            variant="subtitle1" 
+            fontWeight={600} 
+            color="text.primary"
+            sx={{ mb: 1.5 }}
+          >
+            Access Level
+          </Typography>
+          <Box sx={{ 
+            display: 'flex', 
+            gap: 2, 
+            alignItems: 'center', 
+            bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+            p: 1.5,
+            borderRadius: 1.5
+          }}>
+            <Avatar sx={{ 
+              width: 38, 
+              height: 38, 
+              bgcolor: 'primary.main'
+            }}>
+              <ShieldIcon sx={{ fontSize: '1.2rem' }} />
+            </Avatar>
+            <Box>
+              <Typography variant="body1" fontWeight={600} color="text.primary">Level 2</Typography>
+              <Typography variant="body2" color="text.secondary">Standard Technician</Typography>
+            </Box>
           </Box>
         </Box>
-      </Box>
-      
-      <Divider sx={{ width: '100%', my: 3 }} />
-      
-      <Box sx={{ width: '100%' }}>
-        <Typography variant="subtitle1" fontWeight="medium" gutterBottom>Work Area</Typography>
-        <Chip label="Assembly Line B" variant="outlined" />
-      </Box>
-    </Paper>
+        
+        <Divider sx={{ width: '100%' }} />
+        
+        {/* Work Area Section */}
+        <Box sx={{ width: '100%' }}>
+          <Typography 
+            variant="subtitle1" 
+            fontWeight={600} 
+            color="text.primary"
+            sx={{ mb: 1.5 }}
+          >
+            Work Area
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            <Chip 
+              label="Assembly Line B" 
+              variant="outlined" 
+              size="medium" 
+              color="primary"
+              sx={{ 
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                borderRadius: 1.5,
+                py: 0.5
+              }}
+            />
+            <Chip 
+              label="Section 5" 
+              variant="outlined" 
+              size="medium" 
+              color="primary"
+              sx={{ 
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                borderRadius: 1.5,
+                py: 0.5
+              }}
+            />
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
   );
 }

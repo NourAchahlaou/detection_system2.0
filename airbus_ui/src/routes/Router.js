@@ -1,6 +1,5 @@
 import { lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import PrivateRoute from './PrivateRoute';
 
 const SignUp = lazy(()=> import( '../views/auth/sign-up/SignUp'));
 const Profile = lazy(()=> import( '../views/auth/profile-completion/Profile'));
