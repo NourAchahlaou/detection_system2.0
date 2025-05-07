@@ -1,8 +1,8 @@
-"""remove piece from activity table
+"""creat all tables 
 
-Revision ID: 6ded211aef85
-Revises: 4bfb9030f3cd
-Create Date: 2025-05-04 22:19:37.550660
+Revision ID: 40fb478811a3
+Revises: 
+Create Date: 2025-05-06 17:17:48.706048
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '6ded211aef85'
-down_revision: Union[str, None] = '4bfb9030f3cd'
+revision: str = '40fb478811a3'
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

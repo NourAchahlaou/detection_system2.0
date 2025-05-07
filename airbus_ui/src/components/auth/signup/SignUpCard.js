@@ -129,7 +129,7 @@ export default function SignUpCard() {
         const result = await response.json();
         console.log('User registered successfully:', result);
               // Redirect to profile completion
-        navigate('/complete-profile');
+        navigate('/auth/profile');
         // Handle successful registration (e.g., redirect to login page)
       } else {
         const errorResult = await response.json();

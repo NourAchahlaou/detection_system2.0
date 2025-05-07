@@ -1,8 +1,8 @@
-"""creat table
+"""creat all tables 
 
-Revision ID: 976a6d44bfec
-Revises: 6ded211aef85
-Create Date: 2025-05-05 20:42:14.069934
+Revision ID: 36787ea1183f
+Revises: 40fb478811a3
+Create Date: 2025-05-06 17:19:31.273233
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '976a6d44bfec'
-down_revision: Union[str, None] = '6ded211aef85'
+revision: str = '36787ea1183f'
+down_revision: Union[str, None] = '40fb478811a3'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -32,7 +32,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.Column('activation_code', sa.String(length=8), nullable=True),
     sa.Column('activation_code_expires_at', sa.DateTime(), nullable=True),
-    sa.Column('role', sa.Enum('TECHNICIAN', 'AUDITOR', name='roletype'), nullable=False),
+    sa.Column('role', sa.Enum('TECHNICIAN', 'ADMIN', 'AUDITOR', name='roletype'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_users')),
     sa.UniqueConstraint('airbus_id', name=op.f('uq_users_airbus_id'))
     )

@@ -4,6 +4,7 @@ import PrivateRoute from './PrivateRoute';
 
 const SignUp = lazy(()=> import( '../views/auth/sign-up/SignUp'));
 const Profile = lazy(()=> import( '../views/auth/profile-completion/Profile'));
+const UserProfile = lazy(()=> import( '../views/profile/Profile'));
 
 /* Layouts */
 const FullLayout = lazy(() => import('../layouts/full/FullLayout'));
@@ -25,9 +26,10 @@ const router = createBrowserRouter([
   {
     path: '/',
     element: (
-      <PrivateRoute>
-        <FullLayout />
-      </PrivateRoute>
+      <FullLayout />
+      // {/* <PrivateRoute>
+      //   <FullLayout />
+      // </PrivateRoute> */}
     ),
     children: [
       {
@@ -37,6 +39,10 @@ const router = createBrowserRouter([
       {
         path: 'captureImage',
         element: <CaptureImage />,
+      },
+      {
+        path: 'profile',
+        element: <UserProfile />,
       },
     ],
   },
