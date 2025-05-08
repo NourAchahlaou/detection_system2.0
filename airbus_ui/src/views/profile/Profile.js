@@ -78,24 +78,6 @@ export default function MainDashboard() {
               <Tab icon={<UserIcon fontSize="small" />} iconPosition="start" label="Profile" />
               <Tab icon={<CalendarIcon fontSize="small" />} iconPosition="start" label="Shift History" />
               <Tab icon={<CameraIcon fontSize="small" />} iconPosition="start" label="Activities" />
-              <Tab 
-                icon={
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <BellIcon fontSize="small" />
-                    <Chip
-                      label="3"
-                      color="error"
-                      size="small"
-                      sx={{ ml: 1, height: 20, fontSize: '0.75rem' }}
-                    />
-                  </Box>
-                } 
-                iconPosition="start" 
-                label="Alerts" 
-                sx={{ '& .MuiBadge-badge': { right: -3, top: 13 } }}
-              />
-              <Tab icon={<BarChartIcon fontSize="small" />} iconPosition="start" label="Performance" />
-              <Tab icon={<SettingsIcon fontSize="small" />} iconPosition="start" label="Settings" />
             </Tabs>
             
             {/* Profile Tab Panel */}
@@ -111,21 +93,6 @@ export default function MainDashboard() {
             {/* Activities Tab Panel */}
             <TabPanel value={activeTab} index={2}>
               <ActivitiesTab />
-            </TabPanel>
-            
-            {/* Alerts Tab Panel */}
-            <TabPanel value={activeTab} index={3}>
-              <AlertsTab />
-            </TabPanel>
-            
-            {/* Performance Tab Panel */}
-            <TabPanel value={activeTab} index={4}>
-              <PerformanceTab />
-            </TabPanel>
-            
-            {/* Settings Tab Panel */}
-            <TabPanel value={activeTab} index={5}>
-              <SettingsTab />
             </TabPanel>
           </Box>
         </Grid>

@@ -14,6 +14,8 @@ import {
   TableRow, 
   TablePagination,
   Chip,
+  Card,
+  CardContent,
   IconButton
 } from '@mui/material';
 import { 
@@ -25,16 +27,13 @@ export default function ActivitiesTab() {
   const activityData = [
     { time: "14:23", action: "Inspected", pieceRef: "D532.31953.010.10", lot: "L7841", camera: "Top", detection: "OK", confidence: "98%" },
     { time: "14:00", action: "Flagged", pieceRef: "D532.31953.012.10", lot: "L7842", camera: "Side", detection: "Wrong Lot", confidence: "95%" },
-    { time: "13:45", action: "Flagged", pieceRef: "D532.31954.010.10", lot: "L7841", camera: "Bottom", detection: "Defective", confidence: "89%" },
-    { time: "13:30", action: "Inspected", pieceRef: "D532.31953.011.10", lot: "L7841", camera: "Top", detection: "OK", confidence: "97%" },
-    { time: "13:15", action: "Inspected", pieceRef: "D532.31953.010.11", lot: "L7841", camera: "Side", detection: "OK", confidence: "96%" },
-    { time: "12:50", action: "Flagged", pieceRef: "D532.31955.010.10", lot: "L7843", camera: "Top", detection: "Missing Part", confidence: "93%" },
-    { time: "12:30", action: "Inspected", pieceRef: "D532.31953.013.10", lot: "L7841", camera: "Bottom", detection: "OK", confidence: "99%" },
+
   ];
 
   return (
-    <Box>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'grey.50' }}>
+    <Card variant="outlined" sx={{ width: '100%' }}>
+      <CardContent>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="subtitle1" fontWeight="medium">Activity Log</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -117,6 +116,7 @@ export default function ActivitiesTab() {
         onRowsPerPageChange={() => {}}
         rowsPerPageOptions={[7, 14, 21]}
       />
-    </Box>
+    </CardContent>
+    </Card>
   );
 }

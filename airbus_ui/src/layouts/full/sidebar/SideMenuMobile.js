@@ -21,8 +21,8 @@ function SideMenuMobile({ open, toggleDrawer }) {
         zIndex: (theme) => theme.zIndex.drawer + 1,
         [`& .${drawerClasses.paper}`]: {
           backgroundImage: 'none',
-          backgroundColor: 'background.paper',
-          width : 240
+          
+          width : 240,
         },
       }}
     >
@@ -54,15 +54,19 @@ function SideMenuMobile({ open, toggleDrawer }) {
       <Divider />
       <Box
         sx={{
-          overflow: 'auto',
+          overflowY: 'auto',
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
+          scrollbarWidth: 'none', // Firefox
+          '&::-webkit-scrollbar': {
+            display: 'none', // Chrome, Safari, Edge
+          },
         }}
       >
         <MenuContent />
-        
       </Box>
+
       <Stack
         direction="row"
         sx={{
