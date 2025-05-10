@@ -108,7 +108,8 @@ export default function SideCard() {
         {/* User Info Section */}
         <Box sx={{ width: '100%' }}>
           <Stack spacing={2} sx={{ fontSize: '0.875rem' }}>
-            <Box sx={{ 
+          {/* TODO : i'll go back to it later  */}
+            {/* <Box sx={{ 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'space-between',
@@ -119,7 +120,7 @@ export default function SideCard() {
                 <Typography variant="body2" color="text.secondary" fontWeight={500}>Working Hours</Typography>
               </Box>
               <Typography variant="body2" fontWeight={600} sx={{ color: 'text.primary' }}>07h 45min</Typography>
-            </Box>
+            </Box> */}
             
             <Box sx={{ 
               display: 'flex', 

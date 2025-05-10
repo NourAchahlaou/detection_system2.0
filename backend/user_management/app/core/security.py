@@ -8,7 +8,8 @@ from sqlalchemy.orm import joinedload, Session
 from datetime import datetime, timedelta
 from user_management.app.db.session import get_session
 from user_management.app.core.settings import get_settings
-from user_management.app.db.models.user import UserToken
+from user_management.app.db.models.user import UserToken, User
+
 
 SPECIAL_CHARACTERS = ['@', '#', '$', '%', '=', ':', '?', '.', '/', '|', '~', '>']
 
@@ -85,7 +86,6 @@ async def get_token_user(token: str, db):
 
 
 async def load_user(email: str, db):
-    from user.models.user import User
     try:
         user = db.query(User).filter(User.email == email).first()
     except Exception as user_exec:

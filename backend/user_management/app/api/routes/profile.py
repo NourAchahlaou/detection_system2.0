@@ -14,8 +14,14 @@ profile_router = APIRouter(
     responses={404: {"description": "Not found"}},
     dependencies=[Depends(get_current_user)]
 )
+guest_router = APIRouter(
+    prefix="/auth",
+    tags=["Auth"],
+    responses={404: {"description": "Not found"}},
+    dependencies=[Depends(get_current_user)]
+)
 
-@profile_router.get("/completion", status_code=status.HTTP_200_OK, response_model=ProfileCompletionResponse)
+@guest_router.get("/completion", status_code=status.HTTP_200_OK, response_model=ProfileCompletionResponse)
 async def get_profile_completion(
     current_user = Depends(get_current_user),
     session: Session = Depends(get_session)
@@ -37,7 +43,7 @@ async def update_profile(
     await profile.update_user_profile(current_user.id, data, session)
     return {"message": "Profile updated successfully"}
 
-@profile_router.get("/", status_code=status.HTTP_200_OK, response_model=ProfileResponse)
+@profile_router.get("/profile", status_code=status.HTTP_200_OK, response_model=ProfileResponse)
 async def get_user_profile(
     current_user = Depends(get_current_user),
     session: Session = Depends(get_session)

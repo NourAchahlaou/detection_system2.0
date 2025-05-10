@@ -11,7 +11,8 @@ from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from user_management.app.db.models.user import User, Shift
+from user_management.app.db.models.user import User
+from user_management.app.db.models.shift import Shift
 from user_management.app.db.models.roleType import RoleType
 from user_management.app.db.models.shiftDay import ShiftDay
 from user_management.app.db.schemas.profile import (

@@ -16,7 +16,7 @@ def generate_activation_code(length=6):
     return ''.join(random.choice(characters) for _ in range(length))
 
 # Fixed send_account_verification_email function
-async def send_account_verification_email(user, background_tasks, session=None):
+async def send_account_verification_email(user, background_tasks, session = None):
     # Generate a code instead of a token
     activation_code = generate_activation_code()
     

@@ -36,24 +36,23 @@ async def create_user_account(data, session, background_tasks):
     session.refresh(user)
 
     # Account Verification Email
-    await send_account_verification_email(user, background_tasks=background_tasks)
+    await send_account_verification_email(user, background_tasks=background_tasks,session=session)
     return user
 
     
     
 async def activate_user_account(data, session, background_tasks):
     user = session.query(User).filter(User.email == data.email).first()
+    
     if not user:
         raise HTTPException(status_code=400, detail="This link is not valid.")
     
-    user_token = user.get_context_string(context=USER_VERIFY_ACCOUNT)
-    try:
-        token_valid = verify_password(user_token, data.token)
-    except Exception as verify_exec:
-        logging.exception(verify_exec)
-        token_valid = False
-    if not token_valid:
-        raise HTTPException(status_code=400, detail="This link either expired or not valid.")
+    # Get the actual verification code stored for the user
+    stored_verification_code = user.activation_code  # Implement this method to retrieve the stored code
+    
+    # Direct comparison instead of password verification
+    if data.token != stored_verification_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
     
     user.is_active = True
     user.updated_at = datetime.utcnow()
@@ -61,18 +60,28 @@ async def activate_user_account(data, session, background_tasks):
     session.add(user)
     session.commit()
     session.refresh(user)
+    
     # Activation confirmation email
-    await send_account_activation_confirmation_email(user, background_tasks)
+    await send_account_verification_email(user, background_tasks=background_tasks,session=session)
     return user
 
+async def resend_verification_code(data, background_tasks, session):
+    user = session.query(User).filter(User.email == data.email).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.is_active:
+        raise HTTPException(status_code=400, detail="User is already verified")
+    
+    # Generate a new verification code and send email
+    await send_verification_email(user, background_tasks)
+    
+    return JSONResponse({"message": "Verification code has been sent to your email."})
 
 async def get_login_token(data, session):
-    # verify the email and password
-    # Verify that user account is verified
-    # Verify user account is active
-    # generate access_token and refresh_token and ttl
-    
-    user = await load_user(data.username, session)
+    # Updated to use data.email instead of data.username
+    user = await load_user(data.email, session)
     if not user:
         raise HTTPException(status_code=400, detail="Email is not registered with us.")
     
@@ -83,11 +92,10 @@ async def get_login_token(data, session):
         raise HTTPException(status_code=400, detail="Your account is not verified. Please check your email inbox to verify your account.")
     
     if not user.is_active:
-        raise HTTPException(status_code=400, detail="Your account has been dactivated. Please contact support.")
+        raise HTTPException(status_code=400, detail="Your account has been deactivated. Please contact support.")
         
     # Generate the JWT Token
     return _generate_tokens(user, session)
-
 
 async def get_refresh_token(refresh_token, session):
     token_payload = get_token_payload(refresh_token, settings.SECRET_KEY, settings.JWT_ALGORITHM)

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from user_management.app.db.session import get_session
 from user_management.app.responses.user import UserResponse, LoginResponse
-from user_management.app.db.schemas.user import RegisterUserRequest, ResetRequest, VerifyUserRequest, EmailRequest
+from user_management.app.db.schemas.user import LoginRequest, RegisterUserRequest, ResetRequest, VerifyUserRequest, EmailRequest
 from user_management.app.services import user
 from user_management.app.core.security import get_current_user, oauth2_scheme
 
@@ -39,8 +39,15 @@ async def verify_user_account(data: VerifyUserRequest, background_tasks: Backgro
     await user.activate_user_account(data, session, background_tasks)
     return JSONResponse({"message": "Account is activated successfully."})
 
+# @guest_router.post("/login", status_code=status.HTTP_200_OK, response_model=LoginResponse)
+# async def user_login(data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+#     return await user.get_login_token(data, session)
+@user_router.post("/resend-verification", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
+async def resend_verification_code(data: EmailRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    return await user.resend_verification_code(data, session, background_tasks)
+
 @guest_router.post("/login", status_code=status.HTTP_200_OK, response_model=LoginResponse)
-async def user_login(data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+async def user_login(data: LoginRequest , session: Session = Depends(get_session)):
     return await user.get_login_token(data, session)
 
 @guest_router.post("/refresh", status_code=status.HTTP_200_OK, response_model=LoginResponse)

@@ -135,7 +135,7 @@ const days = [
 ];
 
 // API base URL - replace with your actual API URL
-const API_BASE_URL = '/api';
+const API_BASE_URL = 'http://localhost:8001';
 
 function MyProfile() {
   // Form state
@@ -180,7 +180,7 @@ function MyProfile() {
   const fetchUserProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/profile/`);
+      const response = await axios.get(`${API_BASE_URL}/profile/profile`);
       const profileData = response.data;
       
       // Update form state with fetched data
