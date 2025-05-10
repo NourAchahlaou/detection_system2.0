@@ -65,19 +65,19 @@ async def activate_user_account(data, session, background_tasks):
     await send_account_verification_email(user, background_tasks=background_tasks,session=session)
     return user
 
-async def resend_verification_code(data, background_tasks, session):
-    user = session.query(User).filter(User.email == data.email).first()
+# async def resend_verification_code(data, background_tasks, session):
+#     user = session.query(User).filter(User.email == data.email).first()
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+#     if not user:
+#         raise HTTPException(status_code=404, detail="User not found")
     
-    if user.is_active:
-        raise HTTPException(status_code=400, detail="User is already verified")
+#     if user.is_active:
+#         raise HTTPException(status_code=400, detail="User is already verified")
     
-    # Generate a new verification code and send email
-    await send_verification_email(user, background_tasks)
+#     # Generate a new verification code and send email
+#     await send_verification_email(user, background_tasks)
     
-    return JSONResponse({"message": "Verification code has been sent to your email."})
+#     return JSONResponse({"message": "Verification code has been sent to your email."})
 
 async def get_login_token(data, session):
     # Updated to use data.email instead of data.username

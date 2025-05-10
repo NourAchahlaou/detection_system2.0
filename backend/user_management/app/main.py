@@ -13,6 +13,7 @@ def create_application():
     return application
 
 
+
 app = create_application()
 
 app.add_middleware(
@@ -22,6 +23,10 @@ app.add_middleware(
     allow_methods=["*"],  # or ["GET", "POST", "OPTIONS"]
     allow_headers=["*"],
 )
+
+
+
 @app.get("/")
 async def root():
     return {"message": "Hi, I am Describly. Awesome - Your setrup is done & working."}
+

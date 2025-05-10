@@ -1,11 +1,12 @@
 import logging
 from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
 import jwt
 from passlib.context import CryptContext
 import base64
 from sqlalchemy.orm import joinedload, Session
 from datetime import datetime, timedelta
+
+from user_management.app.core.customAuth import OAuth2EmailBearer
 from user_management.app.db.session import get_session
 from user_management.app.core.settings import get_settings
 from user_management.app.db.models.user import UserToken, User
@@ -16,7 +17,8 @@ SPECIAL_CHARACTERS = ['@', '#', '$', '%', '=', ':', '?', '.', '/', '|', '~', '>'
 settings = get_settings()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# Changed this to reference auth/login instead of users/login
+oauth2_scheme = OAuth2EmailBearer(tokenUrl="/auth/login")
 
 
 def hash_password(password):
@@ -70,18 +72,21 @@ def generate_token(payload: dict, secret: str, algo: str, expiry: timedelta):
 
 
 async def get_token_user(token: str, db):
-    payload = get_token_payload(token, settings.JWT_SECRET, settings.JWT_ALGORITHM)
-    if payload:
-        user_token_id = str_decode(payload.get('r'))
-        user_id = str_decode(payload.get('sub'))
-        access_key = payload.get('a')
-        user_token = db.query(UserToken).options(joinedload(UserToken.user)).filter(UserToken.access_key == access_key,
-                                                 UserToken.id == user_token_id,
-                                                 UserToken.user_id == user_id,
-                                                 UserToken.expires_at > datetime.utcnow()
-                                                 ).first()
-        if user_token:
-            return user_token.user
+    try:
+        payload = get_token_payload(token, settings.JWT_SECRET, settings.JWT_ALGORITHM)
+        if payload:
+            user_token_id = str_decode(payload.get('r'))
+            user_id = str_decode(payload.get('sub'))
+            access_key = payload.get('a')
+            user_token = db.query(UserToken).options(joinedload(UserToken.user)).filter(UserToken.access_key == access_key,
+                                                    UserToken.id == user_token_id,
+                                                    UserToken.user_id == user_id,
+                                                    UserToken.expires_at > datetime.utcnow()
+                                                    ).first()
+            if user_token:
+                return user_token.user
+    except Exception as e:
+        logging.error(f"Error getting token user: {str(e)}")
     return None
 
 
@@ -98,4 +103,4 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     user = await get_token_user(token=token, db=db)
     if user:
         return user
-    raise HTTPException(status_code=401, detail="Not authorised.")
+    raise HTTPException(status_code=401, detail="Not authorized.")
