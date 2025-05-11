@@ -1,16 +1,23 @@
 
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional
-
-# Import the ShiftDay enum directly from the models
+from typing import List, Optional, Union
 from user_management.app.db.models.shiftDay import ShiftDay
-
 
 class ShiftRequest(BaseModel):
     """Schema for shift request data"""
     start_time: str = Field(..., description="Shift start time in HH:MM format")
     end_time: str = Field(..., description="Shift end time in HH:MM format")
-    day_of_week: ShiftDay = Field(..., description="Day of week (ShiftDay enum)")
+    day_of_week: Union[ShiftDay, int] = Field(..., description="Day of week (ShiftDay enum or integer value)")
+    
+    @validator('day_of_week', pre=True)
+    def validate_day_of_week(cls, v):
+        """Convert integer to ShiftDay enum if needed"""
+        if isinstance(v, int):
+            try:
+                return ShiftDay(v)
+            except ValueError:
+                raise ValueError(f"Invalid day value: {v}. Must be between 0-6")
+        return v
     
     @validator('start_time', 'end_time')
     def validate_time_format(cls, v):
@@ -27,7 +34,6 @@ class ShiftRequest(BaseModel):
             raise ValueError("Time must be in valid HH:MM format")
         return v
 
-
 class ProfileUpdateRequest(BaseModel):
     """Schema for profile update request"""
     airbus_id: Optional[int] = Field(None, description="User's Airbus ID")
@@ -37,10 +43,14 @@ class ProfileUpdateRequest(BaseModel):
         description="List of user's regular shifts"
     )
     
-    @validator('airbus_id')
+    @validator('airbus_id', pre=True)
     def validate_airbus_id(cls, v):
-        """Validate airbus_id is a positive integer"""
-        if v is not None and v <= 0:
-            raise ValueError("Airbus ID must be a positive integer")
+        """Validate airbus_id is a positive integer and convert from string if needed"""
+        if v is not None:
+            # Convert to integer if it's a string
+            if isinstance(v, str) and v.isdigit():
+                v = int(v)
+            
+            if not isinstance(v, int) or v <= 0:
+                raise ValueError("Airbus ID must be a positive integer")
         return v
-

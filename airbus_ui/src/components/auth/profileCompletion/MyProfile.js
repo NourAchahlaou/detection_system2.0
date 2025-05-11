@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom'; // Import the useNavigate hook
 import api from '../../../utils/UseAxios';
 import {
   Box,
@@ -135,6 +136,9 @@ const days = [
 ];
 
 function MyProfile() {
+  // Initialize navigate function from React Router
+  const navigate = useNavigate();
+  
   // Form state
   const [airbusId, setAirbusId] = useState('');
   const [role, setRole] = useState('');
@@ -294,74 +298,91 @@ function MyProfile() {
     fetchUserProfile();
   }, [fetchUserProfile]);
 
-  const handleSaveProfile = async () => {
-    setSaving(true);
-    
-    try {
-      // Form validation - Check if required fields are filled
-      if (!airbusId) {
-        showNotification('Please enter your Airbus ID', 'error');
-        setSaving(false);
-        return;
-      }
-      
-      if (!role) {
-        showNotification('Please select your role', 'error');
-        setSaving(false);
-        return;
-      }
-      
-      if (mainShiftDays.length === 0 || !mainShift.start || !mainShift.end) {
-        showNotification('Please set your main shift schedule', 'error');
-        setSaving(false);
-        return;
-      }
-      
-      // Create shifts from main shift days
-      const shifts = mainShiftDays.map(dayValue => ({
-        day_of_week: dayValueToEnum[dayValue],  // Convert to enum string as expected by backend
-        start_time: mainShift.start,
-        end_time: mainShift.end
-      }));
-      
-      // Add special shifts if any
-      specialShifts.forEach(shift => {
-        if (shift.day !== '' && shift.start && shift.end) {
-          shifts.push({
-            day_of_week: dayValueToEnum[parseInt(shift.day)],  // Convert to enum string
-            start_time: shift.start,
-            end_time: shift.end
-          });
-        }
-      });
-      
-      // Prepare request data
-      const profileData = {
-        airbus_id: airbusId,
-        role: role,
-        main_shifts: shifts
-      };
-      
-      console.log("Sending profile data:", profileData);
-      
-      // Send update request
-      await api.put('/profile/update', profileData);
-      
-      // Update the initialCompletionData with our current live completion data
-      // This represents what the backend would have returned
-      setInitialCompletionData(liveCompletionData);
-      
-      showNotification('Profile updated successfully', 'success');
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      if (error.response?.data) {
-        console.error('Error details:', error.response.data);
-      }
-      showNotification(error.response?.data?.detail || 'Failed to update profile', 'error');
-    } finally {
+// Updated handleSaveProfile function with navigation to dashboard after successful update
+const handleSaveProfile = async () => {
+  setSaving(true);
+  
+  try {
+    // Form validation - Check if required fields are filled
+    if (!airbusId) {
+      showNotification('Please enter your Airbus ID', 'error');
       setSaving(false);
+      return;
     }
-  };
+    
+    if (!role) {
+      showNotification('Please select your role', 'error');
+      setSaving(false);
+      return;
+    }
+    
+    if (mainShiftDays.length === 0 || !mainShift.start || !mainShift.end) {
+      showNotification('Please set your main shift schedule', 'error');
+      setSaving(false);
+      return;
+    }
+    
+    // Create shifts from main shift days
+    const shifts = mainShiftDays.map(dayValue => ({
+      day_of_week: dayValueToEnum[dayValue],  
+      start_time: mainShift.start,
+      end_time: mainShift.end
+    }));
+    
+    // Add special shifts if any
+    specialShifts.forEach(shift => {
+      if (shift.day !== '' && shift.start && shift.end) {
+        shifts.push({
+          day_of_week: dayValueToEnum[shift.day], 
+          start_time: shift.start,
+          end_time: shift.end
+        });
+      }
+    });
+    
+    // Prepare request data with proper type conversions
+    const profileData = {
+      airbus_id: parseInt(airbusId, 10),  // Convert string to integer
+      role: role,
+      main_shifts: shifts
+    };
+    
+    console.log("Sending profile data:", profileData);
+    
+    // Send update request
+    await api.put('/profile/update', profileData);
+    
+    // Update the initialCompletionData with our current live completion data
+    setInitialCompletionData(liveCompletionData);
+    
+    showNotification('Profile updated successfully', 'success');
+    
+    // After successful update, navigate to dashboard after a brief delay
+    // This delay allows the user to see the success notification before redirection
+    
+    navigate('/dashboard');
+    
+    
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    if (error.response?.data) {
+      console.error('Error details:', error.response.data);
+    }
+    
+    let errorMessage = 'Failed to update profile';
+    
+    // Safely extract error message
+    if (error.response?.data?.detail) {
+      errorMessage = typeof error.response.data.detail === 'string' ? 
+        error.response.data.detail : 
+        'Failed to update profile';
+    }
+    
+    showNotification(errorMessage, 'error');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const handleAddSpecialShift = () => {
     setSpecialShifts([
@@ -401,7 +422,7 @@ function MyProfile() {
   const handleCloseNotification = () => {
     setNotification({
       ...notification,
-      open: false
+      open: false 
     });
   };
 
