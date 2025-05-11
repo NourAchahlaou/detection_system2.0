@@ -1,11 +1,12 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8001', // Updated to match FastAPI backend
+  baseURL: 'http://localhost:8001',
 });
 
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('access_token');
+  // Update this line to match your actual storage key
+  const token = localStorage.getItem('accessToken'); // Changed from access_token to accessToken
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -17,15 +18,15 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
-      localStorage.getItem('refresh_token')
+      localStorage.getItem('refreshToken') 
     ) {
       originalRequest._retry = true;
       try {
         const res = await axios.post('http://localhost:8001/auth/refresh', {
-          refresh_token: localStorage.getItem('refresh_token'),
+          refresh_token: localStorage.getItem('refreshToken'),
         });
         const { access_token } = res.data;
-        localStorage.setItem('access_token', access_token);
+        localStorage.setItem('accessToken', access_token); 
         api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
         return api(originalRequest);
       } catch (err) {

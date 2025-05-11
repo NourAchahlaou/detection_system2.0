@@ -1,5 +1,5 @@
-import React, { useState, useEffect,useCallback } from 'react';
-import axios from 'axios'; // Make sure to install axios: npm install axios
+import React, { useState, useEffect, useCallback } from 'react';
+import api from '../../../utils/UseAxios';
 import {
   Box,
   Button,
@@ -134,9 +134,6 @@ const days = [
   { label: 'Sunday', value: 6 },
 ];
 
-// API base URL - replace with your actual API URL
-const API_BASE_URL = 'http://localhost:8001';
-
 function MyProfile() {
   // Form state
   const [airbusId, setAirbusId] = useState('');
@@ -148,7 +145,7 @@ function MyProfile() {
   // API related state
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [completionData, setCompletionData] = useState({
+  const [initialCompletionData, setInitialCompletionData] = useState({
     completion_percentage: 0,
     completion_status: {
       personal_info: {
@@ -162,25 +159,96 @@ function MyProfile() {
     },
     missing_fields: []
   });
+  
+  // Live completion status (updated in real-time)
+  const [liveCompletionData, setLiveCompletionData] = useState({
+    completion_percentage: 0,
+    completion_status: {
+      personal_info: {
+        airbus_id: false,
+        role: false
+      },
+      main_shift: {
+        shifts: false,
+        has_weekday_coverage: false
+      }
+    },
+    missing_fields: []
+  });
+  
   const [notification, setNotification] = useState({
     open: false,
     message: '',
     severity: 'info'
   });
 
-    // Function to show notifications
+  // Function to show notifications
   const showNotification = useCallback((message, severity) => {
-      setNotification({
-        open: true,
-        message,
-        severity
-      });
-    }, []);
+    setNotification({
+      open: true,
+      message,
+      severity
+    });
+  }, []);
+  
+  // Function to update live completion status based on current form state
+  const updateLiveCompletionStatus = useCallback(() => {
+    // Create a copy of the current completion data
+    const updatedCompletionData = { 
+      ...liveCompletionData,
+      completion_status: {
+        personal_info: {
+          airbus_id: Boolean(airbusId.trim()),
+          role: Boolean(role)
+        },
+        main_shift: {
+          shifts: mainShiftDays.length > 0 && mainShift.start && mainShift.end,
+          // Check if there's at least one weekday (Monday-Friday) in mainShiftDays
+          has_weekday_coverage: mainShiftDays.some(day => day >= 0 && day <= 4)
+        }
+      }
+    };
+    
+    // Calculate missing fields
+    const missingFields = [];
+    
+    if (!updatedCompletionData.completion_status.personal_info.airbus_id) {
+      missingFields.push('Airbus ID');
+    }
+    
+    if (!updatedCompletionData.completion_status.personal_info.role) {
+      missingFields.push('Role');
+    }
+    
+    if (!updatedCompletionData.completion_status.main_shift.shifts) {
+      missingFields.push('Work Schedule');
+    }
+    
+    if (!updatedCompletionData.completion_status.main_shift.has_weekday_coverage) {
+      missingFields.push('Weekday Work Schedule');
+    }
+    
+    updatedCompletionData.missing_fields = missingFields;
+    
+    // Calculate completion percentage (4 items to complete)
+    const completedItems = Object.values(updatedCompletionData.completion_status.personal_info).filter(Boolean).length + 
+                           Object.values(updatedCompletionData.completion_status.main_shift).filter(Boolean).length;
+    
+    updatedCompletionData.completion_percentage = (completedItems / 4) * 100;
+    
+    setLiveCompletionData(updatedCompletionData);
+    
+  }, [airbusId, role, mainShiftDays, mainShift, liveCompletionData]);
+  
+  // Effect to update live completion status whenever form fields change
+  useEffect(() => {
+    updateLiveCompletionStatus();
+  }, [airbusId, role, mainShiftDays, mainShift, updateLiveCompletionStatus]);
   
   const fetchUserProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/profile/profile`);
+      const response = await api.get('/profile/profile');
       const profileData = response.data;
       
       // Update form state with fetched data
@@ -200,20 +268,19 @@ function MyProfile() {
         setMainShiftDays(uniqueDays);
         
         // Set main shift times using the first shift as reference
-        // This is a simplification - you might need more complex logic
         if (profileData.shifts[0]) {
           setMainShift({
             start: profileData.shifts[0].start_time,
             end: profileData.shifts[0].end_time
           });
         }
-        
-        // For now, special shifts are not handled in this example
-        // You would need logic to differentiate between main and special shifts
       }
       
-      // Update completion data
-      setCompletionData(profileData.completion);
+      // Store initial completion data from the backend
+      if (profileData.completion) {
+        setInitialCompletionData(profileData.completion);
+        setLiveCompletionData(profileData.completion); // Initialize live data with backend data
+      }
       
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -221,20 +288,38 @@ function MyProfile() {
     } finally {
       setLoading(false);
     }
-  }, [showNotification]); // Add showNotification as dependency
+  }, [showNotification]); 
 
-  // Fetch user profile data on component mount
   useEffect(() => {
     fetchUserProfile();
-  }, [fetchUserProfile]); // Add fetchUserProfile to the dependency array
+  }, [fetchUserProfile]);
 
   const handleSaveProfile = async () => {
     setSaving(true);
     
     try {
-      // Prepare shifts data
+      // Form validation - Check if required fields are filled
+      if (!airbusId) {
+        showNotification('Please enter your Airbus ID', 'error');
+        setSaving(false);
+        return;
+      }
+      
+      if (!role) {
+        showNotification('Please select your role', 'error');
+        setSaving(false);
+        return;
+      }
+      
+      if (mainShiftDays.length === 0 || !mainShift.start || !mainShift.end) {
+        showNotification('Please set your main shift schedule', 'error');
+        setSaving(false);
+        return;
+      }
+      
+      // Create shifts from main shift days
       const shifts = mainShiftDays.map(dayValue => ({
-        day_of_week: dayValueToEnum[dayValue],
+        day_of_week: dayValueToEnum[dayValue],  // Convert to enum string as expected by backend
         start_time: mainShift.start,
         end_time: mainShift.end
       }));
@@ -243,7 +328,7 @@ function MyProfile() {
       specialShifts.forEach(shift => {
         if (shift.day !== '' && shift.start && shift.end) {
           shifts.push({
-            day_of_week: dayValueToEnum[shift.day],
+            day_of_week: dayValueToEnum[parseInt(shift.day)],  // Convert to enum string
             start_time: shift.start,
             end_time: shift.end
           });
@@ -257,16 +342,22 @@ function MyProfile() {
         main_shifts: shifts
       };
       
-      // Send update request
-      await axios.put(`${API_BASE_URL}/profile/update`, profileData);
+      console.log("Sending profile data:", profileData);
       
-      // Fetch updated profile data including completion status
-      await fetchUserProfile();
+      // Send update request
+      await api.put('/profile/update', profileData);
+      
+      // Update the initialCompletionData with our current live completion data
+      // This represents what the backend would have returned
+      setInitialCompletionData(liveCompletionData);
       
       showNotification('Profile updated successfully', 'success');
     } catch (error) {
       console.error('Error updating profile:', error);
-      showNotification('Failed to update profile', 'error');
+      if (error.response?.data) {
+        console.error('Error details:', error.response.data);
+      }
+      showNotification(error.response?.data?.detail || 'Failed to update profile', 'error');
     } finally {
       setSaving(false);
     }
@@ -307,8 +398,6 @@ function MyProfile() {
     });
   };
   
-
-
   const handleCloseNotification = () => {
     setNotification({
       ...notification,
@@ -378,8 +467,8 @@ function MyProfile() {
                           value={airbusId}
                           onChange={(e) => setAirbusId(e.target.value)}
                           variant="outlined"
-                          error={completionData.missing_fields.includes('Airbus ID')}
-                          helperText={completionData.missing_fields.includes('Airbus ID') ? 'Required field' : ''}
+                          error={liveCompletionData.missing_fields.includes('Airbus ID')}
+                          helperText={liveCompletionData.missing_fields.includes('Airbus ID') ? 'Required field' : ''}
                         />
                       </FormControl>
                     </Grid>
@@ -392,14 +481,14 @@ function MyProfile() {
                           onChange={(e) => setRole(e.target.value)}
                           displayEmpty
                           placeholder="Select your role"
-                          error={completionData.missing_fields.includes('Role')}
+                          error={liveCompletionData.missing_fields.includes('Role')}
                         >
                           <MenuItem value="" disabled>Select your role</MenuItem>
                           <MenuItem value="OBSERVER">Observer</MenuItem>
                           <MenuItem value="TECHNICIAN">Technician</MenuItem>
                           <MenuItem value="ADMIN">Admin</MenuItem>
                         </Select>
-                        {completionData.missing_fields.includes('Role') && (
+                        {liveCompletionData.missing_fields.includes('Role') && (
                           <Typography variant="caption" color="error">Required field</Typography>
                         )}
                       </FormControl>
@@ -436,8 +525,8 @@ function MyProfile() {
                               },
                             },
                           }}
-                          error={completionData.missing_fields.includes('Work Schedule') || 
-                                completionData.missing_fields.includes('Weekday Work Schedule')}
+                          error={liveCompletionData.missing_fields.includes('Work Schedule') || 
+                                liveCompletionData.missing_fields.includes('Weekday Work Schedule')}
                         >
                           {days.map((day) => (
                             <MenuItem key={day.value} value={day.value}>
@@ -445,7 +534,7 @@ function MyProfile() {
                             </MenuItem>
                           ))}
                         </Select>
-                        {completionData.missing_fields.includes('Weekday Work Schedule') && (
+                        {liveCompletionData.missing_fields.includes('Weekday Work Schedule') && (
                           <Typography variant="caption" color="error">At least one weekday is required</Typography>
                         )}
                       </FormControl>
@@ -460,7 +549,7 @@ function MyProfile() {
                           onChange={(e) => setMainShift({ ...mainShift, start: e.target.value })}
                           fullWidth
                           InputLabelProps={{ shrink: true }}
-                          error={completionData.missing_fields.includes('Work Schedule')}
+                          error={liveCompletionData.missing_fields.includes('Work Schedule')}
                         />
                       </FormControl>
                     </Grid>
@@ -474,7 +563,7 @@ function MyProfile() {
                           onChange={(e) => setMainShift({ ...mainShift, end: e.target.value })}
                           fullWidth
                           InputLabelProps={{ shrink: true }}
-                          error={completionData.missing_fields.includes('Work Schedule')}
+                          error={liveCompletionData.missing_fields.includes('Work Schedule')}
                         />
                       </FormControl>
                     </Grid>
@@ -614,17 +703,13 @@ function MyProfile() {
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
               <CircularProgressWithLabel 
-                value={completionData.completion_percentage} 
+                value={liveCompletionData.completion_percentage} 
               />
             </Box>
             <Typography variant="h6" sx={{ mb: 2, fontWeight: 500, textAlign: 'center' }}>
               Profile Completion
             </Typography>
             <Card sx={(theme) => ({
-              flex: 1,
-              height: 'fit-content',
-              position: { md: 'sticky' },
-              top: { md: '2rem' },
               p: 2,
               ...theme.applyStyles('dark', {
                 backgroundColor: 'hsla(220, 35%, 3%, 0.4)',
@@ -635,64 +720,64 @@ function MyProfile() {
               <List sx={{ py: 0 }}>
                 <ListItem sx={{ px: 0 }}>
                   <ListItemIcon sx={{ minWidth: 36 }}>
-                    {completionData.completion_status.personal_info.airbus_id ? 
+                    {liveCompletionData.completion_status?.personal_info?.airbus_id ? 
                       <CheckCircle color="success" fontSize="small" /> : 
                       <PendingOutlined color="action" fontSize="small" />
                     }
                   </ListItemIcon>
                   <ListItemText 
                     primary="Airbus ID" 
-                    secondary={completionData.completion_status.personal_info.airbus_id ? "Completed" : "Pending"}
+                    secondary={liveCompletionData.completion_status?.personal_info?.airbus_id ? "Completed" : "Pending"}
                     secondaryTypographyProps={{ 
-                      color: completionData.completion_status.personal_info.airbus_id ? "success.main" : "text.secondary" 
+                      color: liveCompletionData.completion_status?.personal_info?.airbus_id ? "success.main" : "text.secondary" 
                     }}
                   />
                 </ListItem>
                 
                 <ListItem sx={{ px: 0 }}>
                   <ListItemIcon sx={{ minWidth: 36 }}>
-                    {completionData.completion_status.personal_info.role ? 
+                    {liveCompletionData.completion_status?.personal_info?.role ? 
                       <CheckCircle color="success" fontSize="small" /> : 
                       <PendingOutlined color="action" fontSize="small" />
                     }
                   </ListItemIcon>
                   <ListItemText 
                     primary="Role Selection" 
-                    secondary={completionData.completion_status.personal_info.role ? "Completed" : "Pending"}
+                    secondary={liveCompletionData.completion_status?.personal_info?.role ? "Completed" : "Pending"}
                     secondaryTypographyProps={{ 
-                      color: completionData.completion_status.personal_info.role ? "success.main" : "text.secondary" 
+                      color: liveCompletionData.completion_status?.personal_info?.role ? "success.main" : "text.secondary" 
                     }}
                   />
                 </ListItem>
                 
                 <ListItem sx={{ px: 0 }}>
                   <ListItemIcon sx={{ minWidth: 36 }}>
-                    {completionData.completion_status.main_shift.shifts ? 
+                    {liveCompletionData.completion_status?.main_shift?.shifts ? 
                       <CheckCircle color="success" fontSize="small" /> : 
                       <PendingOutlined color="action" fontSize="small" />
                     }
                   </ListItemIcon>
                   <ListItemText 
                     primary="Working Days & Hours" 
-                    secondary={completionData.completion_status.main_shift.shifts ? "Completed" : "Pending"}
+                    secondary={liveCompletionData.completion_status?.main_shift?.shifts ? "Completed" : "Pending"}
                     secondaryTypographyProps={{ 
-                      color: completionData.completion_status.main_shift.shifts ? "success.main" : "text.secondary" 
+                      color: liveCompletionData.completion_status?.main_shift?.shifts ? "success.main" : "text.secondary" 
                     }}
                   />
                 </ListItem>
                 
                 <ListItem sx={{ px: 0 }}>
                   <ListItemIcon sx={{ minWidth: 36 }}>
-                    {completionData.completion_status.main_shift.has_weekday_coverage ? 
+                    {liveCompletionData.completion_status?.main_shift?.has_weekday_coverage ? 
                       <CheckCircle color="success" fontSize="small" /> : 
                       <PendingOutlined color="action" fontSize="small" />
                     }
                   </ListItemIcon>
                   <ListItemText 
                     primary="Weekday Coverage" 
-                    secondary={completionData.completion_status.main_shift.has_weekday_coverage ? "Completed" : "Pending"}
+                    secondary={liveCompletionData.completion_status?.main_shift?.has_weekday_coverage ? "Completed" : "Pending"}
                     secondaryTypographyProps={{ 
-                      color: completionData.completion_status.main_shift.has_weekday_coverage ? "success.main" : "text.secondary" 
+                      color: liveCompletionData.completion_status?.main_shift?.has_weekday_coverage ? "success.main" : "text.secondary" 
                     }}
                   />
                 </ListItem>
@@ -711,11 +796,11 @@ function MyProfile() {
               
               <Divider sx={{ my: 2 }} />
               
-              {completionData.missing_fields.length > 0 && (
+              {liveCompletionData.missing_fields && liveCompletionData.missing_fields.length > 0 && (
                 <>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Missing Fields:</Typography>
                   <List dense>
-                    {completionData.missing_fields.map((field, index) => (
+                    {liveCompletionData.missing_fields.map((field, index) => (
                       <ListItem key={index} sx={{ py: 0.5 }}>
                         <Typography variant="body2" color="error">• {field}</Typography>
                       </ListItem>
@@ -747,4 +832,4 @@ function MyProfile() {
   );
 }
 
-export default MyProfile;
+export default MyProfile; 

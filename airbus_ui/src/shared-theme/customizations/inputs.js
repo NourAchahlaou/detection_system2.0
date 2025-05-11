@@ -381,6 +381,15 @@ export const inputsCustomizations = {
         padding: 0,
       },
       root: ({ theme }) => ({
+        // ——————————————————————————————
+        // Add autofill override here:
+        '& input:-webkit-autofill': {
+          WebkitBoxShadow: '0 0 0 1000px transparent inset !important',
+          WebkitTextFillColor: 'inherit !important',
+          transition: 'background-color 5000s ease-in-out 0s',
+        },
+        // ——————————————————————————————
+
         padding: '8px 12px',
         color: (theme.vars || theme).palette.text.primary,
         borderRadius: (theme.vars || theme).shape.borderRadius,
@@ -400,22 +409,8 @@ export const inputsCustomizations = {
           },
         }),
         variants: [
-          {
-            props: {
-              size: 'small',
-            },
-            style: {
-              height: '2.25rem',
-            },
-          },
-          {
-            props: {
-              size: 'medium',
-            },
-            style: {
-              height: '2.5rem',
-            },
-          },
+          { props: { size: 'small' }, style: { height: '2.25rem' } },
+          { props: { size: 'medium' }, style: { height: '2.5rem' } },
         ],
       }),
       notchedOutline: {

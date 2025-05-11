@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import MuiCard from '@mui/material/Card';
@@ -10,6 +11,8 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Link from '@mui/material/Link';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
 import { styled } from '@mui/material/styles';
 import ForgotPassword from './ForgotPassword';
 import { GoogleIcon } from '../CustomIcons';
@@ -34,11 +37,18 @@ const Card = styled(MuiCard)(({ theme }) => ({
 }));
 
 export default function SignInCard() {
+  const navigate = useNavigate();
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState('');
   const [passwordError, setPasswordError] = React.useState(false);
   const [passwordErrorMessage, setPasswordErrorMessage] = React.useState('');
   const [open, setOpen] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [snackbar, setSnackbar] = React.useState({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
 
   const handleClickOpen = () => {
     setOpen(true);
@@ -48,18 +58,11 @@ export default function SignInCard() {
     setOpen(false);
   };
 
-  const handleSubmit = (event) => {
-    if (emailError || passwordError) {
-      event.preventDefault();
-      return;
-    }
-    const data = new FormData(event.currentTarget);
-    console.log({
-      email: data.get('email'),
-      password: data.get('password'),
-    });
+  const handleCloseSnackbar = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
   };
-  const SPECIAL_CHARACTERS = /[!@#$%^&*(),.?":{}|<>]/;
+  
+  
   const validateInputs = () => {
     const email = document.getElementById('email');
     const password = document.getElementById('password');
@@ -75,25 +78,9 @@ export default function SignInCard() {
       setEmailErrorMessage('');
     }
 
-    if (password.value.length < 8) {
+    if (!password.value) {
       setPasswordError(true);
-      setPasswordErrorMessage('Password must be at least 8 characters long.');
-      isValid = false;
-    } else if (!/[A-Z]/.test(password.value)) {
-      setPasswordError(true);
-      setPasswordErrorMessage('Password must contain at least one uppercase letter.');
-      isValid = false;
-    } else if (!/[a-z]/.test(password.value)) {
-      setPasswordError(true);
-      setPasswordErrorMessage('Password must contain at least one lowercase letter.');
-      isValid = false;
-    } else if (!/\d/.test(password.value)) {
-      setPasswordError(true);
-      setPasswordErrorMessage('Password must contain at least one number.');
-      isValid = false;
-    } else if (!SPECIAL_CHARACTERS.test(password.value)) {
-      setPasswordError(true);
-      setPasswordErrorMessage('Password must contain at least one special character.');
+      setPasswordErrorMessage('Password is required.');
       isValid = false;
     } else {
       setPasswordError(false);
@@ -103,9 +90,128 @@ export default function SignInCard() {
     return isValid;
   };
 
+  // New function to check profile completion status
+  const checkProfileCompletion = async (accessToken) => {
+    try {
+      const response = await fetch('http://localhost:8001/auth/completion', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const completionData = await response.json();
+        console.log('Profile completion data:', completionData);
+        
+        // Check if profile is complete (100%)
+        if (completionData.completion_percentage === 100) {
+          // Profile is complete, navigate to dashboard
+          navigate('/dashboard');
+        } else {
+          // Profile is incomplete, navigate to profile completion page
+          setSnackbar({
+            open: true,
+            message: 'Please complete your profile before continuing.',
+            severity: 'info'
+          });
+          
+          // Navigate to profile page with missing fields info
+          navigate('/auth/profile', { 
+            state: { 
+              missingFields: completionData.missing_fields,
+              completionPercentage: completionData.completion_percentage
+            } 
+          });
+        }
+      } else {
+        // If there's an error fetching completion data, redirect to profile page by default
+        console.error('Error fetching profile completion data');
+        navigate('/auth/profile');
+      }
+    } catch (error) {
+      console.error('Error checking profile completion:', error);
+      navigate('/auth/profile');
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    
+    // Validate form inputs
+    if (!validateInputs()) {
+      return;
+    }
+
+    setIsLoading(true);
+    const formData = new FormData(event.currentTarget);
+    
+    try {
+      // Create FormData object for FastAPI's Form dependencies
+      const formDataForApi = new URLSearchParams();
+      formDataForApi.append('email', formData.get('email'));
+      formDataForApi.append('password', formData.get('password'));
+      
+      const response = await fetch('http://localhost:8001/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formDataForApi,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Login successful:', result);
+        
+        // Store tokens in localStorage
+        localStorage.setItem('accessToken', result.access_token);
+        localStorage.setItem('refreshToken', result.refresh_token);
+        
+        setSnackbar({
+          open: true,
+          message: 'Login successful!',
+          severity: 'success'
+        });
+        
+        // Check profile completion before redirecting
+        await checkProfileCompletion(result.access_token);
+        
+      } else {
+        const errorResult = await response.json();
+        console.error('Login failed:', errorResult);
+        
+        // Check if account is not verified
+        if (errorResult.detail && errorResult.detail.includes('not verified')) {
+          setSnackbar({
+            open: true,
+            message: 'Your account is not verified. Please check your email for verification instructions.',
+            severity: 'warning'
+          });
+        } else {
+          setSnackbar({
+            open: true,
+            message: `Login failed: ${errorResult.detail || 'Invalid credentials'}`,
+            severity: 'error'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      setSnackbar({
+        open: true,
+        message: 'An error occurred. Please try again later.',
+        severity: 'error'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <Card variant="outlined">
-      <Box sx={{ display: {xs :'flex',md :'none'},color: '#00205B', marginBottom: -9 , marginTop:-10}}> {/* Optional: Add marginBottom for closer content */}
+      <Box sx={{ display: { xs: 'none', md: 'flex' }, color: '#00205B', marginBottom: -9, marginTop: -10, flexDirection: 'column', alignSelf: 'center' }}>
         <AirVisionLogo width={150} height={200} />
       </Box>
       <Typography
@@ -136,7 +242,6 @@ export default function SignInCard() {
             fullWidth
             variant="outlined"
             color={emailError ? 'error' : 'transparent'}
-
           />
         </FormControl>
         <FormControl>
@@ -160,7 +265,6 @@ export default function SignInCard() {
             type="password"
             id="password"
             autoComplete="current-password"
-            autoFocus
             required
             fullWidth
             variant="outlined"
@@ -172,20 +276,19 @@ export default function SignInCard() {
           label="Remember me"
         />
         <ForgotPassword open={open} handleClose={handleClose} />
-        <Button type="submit" fullWidth variant="contained" onClick={validateInputs}>
-          Sign in
+        <Button 
+          type="submit" 
+          fullWidth 
+          variant="contained"
+          disabled={isLoading}
+        >
+          {isLoading ? 'Please wait...' : 'Sign in'}
         </Button>
         <Typography sx={{ textAlign: 'center' }}>
           Don&apos;t have an account?{' '}
-          <span>
-            <Link
-              href="/material-ui/getting-started/templates/sign-in/"
-              variant="body2"
-              sx={{ alignSelf: 'center' }}
-            >
-              Sign up
-            </Link>
-          </span>
+          <Link href="/auth/signup" variant="body2">
+            Sign up
+          </Link>
         </Typography>
       </Box>
       <Divider>or</Divider>
@@ -195,11 +298,27 @@ export default function SignInCard() {
           variant="outlined"
           onClick={() => alert('Sign in with Google')}
           startIcon={<GoogleIcon />}
+          disabled={isLoading}
         >
           Sign in with Google
         </Button>
- 
       </Box>
+      
+      {/* Snackbar for notifications */}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleCloseSnackbar} 
+          severity={snackbar.severity} 
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Card>
   );
 }
