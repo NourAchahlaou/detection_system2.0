@@ -356,10 +356,7 @@ const handleSaveProfile = async () => {
     setInitialCompletionData(liveCompletionData);
     
     showNotification('Profile updated successfully', 'success');
-    
-    // After successful update, navigate to dashboard after a brief delay
-    // This delay allows the user to see the success notification before redirection
-    
+     
     navigate('/dashboard');
     
     

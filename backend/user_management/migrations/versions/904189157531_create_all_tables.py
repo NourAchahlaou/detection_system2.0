@@ -1,8 +1,8 @@
-"""creat all tables 
+"""create all tables
 
-Revision ID: 36787ea1183f
-Revises: 40fb478811a3
-Create Date: 2025-05-06 17:19:31.273233
+Revision ID: 904189157531
+Revises: 
+Create Date: 2025-05-11 21:20:06.686917
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '36787ea1183f'
-down_revision: Union[str, None] = '40fb478811a3'
+revision: str = '904189157531'
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -51,7 +51,7 @@ def upgrade() -> None:
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('start_time', sa.Time(), nullable=False),
     sa.Column('end_time', sa.Time(), nullable=False),
-    sa.Column('day_of_week', sa.Integer(), nullable=False),
+    sa.Column('day_of_week', sa.Enum('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', name='shiftday'), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_shifts_user_id_users')),
