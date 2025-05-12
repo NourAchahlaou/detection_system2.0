@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from user_management.app.api.routes import user, profile
 from fastapi.middleware.cors import CORSMiddleware
 
 def create_application():
