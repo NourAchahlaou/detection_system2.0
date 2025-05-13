@@ -11,6 +11,6 @@ class Piece(Base):
     is_annotated = Column(Boolean,default=False)
     is_yolo_trained = Column(Boolean,default=False)
     nbre_img= Column(Integer,default = Null)
-    # Define the one-to-many relationship with Piece_image
+
     piece_img = relationship("PieceImage", back_populates="piece", cascade="all, delete-orphan")
     
