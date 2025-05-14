@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from piece_registry.app.api.route import camera
 
 def create_application():
     application = FastAPI()
+    application.include_router(camera.camera_router)
+
     return application
 
 

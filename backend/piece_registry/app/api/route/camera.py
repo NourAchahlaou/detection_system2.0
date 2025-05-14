@@ -22,13 +22,18 @@ from piece_registry.app.db.schemas.camera import (
     CameraListItem
 )
 
-router = APIRouter()
+camera_router = APIRouter(
+    prefix="/camera",
+    tags=["Camera"],
+    responses={404: {"description": "Not found"}},
+)
+
 db_dependency = Annotated[Session, Depends(get_session)]
 
 frame_source = FrameSource()
 
 
-@router.get("/get-index", response_model=CameraIndexResponse)
+@camera_router.get("/get-index", response_model=CameraIndexResponse)
 def get_camera_index(camera_id: int, db: db_dependency):
     camera_index = frame_source.get_camera_by_index(camera_id, db)
     if camera_index is None:
@@ -36,7 +41,7 @@ def get_camera_index(camera_id: int, db: db_dependency):
     return {"camera_index": camera_index}
 
 
-@router.get("/cameras/", response_model=List[tuple])
+@camera_router.get("/cameras/", response_model=List[tuple])
 def read_cameras(db: db_dependency):
     cameras = frame_source.get_camera_model_and_ids(db)
     if not cameras:
@@ -44,18 +49,18 @@ def read_cameras(db: db_dependency):
     return cameras
 
 
-@router.post("/start-camera", response_model=CameraStartResponse)
+@camera_router.post("/start-camera", response_model=CameraStartResponse)
 def start_camera(camera: CameraID, db: db_dependency):
     frame_source.start(camera.camera_id, db)
     return {"message": "Camera started"}
 
 
-@router.get("/video_feed")
+@camera_router.get("/video_feed")
 def video_feed():
     return StreamingResponse(frame_source.generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
-@router.get("/camera_info/{camera_id}", response_model=CameraWithSettingsResponse)
+@camera_router.get("/camera_info/{camera_id}", response_model=CameraWithSettingsResponse)
 def get_camera_info(
     camera_id: int = Path(..., title="The ID of the camera to get"),
     db: db_dependency = Depends()
@@ -63,7 +68,7 @@ def get_camera_info(
     return CameraManager.get_camera(camera_id, db)
 
 
-@router.put("/{camera_id}", response_model=Camera)
+@camera_router.put("/{camera_id}", response_model=Camera)
 async def change_camera_settings(
     camera_id: int = Path(..., title="The ID of the camera to update settings for"),
     camera_settings_update: UpdateCameraSettings = None,
@@ -72,7 +77,7 @@ async def change_camera_settings(
     return CameraManager.change_camera_settings(camera_id, camera_settings_update, db)
 
 
-@router.get("/capture_images/{piece_label}")
+@camera_router.get("/capture_images/{piece_label}")
 async def capture_images(
     piece_label: str = Path(..., title="The label of the piece to capture images for")
 ):
@@ -103,13 +108,13 @@ async def capture_images(
     return Response(content=buffer.tobytes(), media_type="image/jpeg")
 
 
-@router.post("/cleanup-temp-photos", response_model=CleanupResponse)
+@camera_router.post("/cleanup-temp-photos", response_model=CleanupResponse)
 async def cleanup_temp_photos_endpoint():
     ImageCapture().cleanup_temp_photos(frame_source)
     return {"message": "Temporary photos cleaned up successfully"}
 
 
-@router.post("/save-images", response_model=SaveImagesResponse)
+@camera_router.post("/save-images", response_model=SaveImagesResponse)
 def save_images(
     piece_label: str = Query(..., title="The label of the piece to save images for"),
     db: db_dependency = Depends()
@@ -121,13 +126,13 @@ def save_images(
     return {"message": "Images saved to database"}
 
 
-@router.post("/stop", response_model=CameraStopResponse)
+@camera_router.post("/stop", response_model=CameraStopResponse)
 def stop_camera():
     frame_source.stop()
     return {"message": "Camera stopped"}
 
 
-@router.get("/check_camera", response_model=CameraStatusResponse)
+@camera_router.get("/check_camera", response_model=CameraStatusResponse)
 async def check_camera():
     try:
         camera_status = frame_source._check_camera()
@@ -136,13 +141,13 @@ async def check_camera():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/get_allcameras/", response_model=List[CameraListItem])
+@camera_router.get("/get_allcameras/", response_model=List[CameraListItem])
 def read_all_cameras(db: db_dependency):
     cameras = db.query(Camera.camera_index, Camera.model, Camera.id).all()
     return [{"camera_index": cam.camera_index, "model": cam.model, "camera_id": cam.id} for cam in cameras]
 
 
-@router.get("/cameraByModelIndex/", response_model=int)
+@camera_router.get("/cameraByModelIndex/", response_model=int)
 def read_camera_id(
     model: str = Query(..., title="Camera model name"),
     camera_index: int = Query(..., title="Camera index"),
