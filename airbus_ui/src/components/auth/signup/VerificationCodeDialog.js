@@ -9,6 +9,7 @@ import {
   TextField,
   CircularProgress
 } from '@mui/material';
+import api from '../../../utils/UseAxios'; 
 
 export default function VerificationCodeDialog({ open, onClose, onVerify, email }) {
   const [code, setCode] = React.useState('');
@@ -39,12 +40,12 @@ export default function VerificationCodeDialog({ open, onClose, onVerify, email 
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8001/users/resend-verification', {
-        method: 'POST',
+      const response = await api.post('/api/users/users/resend-verification',JSON.stringify({ email }), {
+
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email }),
+  
       });
 
       if (response.ok) {

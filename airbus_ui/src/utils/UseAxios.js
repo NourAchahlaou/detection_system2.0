@@ -1,12 +1,10 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8001',
 });
 
 api.interceptors.request.use(config => {
-  // Update this line to match your actual storage key
-  const token = localStorage.getItem('accessToken'); // Changed from access_token to accessToken
+  const token = localStorage.getItem('accessToken');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -18,15 +16,17 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
-      localStorage.getItem('refreshToken') 
+      localStorage.getItem('refreshToken')
     ) {
       originalRequest._retry = true;
       try {
-        const res = await axios.post('http://localhost:8001/auth/refresh', {
+        // Update the refresh endpoint to use nginx routing
+        const res = await axios.post('/api/users/auth/refresh', {
           refresh_token: localStorage.getItem('refreshToken'),
         });
         const { access_token } = res.data;
-        localStorage.setItem('accessToken', access_token); 
+        localStorage.setItem('accessToken', access_token);
+        
         api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
         return api(originalRequest);
       } catch (err) {

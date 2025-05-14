@@ -21,7 +21,7 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       
-      const res = await api.get('/users/me');
+      const res = await api.get('/api/users/users/me');
       setAuth({ token, user: res.data });
     } catch (error) {
       console.error('User fetch failed', error);
@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const res = await api.post('/auth/refresh', null, {
+      const res = await api.post('/api/users/auth/refresh', null, {
         headers: {
           refresh_token: refreshToken,
         },

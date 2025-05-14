@@ -21,6 +21,7 @@ import { styled } from '@mui/material/styles';
 import { GoogleIcon } from '../CustomIcons';
 import { ReactComponent as AirVisionLogo } from '../../../assets/Airvisionlogo_updated.svg';
 import VerificationCodeDialog from './VerificationCodeDialog';
+import api from '../../../utils/UseAxios'; 
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
@@ -146,26 +147,25 @@ export default function SignUpCard() {
     return isValid;
   };
 
-// Modified loginUser function to use FormData instead of JSON
-const loginUser = async (credentials) => {
-  try {
-    console.log('Attempting login with:', { email: credentials.email, passwordLength: credentials.password?.length || 0 });
-    
-    // Create FormData object - this is critical for working with FastAPI's Form dependencies
-    const formData = new URLSearchParams();
-    formData.append('email', credentials.email);
-    formData.append('password', credentials.password);
-    
-    const loginResponse = await fetch('http://localhost:8001/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData,
-    });
+  // Modified loginUser function to use api instance with interceptors and new endpoint path
+  const loginUser = async (credentials) => {
+    try {
+      console.log('Attempting login with:', { email: credentials.email, passwordLength: credentials.password?.length || 0 });
+      
+      // Create FormData object - this is critical for working with FastAPI's Form dependencies
+      const formData = new URLSearchParams();
+      formData.append('email', credentials.email);
+      formData.append('password', credentials.password);
+      
+      // Use the api instance with nginx path
+      const loginResponse = await api.post('/api/users/auth/login', formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
 
-    if (loginResponse.ok) {
-      const loginResult = await loginResponse.json();
+      // If successful, the response will be in loginResponse.data
+      const loginResult = loginResponse.data;
       console.log('Login successful:', loginResult);
       
       // Store tokens in localStorage
@@ -188,19 +188,14 @@ const loginUser = async (credentials) => {
       }, 1500);
       
       return loginResult;
-    } else {
-      // Try to get response details for better error handling
-      let errorData;
-      try {
-        errorData = await loginResponse.json();
-      } catch (e) {
-        errorData = { detail: `HTTP ${loginResponse.status}` };
-      }
+    } catch (error) {
+      console.error('Login error:', error);
       
-      console.error('Login failed:', errorData);
+      // Check if there's a detailed error response
+      const errorDetail = error.response?.data?.detail || '';
       
       // Check if the account is not verified
-      if (errorData.detail && errorData.detail.includes('not verified')) {
+      if (errorDetail.includes('not verified')) {
         // Store current email for verification dialog
         setCurrentEmail(credentials.email);
         // Store password temporarily for after verification
@@ -210,31 +205,24 @@ const loginUser = async (credentials) => {
         return null;
       }
       
-      throw new Error(errorData.detail || 'Login failed');
+      setSnackbar({
+        open: true,
+        message: errorDetail || 'An error occurred during login',
+        severity: 'error'
+      });
+      throw error;
     }
-  } catch (error) {
-    console.error('Login error:', error);
-    setSnackbar({
-      open: true,
-      message: error.message || 'An error occurred during login',
-      severity: 'error'
-    });
-    throw error;
-  }
-};
-// Updated handleVerifyAccount function to properly handle login after verification
-const handleVerifyAccount = async (email, code) => {
-  try {
-    const response = await fetch('http://localhost:8001/users/verify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, token: code }),
-    });
+  };
 
-    if (response.ok) {
-      const result = await response.json();
+  // Updated handleVerifyAccount function to use api instance with interceptors
+  const handleVerifyAccount = async (email, code) => {
+    try {
+      const response = await api.post('/api/users/users/verify', {
+        email,
+        token: code
+      });
+
+      const result = response.data;
       console.log('Account verified successfully:', result);
       
       // Get the saved password
@@ -249,20 +237,16 @@ const handleVerifyAccount = async (email, code) => {
         email: email, 
         password: savedPassword 
       });
-    } else {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'Verification failed');
+    } catch (error) {
+      console.error('Error verifying account:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.detail || 'Verification failed',
+        severity: 'error'
+      });
+      throw error;
     }
-  } catch (error) {
-    console.error('Error verifying account:', error);
-    setSnackbar({
-      open: true,
-      message: error.message || 'Verification failed',
-      severity: 'error'
-    });
-    throw error;
-  }
-};
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -282,54 +266,40 @@ const handleVerifyAccount = async (email, code) => {
     // Store email for potential user exists modal
     setCurrentEmail(data.email);
 
-    // Make API request to register user
+    // Make API request to register user using api instance
     try {
-      const response = await fetch('http://localhost:8001/users/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('User registered successfully:', result);
-        
-        setSnackbar({
-          open: true,
-          message: 'Registration successful! Please verify your account.',
-          severity: 'success'
-        });
-        
-        // Store password temporarily for after verification
-        localStorage.setItem('tempPassword', data.password);
-        
-        // Open verification dialog directly after successful registration
-        setVerificationDialogOpen(true);
-      } else {
-        const errorResult = await response.json();
-        console.error('Error registering user:', errorResult);
-        
-        // Check if error is about email already existing
-        if (errorResult.detail && errorResult.detail.includes("Email is already exists")) {
-          // Open user exists modal instead of showing error snackbar
-          setUserExistsModalOpen(true);
-        } else {
-          setSnackbar({
-            open: true,
-            message: `Registration failed: ${errorResult.detail || 'Unknown error'}`,
-            severity: 'error'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error:', error);
+      const response = await api.post('/api/users/users/register', data);
+      
+      const result = response.data;
+      console.log('User registered successfully:', result);
+      
       setSnackbar({
         open: true,
-        message: 'An error occurred. Please try again later.',
-        severity: 'error'
+        message: 'Registration successful! Please verify your account.',
+        severity: 'success'
       });
+      
+      // Store password temporarily for after verification
+      localStorage.setItem('tempPassword', data.password);
+      
+      // Open verification dialog directly after successful registration
+      setVerificationDialogOpen(true);
+    } catch (error) {
+      console.error('Error registering user:', error);
+      
+      const errorDetail = error.response?.data?.detail || '';
+      
+      // Check if error is about email already existing
+      if (errorDetail.includes("Email is already exists")) {
+        // Open user exists modal instead of showing error snackbar
+        setUserExistsModalOpen(true);
+      } else {
+        setSnackbar({
+          open: true,
+          message: `Registration failed: ${errorDetail || 'Unknown error'}`,
+          severity: 'error'
+        });
+      }
     }
   };
 
