@@ -17,7 +17,7 @@ import { styled } from '@mui/material/styles';
 import ForgotPassword from './ForgotPassword';
 import { GoogleIcon } from '../CustomIcons';
 import { ReactComponent as AirVisionLogo } from '../../../assets/Airvisionlogo_updated.svg';
-import { useApi } from '../../../hooks/useApi'; // Import the custom API hook
+import api from '../../../utils/UseAxios'; 
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
@@ -38,9 +38,7 @@ const Card = styled(MuiCard)(({ theme }) => ({
 }));
 
 export default function SignInCard() {
-  const navigate = useNavigate();
-  const api = useApi(); // Use the custom API hook
-  
+  const navigate = useNavigate();  
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState('');
   const [passwordError, setPasswordError] = React.useState(false);
