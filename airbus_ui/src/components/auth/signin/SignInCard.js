@@ -17,6 +17,7 @@ import { styled } from '@mui/material/styles';
 import ForgotPassword from './ForgotPassword';
 import { GoogleIcon } from '../CustomIcons';
 import { ReactComponent as AirVisionLogo } from '../../../assets/Airvisionlogo_updated.svg';
+import { useApi } from '../../../hooks/useApi'; // Import the custom API hook
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
@@ -38,6 +39,8 @@ const Card = styled(MuiCard)(({ theme }) => ({
 
 export default function SignInCard() {
   const navigate = useNavigate();
+  const api = useApi(); // Use the custom API hook
+  
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState('');
   const [passwordError, setPasswordError] = React.useState(false);
@@ -61,7 +64,6 @@ export default function SignInCard() {
   const handleCloseSnackbar = () => {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
-  
   
   const validateInputs = () => {
     const email = document.getElementById('email');
@@ -90,45 +92,36 @@ export default function SignInCard() {
     return isValid;
   };
 
-  // New function to check profile completion status
+  // Check profile completion status using the API hook
   const checkProfileCompletion = async (accessToken) => {
     try {
-      const response = await fetch('http://localhost:8001/auth/completion', {
-        method: 'GET',
+      const response = await api.get('/api/users/auth/completion', {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${accessToken}`
         }
       });
-
-      if (response.ok) {
-        const completionData = await response.json();
-        console.log('Profile completion data:', completionData);
-        
-        // Check if profile is complete (100%)
-        if (completionData.completion_percentage === 100) {
-          // Profile is complete, navigate to dashboard
-          navigate('/dashboard');
-        } else {
-          // Profile is incomplete, navigate to profile completion page
-          setSnackbar({
-            open: true,
-            message: 'Please complete your profile before continuing.',
-            severity: 'info'
-          });
-          
-          // Navigate to profile page with missing fields info
-          navigate('/auth/profile', { 
-            state: { 
-              missingFields: completionData.missing_fields,
-              completionPercentage: completionData.completion_percentage
-            } 
-          });
-        }
+      
+      console.log('Profile completion data:', response.data);
+      
+      // Check if profile is complete (100%)
+      if (response.data.completion_percentage === 100) {
+        // Profile is complete, navigate to dashboard
+        navigate('/dashboard');
       } else {
-        // If there's an error fetching completion data, redirect to profile page by default
-        console.error('Error fetching profile completion data');
-        navigate('/auth/profile');
+        // Profile is incomplete, navigate to profile completion page
+        setSnackbar({
+          open: true,
+          message: 'Please complete your profile before continuing.',
+          severity: 'info'
+        });
+        
+        // Navigate to profile page with missing fields info
+        navigate('/auth/profile', { 
+          state: { 
+            missingFields: response.data.missing_fields,
+            completionPercentage: response.data.completion_percentage
+          } 
+        });
       }
     } catch (error) {
       console.error('Error checking profile completion:', error);
@@ -148,62 +141,53 @@ export default function SignInCard() {
     const formData = new FormData(event.currentTarget);
     
     try {
-      // Create FormData object for FastAPI's Form dependencies
-      const formDataForApi = new URLSearchParams();
-      formDataForApi.append('email', formData.get('email'));
-      formDataForApi.append('password', formData.get('password'));
+      // Create data object for login request
+      const loginData = new URLSearchParams();
+      loginData.append('email', formData.get('email'));
+      loginData.append('password', formData.get('password'));
       
-      const response = await fetch('http://localhost:8001/auth/login', {
-        method: 'POST',
+      // Using our custom API hook for login
+      const response = await api.post('/api/users/auth/login', loginData, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formDataForApi,
+        }
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Login successful:', result);
-        
-        // Store tokens in localStorage
-        localStorage.setItem('accessToken', result.access_token);
-        localStorage.setItem('refreshToken', result.refresh_token);
-        
-        setSnackbar({
-          open: true,
-          message: 'Login successful!',
-          severity: 'success'
-        });
-        
-        // Check profile completion before redirecting
-        await checkProfileCompletion(result.access_token);
-        
-      } else {
-        const errorResult = await response.json();
-        console.error('Login failed:', errorResult);
-        
-        // Check if account is not verified
-        if (errorResult.detail && errorResult.detail.includes('not verified')) {
-          setSnackbar({
-            open: true,
-            message: 'Your account is not verified. Please check your email for verification instructions.',
-            severity: 'warning'
-          });
-        } else {
-          setSnackbar({
-            open: true,
-            message: `Login failed: ${errorResult.detail || 'Invalid credentials'}`,
-            severity: 'error'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error:', error);
+      console.log('Login successful:', response.data);
+      
+      // Store tokens in localStorage
+      localStorage.setItem('accessToken', response.data.access_token);
+      localStorage.setItem('refreshToken', response.data.refresh_token);
+      
       setSnackbar({
         open: true,
-        message: 'An error occurred. Please try again later.',
-        severity: 'error'
+        message: 'Login successful!',
+        severity: 'success'
       });
+      
+      // Check profile completion before redirecting
+      await checkProfileCompletion(response.data.access_token);
+      
+    } catch (error) {
+      console.error('Login failed:', error);
+      
+      // Error handling based on API response
+      const errorMessage = error.response?.data?.detail || 'An error occurred';
+      
+      // Check if account is not verified
+      if (errorMessage.includes('not verified')) {
+        setSnackbar({
+          open: true,
+          message: 'Your account is not verified. Please check your email for verification instructions.',
+          severity: 'warning'
+        });
+      } else {
+        setSnackbar({
+          open: true,
+          message: `Login failed: ${errorMessage}`,
+          severity: 'error'
+        });
+      }
     } finally {
       setIsLoading(false);
     }
