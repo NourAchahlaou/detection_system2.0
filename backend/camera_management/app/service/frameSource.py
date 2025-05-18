@@ -4,7 +4,7 @@ from pypylon import pylon
 from typing import  Generator, List, Tuple
 import cv2
 from sqlalchemy.orm import Session
-from piece_registry.app.db.models.camera import Camera
+from camera_management.app.db.models.camera import Camera
 import asyncio
 
 

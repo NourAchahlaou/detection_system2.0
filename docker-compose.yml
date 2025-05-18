@@ -17,28 +17,7 @@ services:
     volumes:
       - ./backend/user_management:/usr/srv/user_management
       - ./.env:/usr/srv/.env
-      # - C:/Program Files/Basler GmbH/pylon6:/opt/pylon:ro
 
-  piece_registry:
-    container_name: pieceRegistryMicroservice
-    build:
-      context: ./backend/piece_registry
-    devices:
-      - /dev/video0:/dev/video0  # Pass through your camera device
-      - /dev/bus/usb:/dev/bus/usb  # Add more if you have multiple cameras
-    privileged: true  # Add privileged mode to access devices
-    env_file:
-      - ./.env
-    ports:
-      - "8002:8000"
-    depends_on:
-      - databasePostgres
-    networks:
-      - airvision-net
-    volumes:
-      - ./backend/piece_registry:/usr/srv/piece_registry
-      - ./.env:/usr/srv/.env
-      - /dev:/dev  # Mount /dev to enable access to all devices
 
   databasePostgres:
     image: postgres:15
@@ -60,27 +39,27 @@ services:
 
   airbus_ui:
     build:
-      context: ./airbus_ui  # Adjusted to point to frontend directory
+      context: ./airbus_ui
       dockerfile: Dockerfile
     container_name: airbus_ui
     ports:
-      - "3000:3000"  # Changed to default React dev port
+      - "3000:3000"
     depends_on:
       - user_management
     networks:
       - airvision-net
     volumes:
-      - ./airbus_ui:/app  # Mount source code for hot reloading
-      - /app/node_modules  # Keep node_modules in container to avoid host conflicts
+      - ./airbus_ui:/app
+      - /app/node_modules
     environment:
-      - CHOKIDAR_USEPOLLING=true  # Helps with file watching in Docker
-      - WDS_SOCKET_PORT=3000  # WebSocket port for hot reload
+      - CHOKIDAR_USEPOLLING=true
+      - WDS_SOCKET_PORT=3000
 
   nginx:
     image: nginx:latest
     container_name: nginx_gateway
     ports:
-      - "80:80"  # Expose on standard HTTP port
+      - "80:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
     depends_on:

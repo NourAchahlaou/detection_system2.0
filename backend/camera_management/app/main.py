@@ -1,9 +1,10 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from piece_registry.app.db.session import get_session
-from piece_registry.app.service.camera_manager import CameraManager
-from piece_registry.app.service.external_camera import get_available_cameras
-from piece_registry.app.api.route import camera
+from camera_management.app.service.camera_manager import CameraManager
+from camera_management.app.service.external_camera import get_available_cameras
+from camera_management.app.db.session import get_session
+from camera_management.app.api.route import camera
 
 def create_application():
     application = FastAPI()
@@ -35,7 +36,14 @@ async def startup_event():
         print(camera)
 
 
+
 @app.get("/")
 async def root():
     return {"message": "this is the piece registry service"}
 
+if __name__ == "__main__":
+    import uvicorn
+    if os.getenv('ENVIRONMENT') == 'development':
+        uvicorn.run(app, host="127.0.0.1", port=8001, reload=True)
+    else :
+        uvicorn.run(app, host="127.0.0.1", port=8001)

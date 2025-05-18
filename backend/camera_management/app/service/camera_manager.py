@@ -4,10 +4,10 @@ from fastapi import HTTPException
 import cv2
 from pypylon import pylon
 
-from piece_registry.app.db.models.camera import Camera
-from piece_registry.app.service.external_camera import get_available_cameras
-from piece_registry.app.db.models.camera_settings import CameraSettings
-from piece_registry.app.db.schemas.camera_settings import UpdateCameraSettings
+from camera_management.app.db.models.camera import Camera
+from camera_management.app.service.external_camera import get_available_cameras
+from camera_management.app.db.models.camera_settings import CameraSettings
+from camera_management.app.db.schemas.camera_settings import UpdateCameraSettings
 
 class CameraManager:
     """

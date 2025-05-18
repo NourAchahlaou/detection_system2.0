@@ -64,6 +64,7 @@ fi
 # Use PGPASSWORD environment variable and make sure it's exported
 export PGPASSWORD=$DB_PASSWORD
 psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "CREATE SCHEMA IF NOT EXISTS user_mgmt;"
+psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "CREATE SCHEMA IF NOT EXISTS piece_reg;"
 
 echo "Schemas created successfully!"
 

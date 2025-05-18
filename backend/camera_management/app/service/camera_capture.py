@@ -5,8 +5,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pypylon import pylon
 
-from piece_registry.app.db.models.piece import Piece
-from piece_registry.app.db.models.piece_image import PieceImage
+from camera_management.app.db.models.piece import Piece
+from camera_management.app.db.models.piece_image import PieceImage
 
 class ImageCapture:
     """

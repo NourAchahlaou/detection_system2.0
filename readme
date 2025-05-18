@@ -1,1 +1,8 @@
 winget install usbipd
+
+For a Production Environment:
+If you were setting this up for production, you'd want something more automated. Options include:
+
+Create a batch script (.bat) that starts both components
+Set up the FastAPI service as a Windows Service using NSSM so it starts automatically with Windows
+Use a process manager like PM2

@@ -5,14 +5,10 @@ from sqlalchemy import pool
 from sqlalchemy import MetaData, Table, inspect
 
 from alembic import context
-from piece_registry.app.db.session import Base
+from camera_management.app.db.session import Base
 
-from piece_registry.app.core.settings import get_settings
-from piece_registry.app.db.models.camera import Camera
-from piece_registry.app.db.models.piece import Piece
-from piece_registry.app.db.models.camera_settings import CameraSettings
-from piece_registry.app.db.models.piece_docs import PieceDocument
-from piece_registry.app.db.models.piece_image import PieceImage  
+from camera_management.app.core.settings import get_settings
+
 
 import sys
 from pathlib import Path

@@ -4,20 +4,20 @@ import cv2
 from fastapi import APIRouter, Depends, HTTPException, Response, Path, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from piece_registry.app.db.session import get_session
-from piece_registry.app.db.schemas.camera_settings import UpdateCameraSettings
-from piece_registry.app.db.models.camera import Camera 
-from piece_registry.app.service.frameSource import FrameSource
-from piece_registry.app.service.camera_manager import CameraManager
-from piece_registry.app.service.camera_capture import ImageCapture
+from camera_management.app.db.session import get_session
+from camera_management.app.db.schemas.camera_settings import UpdateCameraSettings
+from camera_management.app.db.models.camera import Camera 
+from camera_management.app.service.frameSource import FrameSource
+from camera_management.app.service.camera_manager import CameraManager
+from camera_management.app.service.camera_capture import ImageCapture
 import re
-from piece_registry.app.response.camera import (
+from camera_management.app.response.camera import (
     CameraStartResponse, CameraStopResponse, CameraStatusResponse,
       CameraIndexResponse, CameraWithSettingsResponse,CameraResponse)
-from piece_registry.app.response.piece_image import (
+from camera_management.app.response.piece_image import (
     CleanupResponse, SaveImagesResponse
 )
-from piece_registry.app.db.schemas.camera import (
+from camera_management.app.db.schemas.camera import (
     CameraID,
     CameraListItem
 )
