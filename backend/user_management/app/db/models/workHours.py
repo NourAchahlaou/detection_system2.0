@@ -5,7 +5,7 @@ from sqlalchemy.orm import relationship
 
 class WorkHours(Base):
     __tablename__ = "work_hours"
-    
+    __table_args__ = {"schema": "user_mgmt"}    
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     login_time = Column(DateTime, nullable=False)

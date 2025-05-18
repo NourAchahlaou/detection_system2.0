@@ -5,3 +5,21 @@ SQLAlchemy==2.0.21
 alembic==1.12.0
 fastapi-mail
 python-multipart==0.0.6
+psycopg2
+
+# Core dependencies
+
+pypylon>=2.2.0
+
+opencv-contrib-python==4.10.0.84
+opencv-python==4.10.0.84
+python-dateutil>=2.8.2
+
+# FastAPI related dependencies
+
+pydantic>=2.0.0
+
+# Additional utilities that might be needed
+
+aiofiles>=0.8.0
+asyncio>=3.4.3

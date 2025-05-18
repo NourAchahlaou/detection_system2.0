@@ -7,6 +7,7 @@ from sqlalchemy import Enum as SQLEnum
 
 class User(Base):
     __tablename__ = 'users'
+    __table_args__ = {"schema": "user_mgmt"}    
     id = Column(Integer, primary_key=True, autoincrement=True)
     airbus_id = Column(Integer, unique=True)
     name = Column(String(150))

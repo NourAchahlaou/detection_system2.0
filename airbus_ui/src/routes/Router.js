@@ -11,7 +11,7 @@ const BlankLayout = lazy(() => import('../layouts/blank/BlankLayout'));
 
 /* Pages */
 const Dashboard = lazy(() => import('../views/dashboard/Dashboard'));
-const CaptureImage = lazy(() => import('../views/captureImage/CaptureImage'));
+const CaptureImage = lazy(() => import('../views/captureImage/CapturePieceImage'));
 const SignInSide = lazy(() => import('../views/auth/sign-in-side/SignInSide'));
 
 const router = createBrowserRouter([

@@ -1,7 +1,16 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from backend.piece_registry.app.db.schemas.camera import CameraBase
+from piece_registry.app.db.schemas.camera import CameraBase
 
+class CameraResponse(BaseModel):
+    """Pydantic model for camera response"""
+    id: int
+    camera_index: int
+    model: str
+    settings_id: Optional[int] = None
+    
+    class Config:
+        from_attributes = True  #
 class CameraIndexResponse(BaseModel):
     camera_index: Any
 

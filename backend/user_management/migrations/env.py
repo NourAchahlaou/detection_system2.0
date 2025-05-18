@@ -1,3 +1,5 @@
+### userManagementMicroservice/migrations/env.py ###
+
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -12,24 +14,9 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 # Import your models and database configuration
 from user_management.app.db.session import Base
 from user_management.app.core.settings import get_settings
-# Instead of individual model imports:
+# Import models to populate Base.metadata
 from user_management.app.db.models import User, UserToken, Shift, Activity, WorkHours, Task
-
-# # Explicitly import models to populate Base.metadata
-# from user_management.app.db.models import (
-#     user,
-#     shift,
-#     activities,
-#     workHours,
-#     task,
-# )
-
-# User = user.User
-# UserToken = user.UserToken
-# Shift = shift.Shift
-# Activity = activities.Activity
-# WorkHours = workHours.WorkHours
-# Task = task.Task
+version_table = "alembic_version_user_management"
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -38,7 +25,7 @@ config = context.config
 # Get database URI from settings
 settings = get_settings()
 
-print (settings.DATABASE_URI)
+print(settings.DATABASE_URI)
 config.set_main_option('sqlalchemy.url', settings.DATABASE_URI.replace('%', '%%'))
 
 # Interpret the config file for Python logging.
@@ -48,6 +35,17 @@ if config.config_file_name is not None:
 
 # Set target metadata to Base.metadata for autogeneration support
 target_metadata = Base.metadata
+
+# Add under the imports
+SCHEMA_NAME = "user_mgmt"  # Unique schema for this service  
+TARGET_TABLES = {'users', 'shifts'}  # Your actual table names
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table":
+        return name in TARGET_TABLES
+    if hasattr(object, "schema"):
+        return object.schema == SCHEMA_NAME
+    return True
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -66,6 +64,10 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table=version_table,
+        include_object=include_object,
+        include_schemas=True,
+        version_table_schema="user_mgmt"
     )
 
     with context.begin_transaction():
@@ -86,7 +88,12 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata,
+            version_table=version_table,
+            include_object=include_object,
+            include_schemas=True,
+            version_table_schema="user_mgmt" 
         )
 
         with context.begin_transaction():

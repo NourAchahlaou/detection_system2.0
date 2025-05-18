@@ -12,10 +12,8 @@ import {
   Typography,
   Select, 
   MenuItem } from "@mui/material";
-import { Breadcrumb } from "app/components";
-import "./AppPartLibrary.css";
 
-import axios from 'axios';
+import api from "../../utils/UseAxios" // Import the API module instead of axios directly
 
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
@@ -28,93 +26,48 @@ const Container = styled("div")(({ theme }) => ({
 
 const startCamera = async (cameraId) => {
   try {
-    const response = await fetch("http://127.0.0.1:8000/cameras/start-camera", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ camera_id: cameraId }),
+    const response = await api.post(" /api/pieces/camera/start-camera", { 
+      camera_id: cameraId 
     });
-
-    if (!response.ok) {
-      let errorMessage = "Failed to start camera";
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.detail || errorMessage;
-      } catch (jsonError) {
-        console.error("Failed to parse error response:", jsonError);
-      }
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.json();
-    console.log(data.message || "Camera started successfully");
+    
+    console.log(response.data.message || "Camera started successfully");
     return true; // Indicate success
   } catch (error) {
-    console.error("Error starting camera:", error.message || error);
+    console.error("Error starting camera:", error.response?.data?.detail || error.message);
     return false; // Indicate failure
   }
 };
+
 const stopCamera = async () => {
   try {
-    await fetch("http://127.0.0.1:8000/cameras/cleanup-temp-photos", {
-      method: "POST",
-    });
-
-    const response = await fetch("http://127.0.0.1:8000/cameras/stop", {
-      method: "POST",
-    });
-
-    if (!response.ok) {
-      let errorMessage = "Failed to stop camera";
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.detail || errorMessage;
-      } catch (jsonError) {
-        console.error("Failed to parse error response:", jsonError);
-      }
-      throw new Error(errorMessage);
-    }
-
+    await api.post("/api/pieces/camera/cleanup-temp-photos");
+    const response = await api.post("/api/pieces/camera/stop");
+    
     console.log("Camera stopped and temporary photos cleaned up.");
     window.location.reload();
   } catch (error) {
-    console.error("Error stopping camera:", error.message || error);
+    console.error("Error stopping camera:", error.response?.data?.detail || error.message);
   }
 };
 
 const captureImages = async (pieceLabel) => {
   try {
-    const response = await fetch(`http://127.0.0.1:8000/cameras/capture_images/${pieceLabel}`);
+    const response = await api.get(`/api/pieces/camera/capture_images/${pieceLabel}`, {
+      responseType: 'blob'
+    });
     
-    if (!response.ok) {
-      let errorMessage = "Failed to capture images";
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.detail || errorMessage;
-      } catch (jsonError) {
-        console.error("Failed to parse error response:", jsonError);
-      }
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.blob();
-    const imageUrl = URL.createObjectURL(data);
+    const imageUrl = URL.createObjectURL(response.data);
     return imageUrl; // Return the image URL
   } catch (error) {
-    console.error("Error capturing images:", error.message || error);
+    console.error("Error capturing images:", error.response?.data?.detail || error.message);
     return null;
   }
 };
 
 const saveImagesToDatabase = async (pieceLabel) => {
   try {
-    // Send a POST request with Axios
-    const response = await axios.post("http://127.0.0.1:8000/cameras/save-images", null, {
-      params: { piece_label: pieceLabel },
-      headers: {
-        "Content-Type": "application/json",
-      },
+    const response = await api.post(" /api/pieces/camera/save-images", null, {
+      params: { piece_label: pieceLabel }
     });
 
     console.log(response.data.message || "Images saved successfully");
@@ -130,8 +83,6 @@ const saveImagesToDatabase = async (pieceLabel) => {
   }
 };
 
-
-
 const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImages, cameraId, targetLabel }) => {
   const [videoUrl, setVideoUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -143,7 +94,9 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
 
   useEffect(() => {
     if (isCameraStarted) {
-      setVideoUrl("http://127.0.0.1:8000/cameras/video_feed");
+      // Note: for video streaming, we might still need a direct URL
+      // Since the API interceptor can't handle streaming data properly
+      setVideoUrl("/api/pieces/camera/video_feed");
     } else {
       setVideoUrl("");
     }
@@ -254,8 +207,6 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
     ))}
   </div>
 
-
-
           </>
         ) : (
           <p>No Video Feed</p>
@@ -308,29 +259,22 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
   );
 };
 
-
-
-
 export default function AppPartLibrary() {
   const [targetLabel, setTargetLabel] = useState("");
   const [cameraId, setCameraId] = useState("");
   const [cameras, setCameras] = useState([]);
-
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
+  
   useEffect(() => {
     // Function to clean up temp photos and stop the camera
     const handleBeforeUnload = async () => {
       try {
         // Stop the camera
-        await fetch("http://127.0.0.1:8000/cameras/stop", {
-          method: "POST",
-        });
+        await api.post("/api/camera/stop");
         
         // Cleanup temporary photos
-        await fetch("http://127.0.0.1:8000/cameras/cleanup-temp-photos", {
-          method: "POST",
-        });
+        await api.post(" /api/pieces/camera/cleanup-temp-photos");
       } catch (error) {
         console.error("Error during cleanup:", error);
       }
@@ -348,10 +292,9 @@ export default function AppPartLibrary() {
     };
   }, []);
   
-  
   useEffect(() => {
-    // Fetch the list of cameras from the backend
-    axios.get('http://127.0.0.1:8000/cameras/get_allcameras/')
+    // Fetch the list of cameras from the backend using the API
+    api.get(' /api/pieces/camera/get_allcameras/')
       .then(response => {
         setCameras(response.data);
       })
@@ -365,6 +308,7 @@ export default function AppPartLibrary() {
     setSelectedCameraId(selectedCameraId);
     setCameraId(selectedCameraId); // Update cameraId state when a camera is selected
   };
+  
   const handleStartCamera = async (cameraId) => {
     if (cameraId) {
       const success = await startCamera(cameraId);
@@ -373,29 +317,19 @@ export default function AppPartLibrary() {
       alert("Please enter a valid camera ID.");
     }
   };
+  
   const handleStopCamera = async () => {
-    await fetch("http://127.0.0.1:8000/cameras/cleanup-temp-photos", {
-      method: "POST",
-    });
+    await api.post(" /api/pieces/camera/cleanup-temp-photos");
     await stopCamera(); // Stop camera functionality
     setCameraStarted(false);
   };
- /* 
-  const handleStopCamera = async () => {
-    await stopCamera();
-    setCameraStarted(false);
-  };
-*/
+
   const handleTargetLabelChange = (event) => {
     setTargetLabel(event.target.value);
   };
 
-
   return (
     <Container>
-      <Box className="breadcrumb">
-        <Breadcrumb routeSegments={[{ name: "Camera Capture" }]} />
-      </Box>
       <Stack spacing={3}>
         <div className="controls">
           <TextField label="Target Label" value={targetLabel} onChange={handleTargetLabelChange} />

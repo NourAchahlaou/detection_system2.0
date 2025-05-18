@@ -5,6 +5,10 @@ services:
     container_name: userManagementMicroservice
     build:
       context: ./backend/user_management
+    devices:
+      - /dev/video0:/dev/video0  # Pass through your camera device
+      - /dev/bus/usb:/dev/bus/usb  # Add more if you have multiple cameras
+    privileged: true 
     env_file:
       - ./.env
     ports:
@@ -16,22 +20,23 @@ services:
     volumes:
       - ./backend/user_management:/usr/srv/user_management
       - ./.env:/usr/srv/.env
+      # - C:/Program Files/Basler GmbH/pylon6:/opt/pylon:ro
 
-  # piece_registry:
-  #   container_name: pieceRegistryMicroservice
-  #   build:
-  #     context: ./backend/piece_registry
-  #   env_file:
-  #     - ./.env
-  #   ports:
-  #     - "8002:8000"
-  #   depends_on:
-  #     - databasePostgres
-  #   networks:
-  #     - airvision-net
-  #   volumes:
-  #     - ./backend/piece_registry:/usr/srv/piece_registry
-  #     - ./.env:/usr/srv/.env
+  piece_registry:
+    container_name: pieceRegistryMicroservice
+    build:
+      context: ./backend/piece_registry
+    env_file:
+      - ./.env
+    ports:
+      - "8002:8000"
+    depends_on:
+      - databasePostgres
+    networks:
+      - airvision-net
+    volumes:
+      - ./backend/piece_registry:/usr/srv/piece_registry
+      - ./.env:/usr/srv/.env
 
   databasePostgres:
     image: postgres:15

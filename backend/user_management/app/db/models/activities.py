@@ -7,7 +7,7 @@ from sqlalchemy import Enum as SQLEnum
 
 class Activity(Base):
     __tablename__ = "activities"
-    
+    __table_args__ = {"schema": "user_mgmt"}    
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     action_type = Column(SQLEnum(ActionType), nullable=False)

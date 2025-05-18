@@ -4,6 +4,7 @@ from piece_registry.app.db.session import Base
 
 class Piece(Base):
     __tablename__ = 'piece'
+    __table_args__ = {"schema": "piece_reg"}
 
     id = Column(Integer, primary_key=True, index=True)
     class_data_id = Column(Integer,default = Null )

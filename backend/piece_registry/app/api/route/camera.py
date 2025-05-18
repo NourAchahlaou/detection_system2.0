@@ -13,7 +13,7 @@ from piece_registry.app.service.camera_capture import ImageCapture
 import re
 from piece_registry.app.response.camera import (
     CameraStartResponse, CameraStopResponse, CameraStatusResponse,
-      CameraIndexResponse, CameraWithSettingsResponse)
+      CameraIndexResponse, CameraWithSettingsResponse,CameraResponse)
 from piece_registry.app.response.piece_image import (
     CleanupResponse, SaveImagesResponse
 )
@@ -62,17 +62,19 @@ def video_feed():
 
 @camera_router.get("/camera_info/{camera_id}", response_model=CameraWithSettingsResponse)
 def get_camera_info(
-    camera_id: int = Path(..., title="The ID of the camera to get"),
-    db: db_dependency = Depends()
+    db: db_dependency,
+    camera_id: int = Path(..., title="The ID of the camera to get")
+    
 ):
     return CameraManager.get_camera(camera_id, db)
 
 
-@camera_router.put("/{camera_id}", response_model=Camera)
+@camera_router.put("/{camera_id}", response_model=CameraResponse)
 async def change_camera_settings(
+    db: db_dependency,
     camera_id: int = Path(..., title="The ID of the camera to update settings for"),
-    camera_settings_update: UpdateCameraSettings = None,
-    db: db_dependency = Depends()
+    camera_settings_update: UpdateCameraSettings = None
+    
 ):
     return CameraManager.change_camera_settings(camera_id, camera_settings_update, db)
 
@@ -116,8 +118,9 @@ async def cleanup_temp_photos_endpoint():
 
 @camera_router.post("/save-images", response_model=SaveImagesResponse)
 def save_images(
-    piece_label: str = Query(..., title="The label of the piece to save images for"),
-    db: db_dependency = Depends()
+    db: db_dependency,
+    piece_label: str = Query(..., title="The label of the piece to save images for")
+     
 ):
     try:
         ImageCapture().save_images_to_database(frame_source, db, piece_label)
@@ -149,9 +152,10 @@ def read_all_cameras(db: db_dependency):
 
 @camera_router.get("/cameraByModelIndex/", response_model=int)
 def read_camera_id(
+    db: db_dependency,
     model: str = Query(..., title="Camera model name"),
-    camera_index: int = Query(..., title="Camera index"),
-    db: db_dependency = Depends()
+    camera_index: int = Query(..., title="Camera index")
+ 
 ):
     camera_id = db.query(Camera.id).filter(
         Camera.model == model,

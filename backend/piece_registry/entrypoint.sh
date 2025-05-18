@@ -2,7 +2,12 @@
 set -e
 
 # Load environment variables from .env file
-export $(grep -v '^#' .env | xargs -d '\n')
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs -d '\n')
+    echo "Loaded environment variables from .env file"
+else
+    echo "No .env file found, using existing environment variables"
+fi
 
 echo "Starting entrypoint script"
 
@@ -12,18 +17,31 @@ MAX_RETRIES=30
 RETRY_INTERVAL=2
 RETRIES=0
 
-DB_HOST=${POSTGRES_HOST}
-DB_USER=${POSTGRES_USER}
-DB_NAME=${POSTGRES_DB}
+# Validate required environment variables
+DB_HOST=${POSTGRES_HOST:-databasePostgres}
+DB_USER=${POSTGRES_USER:-airbususer}
+DB_NAME=${POSTGRES_DB:-airbusdb}
+DB_PORT=${POSTGRES_PORT:-5432}  # Default to 5432 if not specified
+DB_PASSWORD=${POSTGRES_PASSWORD}
+
+# Print connection details (excluding password)
+echo "Database connection details:"
+echo "  Host: $DB_HOST"
+echo "  Port: $DB_PORT"
+echo "  User: $DB_USER"
+echo "  Database: $DB_NAME"
+echo "  Password: [REDACTED]"
 
 while [ $RETRIES -lt $MAX_RETRIES ]; do
     echo "Attempt $RETRIES: Checking if database is ready..."
-
-    if pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME; then
+    
+    # Use PGPASSWORD environment variable for pg_isready
+    export PGPASSWORD=$DB_PASSWORD
+    if pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME -p $DB_PORT; then
         echo "Database is ready!"
         break
     fi
-
+    
     RETRIES=$((RETRIES+1))
     echo "Database not ready yet (attempt $RETRIES/$MAX_RETRIES)... waiting"
     sleep $RETRY_INTERVAL
@@ -36,14 +54,26 @@ fi
 
 echo "Database is ready, running migrations"
 
-# Go to the directory where alembic.ini exists
-cd /usr/srv/piece_registry
+# Create schemas directly using psql
+echo "Creating schemas in database..."
+# Make sure DB_PORT is set and use it correctly and ensure password is passed correctly
+if [ -z "$DB_PASSWORD" ]; then
+    echo "WARNING: DB_PASSWORD is not set or empty"
+fi
 
-# Only apply existing migrations
+# Use PGPASSWORD environment variable and make sure it's exported
+export PGPASSWORD=$DB_PASSWORD
+psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "CREATE SCHEMA IF NOT EXISTS piece_reg;"
+
+echo "Schemas created successfully!"
+# Set PYTHONPATH to ensure modules can be found
+export PYTHONPATH=/usr/srv:$PYTHONPATH
+
+# Run database migrations
+cd /usr/srv/piece_registry
 alembic upgrade head || echo "Migration failed, but continuing startup"
 
-
-cd ..
-# Start the application
 echo "Starting application"
-exec uvicorn piece_registry.app.main:app --host 0.0.0.0 --port 8000 --reload
+# Start the FastAPI application with reload for development
+cd /usr/srv
+exec uvicorn piece_registry.app.main:app --host 0.0.0.0 --reload

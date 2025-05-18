@@ -1,3 +1,5 @@
+### pieceRegistryMicroservice/migrations/env.py ###
+
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -5,15 +7,29 @@ from sqlalchemy import pool
 
 from alembic import context
 from piece_registry.app.db.session import Base
+
 from piece_registry.app.core.settings import get_settings
+from piece_registry.app.db.models.camera import Camera
+from piece_registry.app.db.models.piece import Piece
+from piece_registry.app.db.models.camera_settings import CameraSettings
+from piece_registry.app.db.models.piece_docs import PieceDocument
+from piece_registry.app.db.models.piece_image import PieceImage  
+
+import sys
+from pathlib import Path
+
+# Update the path configuration
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+version_table = "alembic_version_piece_registry"
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
 # Get database URI from settings
 settings = get_settings()
 
-print (settings.DATABASE_URI)
+print(settings.DATABASE_URI)
 config.set_main_option('sqlalchemy.url', settings.DATABASE_URI.replace('%', '%%'))
 
 # Interpret the config file for Python logging.
@@ -23,15 +39,20 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+# Add under the imports
+SCHEMA_NAME = "piece_reg"  # Unique schema for this service
+TARGET_TABLES = {'pieces', 'cameras'}  # Your actual table names
 
+def include_object(object, name, type_, reflected, compare_to):
+    # Filter tables
+    if type_ == "table":
+        return name in TARGET_TABLES
+    # Filter schemas
+    if hasattr(object, "schema"):
+        return object.schema == SCHEMA_NAME
+    return True
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -43,7 +64,6 @@ def run_migrations_offline() -> None:
 
     Calls to context.execute() here emit the given string to the
     script output.
-
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -51,6 +71,10 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table=version_table,
+        include_object=include_object,
+        include_schemas=True,
+        version_table_schema="piece_reg" 
     )
 
     with context.begin_transaction():
@@ -62,7 +86,6 @@ def run_migrations_online() -> None:
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -72,7 +95,12 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata,
+            version_table=version_table,
+            include_object=include_object,
+            include_schemas=True,
+            version_table_schema="piece_reg"
         )
 
         with context.begin_transaction():

@@ -7,7 +7,7 @@ from user_management.app.db.models.shiftDay import ShiftDay
 class Shift(Base) :
 
     __tablename__ = "shifts"
-    
+    __table_args__ = {"schema": "user_mgmt"}    
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     start_time = Column(Time, nullable=False)

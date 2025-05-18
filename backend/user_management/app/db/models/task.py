@@ -5,7 +5,8 @@ from sqlalchemy.orm import  relationship
 
 class Task(Base):
     __tablename__ = "tasks"
-    
+    __table_args__ = {"schema": "user_mgmt"}    
+
     id = Column(Integer, primary_key=True)
     title = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
