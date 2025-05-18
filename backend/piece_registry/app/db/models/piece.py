@@ -14,4 +14,4 @@ class Piece(Base):
     nbre_img= Column(Integer,default = Null)
 
     piece_img = relationship("PieceImage", back_populates="piece", cascade="all, delete-orphan")
-    
+    documents = relationship("PieceDocument", back_populates="piece", cascade="all, delete-orphan") 

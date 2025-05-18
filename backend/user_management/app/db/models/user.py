@@ -21,7 +21,7 @@ class User(Base):
     activation_code_expires_at = Column(DateTime, nullable=True)
     tokens = relationship("UserToken", back_populates="user")
 
-    role = Column(SQLEnum(RoleType), nullable=False)
+    role = Column(SQLEnum(RoleType,schema="user_mgmt"), nullable=False)
     shifts = relationship("Shift", back_populates="user")
     activities = relationship("Activity", back_populates="user")
     assigned_tasks = relationship("Task", back_populates="assigned_user")
@@ -33,8 +33,9 @@ class User(Base):
 
 class UserToken(Base):
     __tablename__ = "user_tokens"
+    __table_args__ = {"schema": "user_mgmt"}    
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = mapped_column(ForeignKey('users.id'))
+    user_id = mapped_column(ForeignKey('user_mgmt.users.id'))
     access_key = Column(String(250), nullable=True, index=True, default=None)
     refresh_key = Column(String(250), nullable=True, index=True, default=None)
     created_at = Column(DateTime, nullable=False, server_default=func.now())

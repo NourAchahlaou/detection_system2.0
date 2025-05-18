@@ -8,7 +8,9 @@ python-multipart==0.0.6
 psycopg2
 
 # Core dependencies
-
+pywin32==306
+pillow==10.0.0
+numpy==1.25.3
 pypylon>=2.2.0
 
 opencv-contrib-python==4.10.0.84

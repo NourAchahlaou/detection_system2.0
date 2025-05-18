@@ -129,8 +129,8 @@ def find_basler_cameras() -> List[Dict]:
         if 'PYLON_ROOT' in os.environ:
             logger.info(f"Using PYLON_ROOT: {os.environ['PYLON_ROOT']}")
         
-        # Initialize Pylon
-        pylon.TlFactory.Initialize()
+        # Initialize Pylon - Fixed call to match correct API
+        # pylon.TlFactory.Initialize()  # This line was incorrect
         tl_factory = pylon.TlFactory.GetInstance()
         
         # Enumerate devices

@@ -1,5 +1,3 @@
-### userManagementMicroservice/migrations/env.py ###
-
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -38,14 +36,47 @@ target_metadata = Base.metadata
 
 # Add under the imports
 SCHEMA_NAME = "user_mgmt"  # Unique schema for this service  
-TARGET_TABLES = {'users', 'shifts'}  # Your actual table names
 
+# This is the key function that determines what's included in migrations
 def include_object(object, name, type_, reflected, compare_to):
-    if type_ == "table":
-        return name in TARGET_TABLES
-    if hasattr(object, "schema"):
-        return object.schema == SCHEMA_NAME
+    # Skip other schemas' tables during migration
+    if type_ == "table" and hasattr(object, "schema") and object.schema != SCHEMA_NAME:
+        return False
+    
+    # Skip other schemas' indexes
+    if type_ == "index" and hasattr(object, "table") and hasattr(object.table, "schema") and object.table.schema != SCHEMA_NAME:
+        return False
+        
+    # For other object types, check schema when it's available
+    if hasattr(object, "schema") and object.schema != SCHEMA_NAME:
+        return False
+        
+    # Include everything else in our schema
     return True
+
+# This is called before generating migrations to filter the metadata
+def process_revision_directives(context, revision, directives):
+    if not directives:
+        return
+        
+    # Process each migration script
+    for directive in directives:
+        # Focus only on the upgrade operations
+        if hasattr(directive, 'upgrade_ops'):
+            # Remove operations affecting other schemas
+            directive.upgrade_ops.ops = [
+                op for op in directive.upgrade_ops.ops 
+                if not (hasattr(op, 'schema') and op.schema != SCHEMA_NAME)
+            ]
+            
+            # Handle operations that don't have a schema attribute directly
+            # but might contain nested operations affecting other schemas
+            for op in directive.upgrade_ops.ops:
+                if hasattr(op, 'ops'):
+                    op.ops = [
+                        nested_op for nested_op in op.ops
+                        if not (hasattr(nested_op, 'schema') and nested_op.schema != SCHEMA_NAME)
+                    ]
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -67,7 +98,8 @@ def run_migrations_offline() -> None:
         version_table=version_table,
         include_object=include_object,
         include_schemas=True,
-        version_table_schema="user_mgmt"
+        version_table_schema=SCHEMA_NAME,
+        process_revision_directives=process_revision_directives
     )
 
     with context.begin_transaction():
@@ -93,7 +125,8 @@ def run_migrations_online() -> None:
             version_table=version_table,
             include_object=include_object,
             include_schemas=True,
-            version_table_schema="user_mgmt" 
+            version_table_schema=SCHEMA_NAME,
+            process_revision_directives=process_revision_directives
         )
 
         with context.begin_transaction():

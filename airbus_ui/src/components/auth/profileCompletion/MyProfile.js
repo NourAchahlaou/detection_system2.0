@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom'; // Import the useNavigate hook
+import { useNavigate } from 'react-router-dom';
 import api from '../../../utils/UseAxios';
 import {
   Box,
@@ -145,7 +145,6 @@ function MyProfile() {
   const [mainShiftDays, setMainShiftDays] = useState([]);
   const [mainShift, setMainShift] = useState({ start: '', end: '' });
   const [specialShifts, setSpecialShifts] = useState([]);
-  const [savedSuccessfully, setSavedSuccessfully] = useState(false);
   // API related state
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -298,14 +297,6 @@ function MyProfile() {
     fetchUserProfile();
   }, [fetchUserProfile]);
 
-// Updated handleSaveProfile function with navigation to dashboard after successful update
- useEffect(() => {
-    if (savedSuccessfully) {
-      // Navigate to dashboard
-      navigate('/dashboard', { replace: true });
-    }
-  }, [savedSuccessfully, navigate]);
-  
   const handleSaveProfile = async () => {
     setSaving(true);
     
@@ -313,16 +304,19 @@ function MyProfile() {
       // Form validation
       if (!airbusId) {
         showNotification('Please enter your Airbus ID', 'error');
+        setSaving(false);
         return;
       }
       
       if (!role) {
         showNotification('Please select your role', 'error');
+        setSaving(false);
         return;
       }
       
       if (mainShiftDays.length === 0 || !mainShift.start || !mainShift.end) {
         showNotification('Please set your main shift schedule', 'error');
+        setSaving(false);
         return;
       }
       
@@ -361,8 +355,11 @@ function MyProfile() {
       
       showNotification('Profile updated successfully', 'success');
       
-      // Set saved flag to trigger navigation effect
-      setSavedSuccessfully(true);
+      // FIXED: Use a timeout to ensure notification is shown before navigation
+      setTimeout(() => {
+        // Navigate to dashboard directly inside the handler
+        navigate('/dashboard', { replace: true });
+      }, 1000); // Short delay to allow notification to be seen
       
     } catch (error) {
       console.error('Error updating profile:', error);
@@ -377,7 +374,6 @@ function MyProfile() {
       }
       
       showNotification(errorMessage, 'error');
-    } finally {
       setSaving(false);
     }
   };

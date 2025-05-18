@@ -10,7 +10,7 @@ class Task(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    assigned_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_user_id = Column(Integer, ForeignKey("user_mgmt.users.id"), nullable=True)
     status = Column(String(50), nullable=False, default="pending")  # pending, in_progress, completed
     due_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

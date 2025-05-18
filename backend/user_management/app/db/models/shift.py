@@ -9,10 +9,10 @@ class Shift(Base) :
     __tablename__ = "shifts"
     __table_args__ = {"schema": "user_mgmt"}    
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user_mgmt.users.id"), nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
-    day_of_week = Column(SQLEnum(ShiftDay), nullable=False)
+    day_of_week = Column(SQLEnum(ShiftDay,schema="user_mgmt"), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

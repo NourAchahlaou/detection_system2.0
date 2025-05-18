@@ -97,20 +97,37 @@ class CameraManager:
                 }
 
             elif camera_type == "basler" and device:
-                # For Basler cameras
-                camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateDevice(device))
+                # For Basler cameras - Fixed to use GetInstance() correctly
+                tl_factory = pylon.TlFactory.GetInstance()
+                camera = pylon.InstantCamera(tl_factory.CreateDevice(device))
                 camera.Open()
 
                 try:
                     # Get the camera's node map and apply settings
                     node_map = camera.GetNodeMap()
                     print("Applying default settings for Basler camera...")
-                    exposure_node = node_map.GetNode("ExposureTime")
-                    exposure_node.SetValue(40000)
-                    gain_node = node_map.GetNode("Gain")
-                    gain_node.SetValue(0.8)
-                    acquisition_mode_node = node_map.GetNode("AcquisitionMode")
-                    acquisition_mode_node.SetValue("Continuous")
+                    
+                    # Get nodes with more error checking
+                    try:
+                        exposure_node = node_map.GetNode("ExposureTime")
+                        if exposure_node and exposure_node.IsWritable():
+                            exposure_node.SetValue(40000)
+                    except Exception as e:
+                        print(f"Could not set exposure: {e}")
+                    
+                    try:
+                        gain_node = node_map.GetNode("Gain")
+                        if gain_node and gain_node.IsWritable():
+                            gain_node.SetValue(0.8)
+                    except Exception as e:
+                        print(f"Could not set gain: {e}")
+                    
+                    try:
+                        acquisition_mode_node = node_map.GetNode("AcquisitionMode")
+                        if acquisition_mode_node and acquisition_mode_node.IsWritable():
+                            acquisition_mode_node.SetValue("Continuous")
+                    except Exception as e:
+                        print(f"Could not set acquisition mode: {e}")
 
                     # Retrieve camera settings
                     settings = {
