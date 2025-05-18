@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from piece_registry.app.db.session import Base
+from camera_management.app.db.session import Base
 
  
 class PieceDocument(Base):

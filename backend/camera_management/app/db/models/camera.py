@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, String, Column,Integer,ForeignKey
-from piece_registry.app.db.session import Base
+from camera_management.app.db.session import Base
 from sqlalchemy.orm import relationship
 
 class Camera(Base):
