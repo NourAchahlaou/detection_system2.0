@@ -1,10 +1,10 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from camera_management.app.service.camera_manager import CameraManager
-from camera_management.app.service.external_camera import get_available_cameras
-from camera_management.app.db.session import get_session
-from camera_management.app.api.route import camera
+from app.service.camera_manager import CameraManager
+from app.service.external_camera import get_available_cameras
+from app.db.session import get_session
+from app.api.route import camera
 
 def create_application():
     application = FastAPI()

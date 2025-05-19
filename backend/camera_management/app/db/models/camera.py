@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, String, Column,Integer,ForeignKey
-from camera_management.app.db.session import Base
+from db.session import Base
 from sqlalchemy.orm import relationship
 
 class Camera(Base):
@@ -8,6 +8,8 @@ class Camera(Base):
 
     id=Column(Integer, primary_key=True, index=True)
     camera_index=Column(Integer)
+    camera_type = Column(String, nullable=False)  # "regular" or "industrial"
+    serial_number = Column(String, unique=True, nullable=True)  # For industrial cameras
     model = Column(String, index=True)  
     status = Column(Boolean, default='False')
     settings_id = Column(Integer, ForeignKey('piece_reg.cameraSettings.id'))

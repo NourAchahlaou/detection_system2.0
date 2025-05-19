@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
-from camera_management.app.db.session import Base
+from db.session import Base
 from sqlalchemy.sql import func
 
 class PieceImage(Base):

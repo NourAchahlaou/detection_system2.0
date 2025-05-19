@@ -5,14 +5,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pypylon import pylon
 
-from camera_management.app.db.models.piece import Piece
-from camera_management.app.db.models.piece_image import PieceImage
+from db.models.piece import Piece
+from db.models.piece_image import PieceImage
 
 class ImageCapture:
     """
     Handles image capturing, storage, and database operations for pieces.
     """
-    
     def next_frame(self, frame_source, db: Session, save_folder: str, url: str, piece_label: str):
         """
         Legacy method for capturing frames.

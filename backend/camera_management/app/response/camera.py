@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from camera_management.app.db.schemas.camera import CameraBase
+from db.schemas.camera import CameraBase
 
 class CameraResponse(BaseModel):
     """Pydantic model for camera response"""

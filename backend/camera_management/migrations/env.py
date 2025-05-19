@@ -2,12 +2,11 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-from sqlalchemy import MetaData, Table, inspect
 
 from alembic import context
-from camera_management.app.db.session import Base
+from app.db.session import Base
 
-from camera_management.app.core.settings import get_settings
+from app.core.settings import get_settings
 
 
 import sys

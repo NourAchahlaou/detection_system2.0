@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from camera_management.app.db.schemas.piece_image import PieceImageBase
+from db.schemas.piece_image import PieceImageBase
 
 class CleanupResponse(BaseModel):
     message: str

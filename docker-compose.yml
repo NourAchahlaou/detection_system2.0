@@ -64,7 +64,6 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - user_management
-      - piece_registry
       - airbus_ui
     networks:
       - airvision-net

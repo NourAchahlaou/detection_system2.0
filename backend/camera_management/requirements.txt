@@ -8,16 +8,13 @@ python-multipart==0.0.6
 psycopg2
 
 # Core dependencies
-
+opencv-python>=4.5.0  # Add OpenCV for camera operations
 pypylon>=2.2.0
-
 
 pywin32==306
 # FastAPI related dependencies
-
 pydantic>=2.0.0
 
 # Additional utilities that might be needed
-
 aiofiles>=0.8.0
 asyncio>=3.4.3

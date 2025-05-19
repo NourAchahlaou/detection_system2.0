@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Null, String,Boolean
 from sqlalchemy.orm import relationship
-from camera_management.app.db.session import Base
+from db.session import Base
 
 class Piece(Base):
     __tablename__ = 'piece'
