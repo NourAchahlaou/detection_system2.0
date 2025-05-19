@@ -1,5 +1,7 @@
 {
     "python.analysis.extraPaths": [
-        "./backend/user_management/app"
+        "./backend/user_management/app",
+        "./backend/hardwareManager/app/service",
+        "./backend/hardwareManager/app/service"
     ]
 }
