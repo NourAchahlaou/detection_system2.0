@@ -1,9 +1,8 @@
 from typing import Dict , Optional
-from sqlalchemy.orm import Session
 import cv2
 from pypylon import pylon
 
-from service.external_camera import get_available_cameras
+from app.service.external_camera import get_available_cameras
 
 class CameraManager:
     """
@@ -11,7 +10,7 @@ class CameraManager:
     """
     
     @staticmethod
-    def detect_cameras(db: Session):
+    def detect_cameras():
         """
         Detects available cameras and registers them in the database.
         """
@@ -37,7 +36,7 @@ class CameraManager:
                                                 device=camera['device'])
                 if camera_info:
                     print(camera_info)
-                    CameraManager.save_camera_info(db, camera_info)
+                    
 
             elif camera['type'] == 'opencv':
                 # Handle OpenCV-compatible camera
@@ -54,7 +53,7 @@ class CameraManager:
                                                     camera_type='regular')
                     if camera_info:
                         print(camera_info)
-                        CameraManager.save_camera_info(db, camera_info)
+                        
 
                     capture.release()
                 else:

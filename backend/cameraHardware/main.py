@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.service.camera_manager import CameraManager
 from app.service.external_camera import get_available_cameras
 from app.api.route import camera
+import uvicorn
 
 def create_application():
     application = FastAPI()
@@ -25,7 +26,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
+   
 
+    CameraManager.detect_cameras()
    
     cameras = get_available_cameras()
     print("Available Cameras:")
@@ -38,9 +41,5 @@ async def startup_event():
 async def root():
     return {"message": "this is the piece registry service"}
 
-if __name__ == "__main__":
-    import uvicorn
-    if os.getenv('ENVIRONMENT') == 'development':
-        uvicorn.run(app, host="127.0.0.1", port=8001, reload=True)
-    else :
-        uvicorn.run(app, host="127.0.0.1", port=8001)
+
+# uvicorn main:app --host 127.0.0.1 --port 8001 --reload
