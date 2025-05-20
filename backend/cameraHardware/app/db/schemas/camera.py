@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel
 
 # Base schemas for Camera START
@@ -6,3 +7,5 @@ class OpenCVCameraRequest(BaseModel):
 
 class BaslerCameraRequest(BaseModel):
     serial_number: str
+
+

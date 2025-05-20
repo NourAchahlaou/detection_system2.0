@@ -87,34 +87,6 @@ class FrameSource:
             raise SystemError(f"Failed to start Basler camera: {e}")
         
 
-    def stopInspection(self):
-        if not self.camera_is_running:
-            print("Camera is not running.")
-            return
-
-        # Stop regular OpenCV camera (if applicable)
-        if self.capture is not None:
-            self.capture.release()
-            self.capture = None
-            print("Regular OpenCV camera stopped.")
-
-        # Stop Basler camera (if applicable)
-        if self.basler_camera is not None:
-            try:
-                self.basler_camera.StopGrabbing()
-                self.basler_camera.Close()  # Close the Basler camera to release resources
-                self.basler_camera = None
-                print("Basler camera stopped and resources released.")
-            except Exception as e:
-                print(f"Error stopping Basler camera: {e}")
-
-        self.camera_is_running = False
-        self.type =None
-        print("Camera stopped and resources released.")
-
-        # If using stop_event for threading purposes
-        if 'stop_event' in globals():
-            stop_event.set()
 
     def stop(self):
         if not self.camera_is_running:
@@ -146,6 +118,7 @@ class FrameSource:
         stop_event.set()
         print("Stop event triggered.")
 
+    #NOTE: This method is not used in the current implementation IT IS FOR FUTURE USE detection and identification
     def frame(self):
         assert self.camera_is_running, "Start the camera first by calling the start() method"
 

@@ -1,7 +1,12 @@
+from typing import Optional
 from pydantic import BaseModel
 
 
-
+class CameraResponse(BaseModel):
+    type: str
+    caption: str
+    index: Optional[int] = None
+    device: Optional[dict] = None
 
 
 class CameraStopResponse(BaseModel):

@@ -1,4 +1,5 @@
 import os
+from typing import List
 import cv2
 from fastapi import APIRouter, HTTPException, Response, Path
 from fastapi.responses import StreamingResponse
@@ -7,11 +8,12 @@ from app.service.camera_capture import ImageCapture
 import re
 from app.db.schemas.camera import BaslerCameraRequest, OpenCVCameraRequest
 from app.response.camera import (
-     CameraStopResponse, CameraStatusResponse,
+     CameraStopResponse, CameraStatusResponse,CameraResponse
       )
 from app.response.piece_image import (
     CleanupResponse
 )
+from app.service.camera_manager import CameraManager
 
 
 camera_router = APIRouter(
@@ -22,6 +24,17 @@ camera_router = APIRouter(
 
 
 frame_source = FrameSource()
+
+@camera_router.get("/detect", response_model=List[CameraResponse])
+async def detect_cameras():
+    """
+    Detect all available cameras (both regular OpenCV and Basler).
+    """
+    try:
+        available_cameras = CameraManager.detect_cameras()
+        return available_cameras
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to detect cameras: {str(e)}")
 
 
 
