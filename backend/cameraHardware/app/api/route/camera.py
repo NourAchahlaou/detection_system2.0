@@ -8,13 +8,14 @@ from app.service.camera_capture import ImageCapture
 import re
 from app.db.schemas.camera import BaslerCameraRequest, OpenCVCameraRequest
 from app.response.camera import (
-     CameraStopResponse, CameraStatusResponse, CameraResponse, CircuitBreakerStatusResponse
+     CameraStopResponse, CameraStatusResponse, CameraResponse
       )
 from app.response.piece_image import (
     CleanupResponse
 )
 from app.service.camera_manager import CameraManager
 from app.service.circuitBreaker import CircuitBreaker
+from app.response.circuitBreaker import CircuitBreakerStatusResponse
 
 # Create circuit breakers for different camera operations
 opencv_camera_cb = CircuitBreaker(
