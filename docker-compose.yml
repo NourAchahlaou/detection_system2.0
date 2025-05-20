@@ -46,6 +46,8 @@ services:
       - "3000:3000"
     depends_on:
       - user_management
+    extra_hosts:
+      - "host.docker.internal:host-gateway" 
     networks:
       - airvision-net
     volumes:
