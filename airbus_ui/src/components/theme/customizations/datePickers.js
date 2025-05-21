@@ -62,7 +62,7 @@ export const datePickersCustomizations = {
         '&:hover': {
           backgroundColor: (theme.vars || theme).palette.action.hover,
         },
-        [`&.${monthCalendarClasses .selected}`]: {
+        [`&.${monthCalendarClasses.selected}`]: {
           backgroundColor: gray[700],
           fontWeight: theme.typography.fontWeightMedium,
         },
@@ -70,14 +70,14 @@ export const datePickersCustomizations = {
           outline: `3px solid ${alpha(brand[500], 0.5)}`,
           outlineOffset: '2px',
           backgroundColor: 'transparent',
-          [`&.${monthCalendarClasses .selected}`]: { backgroundColor: gray[700] },
+          [`&.${monthCalendarClasses.selected}`]: { backgroundColor: gray[700] },
         },
         ...theme.applyStyles('dark', {
           color: (theme.vars || theme).palette.grey[300],
           '&:hover': {
             backgroundColor: (theme.vars || theme).palette.action.hover,
           },
-          [`&.${monthCalendarClasses .selected}`]: {
+          [`&.${monthCalendarClasses.selected}`]: {
             color: (theme.vars || theme).palette.common.black,
             fontWeight: theme.typography.fontWeightMedium,
             backgroundColor: gray[300],
@@ -86,7 +86,7 @@ export const datePickersCustomizations = {
             outline: `3px solid ${alpha(brand[500], 0.5)}`,
             outlineOffset: '2px',
             backgroundColor: 'transparent',
-            [`&.${monthCalendarClasses .selected}`]: { backgroundColor: gray[300] },
+            [`&.${monthCalendarClasses.selected}`]: { backgroundColor: gray[300] },
           },
         }),
       }),

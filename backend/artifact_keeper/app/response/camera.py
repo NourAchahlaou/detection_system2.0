@@ -8,7 +8,7 @@ class CameraClientResponse(BaseModel):
     caption: str  # Use 'caption' as the model name
     index: Optional[int] = None  # For OpenCV cameras
     serial_number: Optional[str] = None  # For Basler cameras
-
+    
 class CameraStatusResponse(BaseModel):
     camera_opened: bool
     circuit_breaker_active: Optional[bool] = None

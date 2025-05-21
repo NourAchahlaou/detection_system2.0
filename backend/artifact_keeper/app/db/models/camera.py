@@ -4,7 +4,7 @@ from sqlalchemy.orm import relationship
 
 class Camera(Base):
     __tablename__ ='camera'
-    __table_args__ = {"schema": "piece_reg"}
+    __table_args__ = {"schema": "artifact_keeper"}
 
     id=Column(Integer, primary_key=True, index=True)
     camera_index=Column(Integer)
@@ -12,6 +12,6 @@ class Camera(Base):
     serial_number = Column(String, unique=True, nullable=True)  # For industrial cameras
     model = Column(String, index=True)  
     status = Column(Boolean, default='False')
-    settings_id = Column(Integer, ForeignKey('piece_reg.cameraSettings.id'))
+    settings_id = Column(Integer, ForeignKey('artifact_keeper.cameraSettings.id'))
     sittings = relationship("CameraSettings", back_populates="camera")
 

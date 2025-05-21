@@ -13,6 +13,10 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from artifact_keeper.app.db.session import Base
 from artifact_keeper.app.core.settings import get_settings
 
+from artifact_keeper.app.db.models.piece import Piece
+from artifact_keeper.app.db.models.piece_image import PieceImage
+from artifact_keeper.app.db.models.camera import Camera
+from artifact_keeper.app.db.models.camera_settings import CameraSettings
 version_table = "alembic_version_artifact_keeper"
 
 # this is the Alembic Config object, which provides

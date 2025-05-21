@@ -4,7 +4,7 @@ from sqlalchemy.orm import relationship
 
 class CameraSettings (Base):
     __tablename__ = 'cameraSettings'
-    __table_args__ = {"schema": "piece_reg"}
+    __table_args__ = {"schema": "artifact_keeper"}
 
     id = Column(Integer, primary_key=True, index=True)
     exposure = Column(Float)

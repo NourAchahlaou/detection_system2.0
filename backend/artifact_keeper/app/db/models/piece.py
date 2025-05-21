@@ -4,7 +4,7 @@ from artifact_keeper.app.db.session import Base
 
 class Piece(Base):
     __tablename__ = 'piece'
-    __table_args__ = {"schema": "piece_reg"}
+    __table_args__ = {"schema": "artifact_keeper"}
 
     id = Column(Integer, primary_key=True, index=True)
     class_data_id = Column(Integer,default = Null )
@@ -14,4 +14,3 @@ class Piece(Base):
     nbre_img= Column(Integer,default = Null)
 
     piece_img = relationship("PieceImage", back_populates="piece", cascade="all, delete-orphan")
-    documents = relationship("PieceDocument", back_populates="piece", cascade="all, delete-orphan") 

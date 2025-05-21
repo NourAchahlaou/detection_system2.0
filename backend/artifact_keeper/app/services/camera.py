@@ -45,7 +45,7 @@ class CameraService:
                         Camera.camera_index == identifier
                     ).first()
                 if existing_camera:
-                    logger.info(f"Camera {camera.model} already registered in database")
+                    logger.info(f"Camera {model} already registered in database")
                     result.append({
                         "id": existing_camera.id,
                         "type": existing_camera.camera_type,
@@ -70,9 +70,9 @@ class CameraService:
                 # Create new camera
                 new_camera = Camera(
                     camera_type=camera.type,
-                    camera_index=int(camera.identifier) if camera.type == "regular" else None,
-                    serial_number=camera.identifier if camera.type == "basler" else None,
-                    model=camera.model,
+                    camera_index=int(identifier) if camera.type == "regular" else None,
+                    serial_number=identifier if camera.type == "basler" else None,
+                    model=model,
                     status=False,
                     settings_id=settings.id
                 )

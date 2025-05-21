@@ -13,6 +13,12 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from user_management.app.db.session import Base
 from user_management.app.core.settings import get_settings
 
+from user_management.app.db.models.user import User,UserToken
+from user_management.app.db.models.activities import Activity
+from user_management.app.db.models.shift import Shift
+from user_management.app.db.models.workHours import WorkHours
+from user_management.app.db.models.task import Task
+
 version_table = "alembic_version_user_management"
 
 # this is the Alembic Config object, which provides
