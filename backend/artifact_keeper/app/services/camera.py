@@ -22,7 +22,6 @@ class CameraService:
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         logger.info(f"CameraService initialized with hardware service at {hardware_service_url}")
         
-
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:
             logger.info("Starting camera detection process")
@@ -31,36 +30,42 @@ class CameraService:
             
             result = []
             for idx, camera in enumerate(available_cameras):
-                # Convert to dict if it's a Pydantic model, otherwise use as is
-                try:
-                    if hasattr(camera, 'dict'):
-                        camera_dict = camera.dict()
-                        logger.info(f"Camera {idx} converted from Pydantic model to dict: {json.dumps(camera_dict, indent=2)}")
-                    else:
-                        camera_dict = camera
-                        logger.info(f"Camera {idx} is already a dict: {json.dumps(camera_dict, indent=2)}")
-                except Exception as e:
-                    logger.error(f"Error converting camera to dict: {str(e)}")
-                    camera_dict = {}
+                # Log entire camera data for debugging
+                logger.info(f"Processing camera {idx}: {json.dumps(camera, indent=2)}")
                 
-                # Use caption/model for logging
-                model = camera_dict.get('caption', 'Unknown')
+                # Extract camera information
+                camera_type = camera.get('type')
+                model = camera.get('model', 'Unknown')
+                
+                # FIXED: Better settings extraction and validation
+                raw_settings = camera.get('settings', {})
+                logger.info(f"Raw settings received for {model}: {json.dumps(raw_settings, indent=2)}")
+                
+                # Create a proper settings dictionary with default values
+                settings_dict = {}
+                setting_keys = ['exposure', 'contrast', 'brightness', 'focus', 'aperture', 'gain', 'white_balance']
+                
+                if raw_settings and isinstance(raw_settings, dict):
+                    for key in setting_keys:
+                        value = raw_settings.get(key)
+                        if value is not None:
+                            settings_dict[key] = value
+                            logger.info(f"Setting {key} = {value} for camera {model}")
+                
+                logger.info(f"Final settings dict for {model}: {json.dumps(settings_dict, indent=2)}")
                 
                 # Extract identifier based on camera type
                 identifier = None
-                camera_type = camera_dict.get('type')
                 if camera_type == "regular":
-                    identifier = camera_dict.get('index')
+                    identifier = camera.get('camera_index')
                 elif camera_type == "basler":
-                    identifier = camera_dict.get('serial_number')
+                    identifier = camera.get('serial_number')
 
                 logger.info(f"Processing camera: {model}, Type: {camera_type}, ID: {identifier}")
                 
-                # Check for settings directly in the dictionary
-                settings_dict = {}
-                if 'settings' in camera_dict and camera_dict['settings']:
-                    settings_dict = camera_dict['settings']
-                    logger.info(f"Found settings for camera {model}: {json.dumps(settings_dict, indent=2)}")
+                # Check if settings exist and log them
+                if settings_dict:
+                    logger.info(f"Found valid settings for camera {model}: {json.dumps(settings_dict, indent=2)}")
                 else:
                     logger.warning(f"No valid settings found in camera data for {model}")
                 
@@ -90,27 +95,49 @@ class CameraService:
                         
                         if camera_settings:
                             # Update each setting if it exists in the incoming data
-                            for setting_name in ['exposure', 'contrast', 'brightness', 
-                                            'focus', 'aperture', 'gain', 'white_balance']:
-                                if setting_name in settings_dict and settings_dict[setting_name] is not None:
-                                    setattr(camera_settings, setting_name, settings_dict[setting_name])
+                            for setting_name, setting_value in settings_dict.items():
+                                if setting_value is not None:
+                                    setattr(camera_settings, setting_name, setting_value)
+                                    logger.info(f"Updated {setting_name} to {setting_value}")
                             
                             db.commit()
                             db.refresh(camera_settings)
-                            logger.info(f"Updated settings for camera {existing_camera.id}: {camera_settings.__dict__}")
+                            logger.info(f"Updated settings for camera {existing_camera.id}")
+                    
+                    # FIXED: Return the actual settings from database, not the incoming dict
+                    current_settings = {}
+                    if existing_camera.settings_id:
+                        camera_settings = db.query(CameraSettings).filter(
+                            CameraSettings.id == existing_camera.settings_id
+                        ).first()
+                        if camera_settings:
+                            current_settings = {
+                                'exposure': camera_settings.exposure,
+                                'contrast': camera_settings.contrast,
+                                'brightness': camera_settings.brightness,
+                                'focus': camera_settings.focus,
+                                'aperture': camera_settings.aperture,
+                                'gain': camera_settings.gain,
+                                'white_balance': camera_settings.white_balance
+                            }
+                            # Remove None values
+                            current_settings = {k: v for k, v in current_settings.items() if v is not None}
                     
                     result.append({
                         "id": existing_camera.id,
                         "camera_index": existing_camera.camera_index,
+                        "serial_number": existing_camera.serial_number,
                         "type": existing_camera.camera_type,
                         "model": existing_camera.model,
-                        "settings": settings_dict,  # Include settings in response
+                        "settings": current_settings,  # Return actual DB settings
                         "status": "already_exists"
                     })
                     continue
                 
                 # Create new camera settings
                 logger.info(f"Creating new camera settings with values: {json.dumps(settings_dict, indent=2)}")
+                
+                # FIXED: Explicitly set each setting with proper None handling
                 settings = CameraSettings(
                     exposure=settings_dict.get('exposure'),
                     contrast=settings_dict.get('contrast'),
@@ -122,7 +149,16 @@ class CameraService:
                 )
                 
                 # Log the settings object being created
-                logger.info(f"Creating settings object with values: {settings.__dict__}")
+                settings_values = {
+                    'exposure': settings.exposure,
+                    'contrast': settings.contrast,
+                    'brightness': settings.brightness,
+                    'focus': settings.focus,
+                    'aperture': settings.aperture,
+                    'gain': settings.gain,
+                    'white_balance': settings.white_balance
+                }
+                logger.info(f"Creating settings object with values: {json.dumps(settings_values, indent=2)}")
                 
                 db.add(settings)
                 db.flush()
@@ -141,13 +177,17 @@ class CameraService:
                 db.refresh(new_camera)
                 
                 logger.info(f"New camera registered: {new_camera.model} (ID: {new_camera.id}) with settings_id: {settings.id}")
+                
+                # FIXED: Return the actual created settings, not the input dict
+                created_settings = {k: v for k, v in settings_values.items() if v is not None}
+                
                 result.append({
                     "id": new_camera.id,
                     "camera_index": new_camera.camera_index,
                     "serial_number": new_camera.serial_number,
                     "type": new_camera.camera_type,
                     "model": new_camera.model,
-                    "settings": settings_dict,  # Include settings in response for verification
+                    "settings": created_settings,  # Return actual created settings
                     "status": "new"
                 })
             
@@ -161,8 +201,8 @@ class CameraService:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to detect cameras: {str(e)}")
-            
+            raise HTTPException(status_code=500, detail=f"Failed to detect cameras: {str(e)}") 
+                    
     def get_all_cameras(self, db: Session) -> List[Camera]:
         """Get all registered cameras from the database."""
         return db.query(Camera).all()
