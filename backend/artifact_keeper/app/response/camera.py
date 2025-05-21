@@ -4,10 +4,10 @@ from pydantic import BaseModel
 
 
 class CameraClientResponse(BaseModel):
-    id: int
-    type: str
-    identifier: str  # Either camera_index or serial_number
-    model: str
+    type: str  # 'regular' or 'basler'
+    caption: str  # Use 'caption' as the model name
+    index: Optional[int] = None  # For OpenCV cameras
+    serial_number: Optional[str] = None  # For Basler cameras
 
 class CameraStatusResponse(BaseModel):
     camera_opened: bool

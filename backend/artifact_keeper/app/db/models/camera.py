@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, String, Column,Integer,ForeignKey
-from db.session import Base
+from artifact_keeper.app.db.session import Base
 from sqlalchemy.orm import relationship
 
 class Camera(Base):

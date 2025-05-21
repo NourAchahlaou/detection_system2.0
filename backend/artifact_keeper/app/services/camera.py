@@ -23,27 +23,27 @@ class CameraService:
         logger.info(f"CameraService initialized with hardware service at {hardware_service_url}")
     
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
-        """Detect available cameras and save them to the database."""
         try:
-            # Get cameras from hardware service
             available_cameras = self.hardware_client.detect_cameras()
             logger.info(f"Detected {len(available_cameras)} cameras")
             
             result = []
             for camera in available_cameras:
-                # Check if camera already exists in database
+                # Use 'caption' as model name
+                model = camera.caption
+                identifier = camera.index if camera.type == "regular" else camera.serial_number
+                
                 existing_camera = None
-                if camera.type == "basler" and camera.identifier:
+                if camera.type == "basler" and identifier:
                     existing_camera = db.query(Camera).filter(
                         Camera.camera_type == "basler",
-                        Camera.serial_number == camera.identifier
+                        Camera.serial_number == identifier
                     ).first()
-                elif camera.type == "regular" and camera.identifier:
+                elif camera.type == "regular" and identifier is not None:
                     existing_camera = db.query(Camera).filter(
                         Camera.camera_type == "regular", 
-                        Camera.camera_index == int(camera.identifier)
+                        Camera.camera_index == identifier
                     ).first()
-                
                 if existing_camera:
                     logger.info(f"Camera {camera.model} already registered in database")
                     result.append({
