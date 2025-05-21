@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi import HTTPException
 import logging
-
+import json
 from artifact_keeper.app.services.hardwareServiceClient import CameraClient
 from artifact_keeper.app.db.models.camera_settings import CameraSettings
 from artifact_keeper.app.db.models.piece import Piece
@@ -21,57 +21,117 @@ class CameraService:
     def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         logger.info(f"CameraService initialized with hardware service at {hardware_service_url}")
-    
+        
+
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:
+            logger.info("Starting camera detection process")
             available_cameras = self.hardware_client.detect_cameras()
             logger.info(f"Detected {len(available_cameras)} cameras")
             
             result = []
-            for camera in available_cameras:
-                # Use 'caption' as model name
-                model = camera.caption
-                identifier = camera.index if camera.type == "regular" else camera.serial_number
+            for idx, camera in enumerate(available_cameras):
+                # Convert to dict if it's a Pydantic model, otherwise use as is
+                try:
+                    if hasattr(camera, 'dict'):
+                        camera_dict = camera.dict()
+                        logger.info(f"Camera {idx} converted from Pydantic model to dict: {json.dumps(camera_dict, indent=2)}")
+                    else:
+                        camera_dict = camera
+                        logger.info(f"Camera {idx} is already a dict: {json.dumps(camera_dict, indent=2)}")
+                except Exception as e:
+                    logger.error(f"Error converting camera to dict: {str(e)}")
+                    camera_dict = {}
                 
+                # Use caption/model for logging
+                model = camera_dict.get('caption', 'Unknown')
+                
+                # Extract identifier based on camera type
+                identifier = None
+                camera_type = camera_dict.get('type')
+                if camera_type == "regular":
+                    identifier = camera_dict.get('index')
+                elif camera_type == "basler":
+                    identifier = camera_dict.get('serial_number')
+
+                logger.info(f"Processing camera: {model}, Type: {camera_type}, ID: {identifier}")
+                
+                # Check for settings directly in the dictionary
+                settings_dict = {}
+                if 'settings' in camera_dict and camera_dict['settings']:
+                    settings_dict = camera_dict['settings']
+                    logger.info(f"Found settings for camera {model}: {json.dumps(settings_dict, indent=2)}")
+                else:
+                    logger.warning(f"No valid settings found in camera data for {model}")
+                
+                # Get existing camera if any
                 existing_camera = None
-                if camera.type == "basler" and identifier:
+                if camera_type == "basler" and identifier:
                     existing_camera = db.query(Camera).filter(
                         Camera.camera_type == "basler",
                         Camera.serial_number == identifier
                     ).first()
-                elif camera.type == "regular" and identifier is not None:
+                elif camera_type == "regular" and identifier is not None:
                     existing_camera = db.query(Camera).filter(
                         Camera.camera_type == "regular", 
                         Camera.camera_index == identifier
                     ).first()
+                
                 if existing_camera:
-                    logger.info(f"Camera {model} already registered in database")
+                    logger.info(f"Camera {model} already registered in database with ID: {existing_camera.id}")
+                    
+                    # Update existing camera settings if they exist
+                    if settings_dict:
+                        logger.info(f"Updating settings for existing camera: {json.dumps(settings_dict, indent=2)}")
+                        
+                        camera_settings = db.query(CameraSettings).filter(
+                            CameraSettings.id == existing_camera.settings_id
+                        ).first()
+                        
+                        if camera_settings:
+                            # Update each setting if it exists in the incoming data
+                            for setting_name in ['exposure', 'contrast', 'brightness', 
+                                            'focus', 'aperture', 'gain', 'white_balance']:
+                                if setting_name in settings_dict and settings_dict[setting_name] is not None:
+                                    setattr(camera_settings, setting_name, settings_dict[setting_name])
+                            
+                            db.commit()
+                            db.refresh(camera_settings)
+                            logger.info(f"Updated settings for camera {existing_camera.id}: {camera_settings.__dict__}")
+                    
                     result.append({
                         "id": existing_camera.id,
+                        "camera_index": existing_camera.camera_index,
                         "type": existing_camera.camera_type,
                         "model": existing_camera.model,
+                        "settings": settings_dict,  # Include settings in response
                         "status": "already_exists"
                     })
                     continue
                 
                 # Create new camera settings
+                logger.info(f"Creating new camera settings with values: {json.dumps(settings_dict, indent=2)}")
                 settings = CameraSettings(
-                    exposure=None,
-                    contrast=None,
-                    brightness=None,
-                    focus=None,
-                    aperture=None,
-                    gain=None,
-                    white_balance=None
+                    exposure=settings_dict.get('exposure'),
+                    contrast=settings_dict.get('contrast'),
+                    brightness=settings_dict.get('brightness'),
+                    focus=settings_dict.get('focus'),
+                    aperture=settings_dict.get('aperture'),
+                    gain=settings_dict.get('gain'),
+                    white_balance=settings_dict.get('white_balance')
                 )
+                
+                # Log the settings object being created
+                logger.info(f"Creating settings object with values: {settings.__dict__}")
+                
                 db.add(settings)
                 db.flush()
                 
                 # Create new camera
                 new_camera = Camera(
-                    camera_type=camera.type,
-                    camera_index=int(identifier) if camera.type == "regular" else None,
-                    serial_number=identifier if camera.type == "basler" else None,
+                    camera_type=camera_type,
+                    camera_index=int(identifier) if camera_type == "regular" and identifier is not None else None,
+                    serial_number=identifier if camera_type == "basler" else None,
                     model=model,
                     status=False,
                     settings_id=settings.id
@@ -80,11 +140,14 @@ class CameraService:
                 db.commit()
                 db.refresh(new_camera)
                 
-                logger.info(f"New camera registered: {new_camera.model} (ID: {new_camera.id})")
+                logger.info(f"New camera registered: {new_camera.model} (ID: {new_camera.id}) with settings_id: {settings.id}")
                 result.append({
                     "id": new_camera.id,
+                    "camera_index": new_camera.camera_index,
+                    "serial_number": new_camera.serial_number,
                     "type": new_camera.camera_type,
                     "model": new_camera.model,
+                    "settings": settings_dict,  # Include settings in response for verification
                     "status": "new"
                 })
             
@@ -95,9 +158,11 @@ class CameraService:
             raise HTTPException(status_code=503, detail="Hardware service unavailable")
         except Exception as e:
             logger.error(f"Error detecting cameras: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             db.rollback()
             raise HTTPException(status_code=500, detail=f"Failed to detect cameras: {str(e)}")
-    
+            
     def get_all_cameras(self, db: Session) -> List[Camera]:
         """Get all registered cameras from the database."""
         return db.query(Camera).all()

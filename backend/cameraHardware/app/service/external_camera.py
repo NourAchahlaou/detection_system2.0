@@ -88,7 +88,7 @@ def get_available_cameras() -> List[Dict]:
         if camera_type == "opencv":
             opencv_cameras_found = True
             available_cameras.append({
-                "type": "opencv",
+                "type": "regular",
                 "index": index,
                 "caption": camera["Caption"]
             })

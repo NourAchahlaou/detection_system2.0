@@ -24,6 +24,7 @@ class CameraResponse(BaseModel):
     serial_number: Optional[str] = None
     model: str
     status: bool
+    settings: Optional[dict] = None  # Placeholder for camera settings
 
     class Config:
         orm_mode = True

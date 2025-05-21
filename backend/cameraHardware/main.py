@@ -30,10 +30,6 @@ async def startup_event():
 
     CameraManager.detect_cameras()
    
-    cameras = get_available_cameras()
-    print("Available Cameras:")
-    for camera in cameras:
-        print(camera)
 
 
 
