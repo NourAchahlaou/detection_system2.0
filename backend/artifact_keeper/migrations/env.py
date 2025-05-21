@@ -10,10 +10,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Import your models and database configuration
-from user_management.app.db.session import Base
-from user_management.app.core.settings import get_settings
+from artifact_keeper.app.db.session import Base
+from artifact_keeper.app.core.settings import get_settings
 
-version_table = "alembic_version_user_management"
+version_table = "alembic_version_artifact_keeper"
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -34,7 +34,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Add under the imports
-SCHEMA_NAME = "user_mgmt"  # Unique schema for this service  
+SCHEMA_NAME = "artifact_keeper"  # Unique schema for this service  
 
 # This is the key function that determines what's included in migrations
 def include_object(object, name, type_, reflected, compare_to):

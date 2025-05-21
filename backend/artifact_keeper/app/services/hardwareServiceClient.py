@@ -2,7 +2,7 @@ from typing import Dict, List, Any
 import requests
 import logging
 
-from ArtifactKeeper.app.response.camera import CameraClientResponse, CameraStatusResponse
+from artifact_keeper.app.response.camera import CameraClientResponse, CameraStatusResponse
 
 
 logger = logging.getLogger(__name__)

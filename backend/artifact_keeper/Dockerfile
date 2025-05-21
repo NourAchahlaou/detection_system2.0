@@ -12,16 +12,16 @@ RUN apt-get update && apt-get install -y postgresql-client ca-certificates && rm
 COPY ./requirements.txt /usr/srv/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-COPY . /usr/srv/ArtifactKeeper
-RUN mkdir -p /usr/srv/ArtifactKeeper/migrations
-RUN chmod 755 /usr/srv/ArtifactKeeper/entrypoint.sh
+COPY . /usr/srv/artifact_keeper
+RUN mkdir -p /usr/srv/artifact_keeper/migrations
+RUN chmod 755 /usr/srv/artifact_keeper/entrypoint.sh
 RUN chown -R ubuntu:ubuntu /usr/srv
 
 # Verify that the entrypoint file exists and has correct permissions
-RUN ls -la /usr/srv/ArtifactKeeper/entrypoint.sh
+RUN ls -la /usr/srv/artifact_keeper/entrypoint.sh
 
 USER ubuntu
 
 EXPOSE 8000
 
-ENTRYPOINT ["/usr/srv/ArtifactKeeper/entrypoint.sh"]
+ENTRYPOINT ["/usr/srv/artifact_keeper/entrypoint.sh"]

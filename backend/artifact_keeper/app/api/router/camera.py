@@ -3,16 +3,16 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Annotated
 import logging
-
-from ArtifactKeeper.app.db.session import get_session
-from ArtifactKeeper.app.services.camera import CameraService
-from ArtifactKeeper.app.request.camera import (
+from artifact_keeper.app.db.models.camera_settings import CameraSettings
+from artifact_keeper.app.db.session import get_session
+from artifact_keeper.app.services.camera import CameraService
+from artifact_keeper.app.request.camera import (
     OpenCVCameraRequest,
     BaslerCameraRequest,
     CameraIDRequest,
     UpdateCameraSettings,
 )
-from ArtifactKeeper.app.response.camera import (
+from artifact_keeper.app.response.camera import (
 
     CameraResponse,
     CameraStatusResponse,
@@ -21,15 +21,15 @@ from ArtifactKeeper.app.response.camera import (
     CleanupResponse,
     CircuitBreakerStatusResponse,
 )
-from ArtifactKeeper.app.response.piece import (
+from artifact_keeper.app.response.piece import (
     PieceResponse
 )
 
-from ArtifactKeeper.app.request.piece import (
+from artifact_keeper.app.request.piece import (
     SaveImagesRequest,
 )
 
-router = APIRouter(
+camera_router = APIRouter(
     prefix="/camera",
     tags=["Camera"],
     responses={404: {"description": "Not found"}},
@@ -41,7 +41,7 @@ camera_service = CameraService()
 # Database dependency
 db_dependency = Annotated[Session, Depends(get_session)]
 
-@router.get("/detect", response_model=List[Dict[str, Any]])
+@camera_router.get("/detect", response_model=List[Dict[str, Any]])
 async def detect_cameras(db: db_dependency):
     """
     Detect all available cameras (both regular OpenCV and Basler) and save to database.
@@ -49,7 +49,7 @@ async def detect_cameras(db: db_dependency):
     logger.info("Detecting cameras")
     return camera_service.detect_and_save_cameras(db)
 
-@router.get("/cameras", response_model=List[CameraResponse])
+@camera_router.get("/cameras", response_model=List[CameraResponse])
 async def get_all_cameras(db: db_dependency):
     """
     Get all registered cameras from the database.
@@ -57,35 +57,35 @@ async def get_all_cameras(db: db_dependency):
     cameras = camera_service.get_all_cameras(db)
     return cameras
 
-@router.get("/cameras/{camera_id}", response_model=CameraWithSettingsResponse)
+@camera_router.get("/cameras/{camera_id}", response_model=CameraWithSettingsResponse)
 async def get_camera_by_id(camera_id: int, db: db_dependency):
     """
     Get a camera by its ID.
     """
     return camera_service.get_camera_by_id(db, camera_id)
 
-@router.post("/start", response_model=Dict[str, str])
+@camera_router.post("/start", response_model=Dict[str, str])
 async def start_camera(request: CameraIDRequest, db: db_dependency):
     """
     Start a camera by its ID.
     """
     return camera_service.start_camera(db, request.camera_id)
 
-@router.post("/stop", response_model=CameraStopResponse)
+@camera_router.post("/stop", response_model=CameraStopResponse)
 async def stop_camera(db: db_dependency):
     """
     Stop the currently running camera.
     """
     return camera_service.stop_camera(db)
 
-@router.get("/check_camera", response_model=CameraStatusResponse)
+@camera_router.get("/check_camera", response_model=CameraStatusResponse)
 async def check_camera():
     """
     Check if the camera is running.
     """
     return camera_service.check_camera()
 
-@router.get("/capture_images/{piece_label}")
+@camera_router.get("/capture_images/{piece_label}")
 async def capture_images(piece_label: str):
     """
     Capture images for a piece.
@@ -93,27 +93,27 @@ async def capture_images(piece_label: str):
     image_content = camera_service.capture_images(piece_label)
     return Response(content=image_content, media_type="image/jpeg")
 
-@router.post("/cleanup-temp-photos", response_model=CleanupResponse)
+@camera_router.post("/cleanup-temp-photos", response_model=CleanupResponse)
 async def cleanup_temp_photos():
     """
     Clean up temporary photos.
     """
     return camera_service.cleanup_temp_photos()
 
-@router.post("/save-images", response_model=Dict[str, str])
+@camera_router.post("/save-images", response_model=Dict[str, str])
 async def save_images(request: SaveImagesRequest, db: db_dependency):
     """
     Save captured images to the database.
     """
     return camera_service.save_images_to_database(db, request.piece_label)
 
-@router.get("/pieces/{piece_label}", response_model=PieceResponse)
+@camera_router.get("/pieces/{piece_label}", response_model=PieceResponse)
 async def get_piece_by_label(piece_label: str, db: db_dependency):
     """
     Get a piece by its label.
     """
     from sqlalchemy.orm import joinedload
-    from ArtifactKeeper.app.db.models.piece import Piece
+    from artifact_keeper.app.db.models.piece import Piece
     
     piece = db.query(Piece).filter(Piece.piece_label == piece_label).options(
         joinedload(Piece.images)
@@ -124,13 +124,13 @@ async def get_piece_by_label(piece_label: str, db: db_dependency):
     
     return piece
 
-@router.get("/pieces", response_model=List[PieceResponse])
+@camera_router.get("/pieces", response_model=List[PieceResponse])
 async def get_all_pieces(db: db_dependency, skip: int = 0, limit: int = 100):
     """
     Get all pieces.
     """
     from sqlalchemy.orm import joinedload
-    from ArtifactKeeper.app.db.models.piece import Piece
+    from artifact_keeper.app.db.models.piece import Piece
     
     pieces = db.query(Piece).options(
         joinedload(Piece.images)
@@ -138,14 +138,14 @@ async def get_all_pieces(db: db_dependency, skip: int = 0, limit: int = 100):
     
     return pieces
 
-@router.get("/circuit-breaker-status", response_model=Dict[str, CircuitBreakerStatusResponse])
+@camera_router.get("/circuit-breaker-status", response_model=Dict[str, CircuitBreakerStatusResponse])
 async def get_circuit_breaker_status():
     """
     Get the status of all circuit breakers.
     """
     return camera_service.get_circuit_breaker_status()
 
-@router.post("/reset-circuit-breaker/{breaker_name}", response_model=Dict[str, str])
+@camera_router.post("/reset-circuit-breaker/{breaker_name}", response_model=Dict[str, str])
 async def reset_circuit_breaker(breaker_name: str):
     """
     Reset a specific circuit breaker.
@@ -153,7 +153,7 @@ async def reset_circuit_breaker(breaker_name: str):
     return camera_service.reset_circuit_breaker(breaker_name)
 
 # Video feed endpoint - this will proxy the video feed from the hardware service
-@router.get("/video_feed")
+@camera_router.get("/video_feed")
 async def video_feed():
     """
     Stream video from the hardware service.
@@ -176,7 +176,7 @@ async def video_feed():
         logger.error(f"Error streaming video feed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to stream video feed: {str(e)}")
 
-@router.put("/settings/{camera_id}", response_model=CameraWithSettingsResponse)
+@camera_router.put("/settings/{camera_id}", response_model=CameraWithSettingsResponse)
 async def update_camera_settings(
     camera_id: int, 
     settings: UpdateCameraSettings,

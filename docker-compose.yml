@@ -18,10 +18,10 @@ services:
       - ./backend/user_management:/usr/srv/user_management
       - ./.env:/usr/srv/.env
 
-  ArtifactKeeper:
-    container_name: artifactKeeper
+  artifact_keeper:
+    container_name: artifact_keeper
     build:
-      context: ./backend/ArtifactKeeper
+      context: ./backend/artifact_keeper
     env_file:
       - ./.env
     ports:
@@ -33,7 +33,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/ArtifactKeeper:/usr/srv/ArtifactKeeper
+      - ./backend/artifact_keeper:/usr/srv/artifact_keeper
       - ./.env:/usr/srv/.env
 
   databasePostgres:
@@ -83,7 +83,7 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - user_management
-      - ArtifactKeeper
+      - artifact_keeper
       - airbus_ui
     networks:
       - airvision-net

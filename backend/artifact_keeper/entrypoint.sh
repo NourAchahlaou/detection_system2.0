@@ -3,7 +3,7 @@ set -e
 
 # Load environment variables from .env file
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs -d '\n')
+    export $(grep -v '^#' .env | tr -d '\r' | xargs -0)
     echo "Loaded environment variables from .env file"
 else
     echo "No .env file found, using existing environment variables"
@@ -36,8 +36,8 @@ while [ $RETRIES -lt $MAX_RETRIES ]; do
     echo "Attempt $RETRIES: Checking if database is ready..."
     
     # Use PGPASSWORD environment variable for pg_isready
-    export PGPASSWORD=$DB_PASSWORD
-    if pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME -p $DB_PORT; then
+    export PGPASSWORD="$DB_PASSWORD"
+    if pg_isready -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -p "$DB_PORT"; then
         echo "Database is ready!"
         break
     fi
@@ -62,13 +62,13 @@ if [ -z "$DB_PASSWORD" ]; then
 fi
 
 # Use PGPASSWORD environment variable and make sure it's exported
-export PGPASSWORD=$DB_PASSWORD
-psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "CREATE SCHEMA IF NOT EXISTS artifact_keeper;"
+export PGPASSWORD="$DB_PASSWORD"
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "CREATE SCHEMA IF NOT EXISTS artifact_keeper;"
 
 echo "Schemas created successfully!"
 
 # Go to the directory where alembic.ini exists
-cd /usr/srv/ArtifactKeeper
+cd /usr/srv/artifact_keeper
 
 # Only apply existing migrations
 alembic upgrade head || echo "Migration failed, but continuing startup"
@@ -77,4 +77,4 @@ cd ..
 
 # Start the application
 echo "Starting application"
-exec uvicorn ArtifactKeeper.app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn artifact_keeper.app.main:app --host 0.0.0.0 --port 8000 --reload

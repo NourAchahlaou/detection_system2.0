@@ -5,11 +5,11 @@ from sqlalchemy import func
 from fastapi import HTTPException
 import logging
 
-from ArtifactKeeper.app.services.hardwareServiceClient import CameraClient
-from ArtifactKeeper.app.db.models.camera_settings import CameraSettings
-from ArtifactKeeper.app.db.models.piece import Piece
-from ArtifactKeeper.app.db.models.piece_image import PieceImage
-from ArtifactKeeper.app.db.models.camera import Camera
+from artifact_keeper.app.services.hardwareServiceClient import CameraClient
+from artifact_keeper.app.db.models.camera_settings import CameraSettings
+from artifact_keeper.app.db.models.piece import Piece
+from artifact_keeper.app.db.models.piece_image import PieceImage
+from artifact_keeper.app.db.models.camera import Camera
 logger = logging.getLogger(__name__)
 
 class CameraService:
