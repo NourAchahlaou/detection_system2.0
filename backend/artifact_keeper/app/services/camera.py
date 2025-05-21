@@ -118,7 +118,7 @@ class CameraService:
                         "type": existing_camera.camera_type,
                         "model": existing_camera.model,
                         "settings": current_settings,  # Return actual DB settings
-                        "status": "already_exists"
+                        "status": False
                     })
                     continue
                 
@@ -173,7 +173,7 @@ class CameraService:
                     "type": new_camera.camera_type,
                     "model": new_camera.model,
                     "settings": created_settings,  # Return actual created settings
-                    "status": "new"
+                    "status": False
                 })
             
             return result
