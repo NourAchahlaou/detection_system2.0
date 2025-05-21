@@ -22,7 +22,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+@app.on_event("startup")
+async def startup_event():
+    from artifact_keeper.app.services.camera import CameraService
+    # Initialize camera manager and detect cameras
+    CameraService.test_camera_detection()
 
 @app.get("/")
 async def root():

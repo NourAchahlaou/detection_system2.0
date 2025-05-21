@@ -7,6 +7,7 @@ class CameraResponse(BaseModel):
     caption: str
     index: Optional[int] = None
     device: Optional[dict] = None
+    settings : Optional[dict] = None
 
 
 class CameraStopResponse(BaseModel):

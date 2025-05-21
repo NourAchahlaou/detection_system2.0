@@ -39,50 +39,52 @@ class CameraClient:
             
             # Log the raw response for debugging
             raw_data = response.json()
-            logger.info(f"Raw camera detection response: {json.dumps(raw_data, indent=2)}")
             
             cameras = []
-            for camera_data in raw_data:
-                # Map field names to match what CameraService expects
+            for idx, camera_data in enumerate(raw_data):
+
+                # CRITICAL FIX: The hardware service returns different field names
+                # Hardware service returns: "caption", "index"  
+                # We need to map to: "model", "camera_index"
+                
                 camera_info = {
-                    "type": camera_data.get("type"),  # Keep type (regular/basler)
-                    "model": camera_data.get("caption"),  # Map caption -> model
+                    "type": camera_data.get("type"),
+                    "model": camera_data.get("caption"),  # Map "caption" -> "model"
                 }
                 
                 # Handle camera type-specific fields
                 if camera_info["type"] == "regular":
-                    camera_info["camera_index"] = camera_data.get("index")
+                    camera_info["camera_index"] = camera_data.get("index")  # Map "index" -> "camera_index"
                 elif camera_info["type"] == "basler":
                     camera_info["serial_number"] = camera_data.get("serial_number")
                 
-                # Process settings - this is the critical fix
-                raw_settings = camera_data.get("settings", {})
-                if raw_settings:
-                    logger.info(f"Found settings for camera {camera_info['model']}: {json.dumps(raw_settings, indent=2)}")
-                    
-                    # Filter out non-database settings (width, height, fps) and keep only camera control settings
+                # CRITICAL FIX: Process settings from hardware service
+                hardware_settings = camera_data.get("settings", {})
+                
+                if hardware_settings and isinstance(hardware_settings, dict):
+                    # Filter out non-database settings (width, height, fps) 
+                    # and keep only camera control settings
                     filtered_settings = {}
                     db_setting_keys = ['exposure', 'contrast', 'brightness', 'focus', 'aperture', 'gain', 'white_balance']
                     
                     for key in db_setting_keys:
-                        if key in raw_settings and raw_settings[key] is not None:
-                            filtered_settings[key] = raw_settings[key]
+                        if key in hardware_settings and hardware_settings[key] is not None:
+                            filtered_settings[key] = hardware_settings[key]
+                            logger.info(f"  - Mapped setting {key}: {hardware_settings[key]}")
                     
                     camera_info["settings"] = filtered_settings
-                    logger.info(f"Filtered settings for camera {camera_info['model']}: {json.dumps(filtered_settings, indent=2)}")
                 else:
-                    logger.warning(f"No valid settings found for camera {camera_info['model']}")
+                    logger.warning(f"  - No valid settings found for camera {camera_info.get('model', 'unknown')}")
                     camera_info["settings"] = {}
                 
                 cameras.append(camera_info)
-                logger.info(f"Processed camera data: {json.dumps(camera_info, indent=2)}")
                 
             return cameras
             
         except requests.RequestException as e:
             logger.error(f"Error detecting cameras from hardware service: {str(e)}")
             raise ConnectionError(f"Failed to connect to hardware service: {str(e)}")
-   
+
     # Other methods remain the same
     def start_opencv_camera(self, camera_index: int):
         """Start OpenCV camera."""

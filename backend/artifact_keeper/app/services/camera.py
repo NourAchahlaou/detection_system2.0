@@ -20,27 +20,20 @@ class CameraService:
     
     def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
-        logger.info(f"CameraService initialized with hardware service at {hardware_service_url}")
-        
+
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:
-            logger.info("Starting camera detection process")
             available_cameras = self.hardware_client.detect_cameras()
-            logger.info(f"Detected {len(available_cameras)} cameras")
-            
+          
             result = []
             for idx, camera in enumerate(available_cameras):
-                # Log entire camera data for debugging
-                logger.info(f"Processing camera {idx}: {json.dumps(camera, indent=2)}")
-                
+
                 # Extract camera information
                 camera_type = camera.get('type')
                 model = camera.get('model', 'Unknown')
                 
                 # FIXED: Better settings extraction and validation
                 raw_settings = camera.get('settings', {})
-                logger.info(f"Raw settings received for {model}: {json.dumps(raw_settings, indent=2)}")
-                
                 # Create a proper settings dictionary with default values
                 settings_dict = {}
                 setting_keys = ['exposure', 'contrast', 'brightness', 'focus', 'aperture', 'gain', 'white_balance']
@@ -51,18 +44,14 @@ class CameraService:
                         if value is not None:
                             settings_dict[key] = value
                             logger.info(f"Setting {key} = {value} for camera {model}")
-                
-                logger.info(f"Final settings dict for {model}: {json.dumps(settings_dict, indent=2)}")
-                
+                      
                 # Extract identifier based on camera type
                 identifier = None
                 if camera_type == "regular":
                     identifier = camera.get('camera_index')
                 elif camera_type == "basler":
                     identifier = camera.get('serial_number')
-
-                logger.info(f"Processing camera: {model}, Type: {camera_type}, ID: {identifier}")
-                
+               
                 # Check if settings exist and log them
                 if settings_dict:
                     logger.info(f"Found valid settings for camera {model}: {json.dumps(settings_dict, indent=2)}")
@@ -87,7 +76,6 @@ class CameraService:
                     
                     # Update existing camera settings if they exist
                     if settings_dict:
-                        logger.info(f"Updating settings for existing camera: {json.dumps(settings_dict, indent=2)}")
                         
                         camera_settings = db.query(CameraSettings).filter(
                             CameraSettings.id == existing_camera.settings_id
@@ -134,8 +122,7 @@ class CameraService:
                     })
                     continue
                 
-                # Create new camera settings
-                logger.info(f"Creating new camera settings with values: {json.dumps(settings_dict, indent=2)}")
+
                 
                 # FIXED: Explicitly set each setting with proper None handling
                 settings = CameraSettings(
@@ -158,7 +145,6 @@ class CameraService:
                     'gain': settings.gain,
                     'white_balance': settings.white_balance
                 }
-                logger.info(f"Creating settings object with values: {json.dumps(settings_values, indent=2)}")
                 
                 db.add(settings)
                 db.flush()
@@ -176,7 +162,6 @@ class CameraService:
                 db.commit()
                 db.refresh(new_camera)
                 
-                logger.info(f"New camera registered: {new_camera.model} (ID: {new_camera.id}) with settings_id: {settings.id}")
                 
                 # FIXED: Return the actual created settings, not the input dict
                 created_settings = {k: v for k, v in settings_values.items() if v is not None}
