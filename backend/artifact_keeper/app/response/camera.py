@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class CameraClientResponse(BaseModel):
@@ -16,37 +16,28 @@ class CameraStatusResponse(BaseModel):
 class CleanupResponse(BaseModel):
     message: str
 
-
-class CameraResponse(BaseModel):
-    id: int
-    camera_type: str
-    camera_index: Optional[int] = None
-    serial_number: Optional[str] = None
-    model: str
-    status: bool
-    settings: Optional[dict] = None  # Placeholder for camera settings
-
-    class Config:
-        orm_mode = True
-
 class CameraSettingsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # This replaces orm_mode = True
+    
     id: int
     exposure: Optional[float] = None
     contrast: Optional[float] = None
     brightness: Optional[float] = None
     focus: Optional[float] = None
     aperture: Optional[float] = None
-    gain: Optional[float] = None
-    white_balance: Optional[float] = None
+    gain: Optional[float] = None  # Changed from float to match your DB model
+    white_balance: Optional[str] = None  # Changed from float to str
 
-    class Config:
-        orm_mode = True
-
-class CameraWithSettingsResponse(CameraResponse):
-    settings: CameraSettingsResponse
-
-    class Config:
-        orm_mode = True
+class CameraResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    camera_type: str
+    camera_index: Optional[int] = None
+    serial_number: Optional[str] = None
+    model: str
+    status: bool
+    settings: Optional[CameraSettingsResponse] = None 
 
 class CameraStatusResponse(BaseModel):
     camera_opened: bool

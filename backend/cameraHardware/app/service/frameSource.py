@@ -19,7 +19,7 @@ class FrameSource:
         self.cam_id = cam_id
         self.capture = None
         self.detection_service = None
-        self.temp_photos = []  # To keep track of temporary photos
+       # To keep track of temporary photos
         self.basler_camera = None
         self.type= None
         self.confidence_threshold = 0.5  # Set the confidence threshold

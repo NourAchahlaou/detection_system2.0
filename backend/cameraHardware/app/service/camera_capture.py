@@ -11,7 +11,7 @@ class ImageCapture:
     Handles image capturing, storage, and database operations for pieces.
     """
 
-    def capture_images(self, frame_source, save_folder: str, url: str, piece_label: str):
+    def capture_images(self, frame_source, save_folder: str, piece_label: str):
         """
         Captures an image from the camera, resizes it to 1920x1152, and saves it with the specified naming format.
         """
@@ -42,30 +42,14 @@ class ImageCapture:
         frame = cv2.resize(frame, (1920, 1152))
 
         # Generate a filename based on the current time
-        timestamp = datetime.now()
         image_count = len(frame_source.temp_photos) + 1  # Get the current image count
         image_name = f"{piece_label}_{image_count}.jpg"  # Use the required naming format
         file_path = os.path.join(save_folder, image_name)
-        photo_url = os.path.join(url, image_name)
 
         # Save the frame as an image file
         cv2.imwrite(file_path, frame)
 
-        # Store the captured photo in a temporary list
-        frame_source.temp_photos.append({
-            'piece_label': piece_label,
-            'file_path': file_path,
-            'timestamp': timestamp,
-            'url': photo_url,
-            'image_name': image_name
-        })
-
-        # Limit the number of captured photos to 10
-        if len(frame_source.temp_photos) > 10:
-            raise SystemError("Already 10 pictures captured.")
-        
-        print(f"Captured {len(frame_source.temp_photos)} photo(s) so far.")
-        return frame
+        return frame 
 
     def cleanup_temp_photos(self, frame_source):
         """

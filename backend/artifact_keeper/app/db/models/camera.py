@@ -13,5 +13,5 @@ class Camera(Base):
     model = Column(String, index=True)  
     status = Column(Boolean, default='False')
     settings_id = Column(Integer, ForeignKey('artifact_keeper.cameraSettings.id'))
-    sittings = relationship("CameraSettings", back_populates="camera")
+    settings = relationship("CameraSettings", back_populates="camera", uselist=False)
 

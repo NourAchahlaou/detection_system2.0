@@ -1,3 +1,5 @@
+from datetime import datetime
+import os
 import re
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
@@ -20,6 +22,8 @@ class CameraService:
     
     def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
+        self.temp_photos = []
+
 
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:
@@ -241,7 +245,7 @@ class CameraService:
     def check_camera(self) -> Dict[str, bool]:
         """Check if the camera is running."""
         try:
-            return self.hardware_client.check_camera().dict()
+            return self.hardware_client.check_camera()
         except ConnectionError:
             raise HTTPException(status_code=503, detail="Hardware service unavailable")
         except Exception as e:
@@ -249,18 +253,58 @@ class CameraService:
             raise HTTPException(status_code=500, detail=f"Failed to check camera: {str(e)}")
     
     def capture_images(self, piece_label: str) -> bytes:
-        """Capture images for a piece."""
+        """Capture images for a piece and store them locally."""
         # Validate piece label format
         if not re.match(r'([A-Z]\d{3}\.\d{5})', piece_label):
             raise HTTPException(status_code=400, detail="Invalid piece_label format.")
         
         try:
-            return self.hardware_client.capture_images(piece_label)
+            # Get the image from hardware service
+            image_data = self.hardware_client.capture_images(piece_label)
+            
+            # Store the image locally in temp directory
+            timestamp = datetime.now()
+            image_count = len([p for p in self.temp_photos if p['piece_label'] == piece_label]) + 1
+            image_name = f"{piece_label}_{image_count}.jpg"
+            file_path = os.path.join(self.temp_dir, image_name)
+            
+            # Save image to local temp directory
+            with open(file_path, 'wb') as f:
+                f.write(image_data)
+            
+            # Store metadata in temp_photos list
+            photo_metadata = {
+                'piece_label': piece_label,
+                'file_path': file_path,
+                'timestamp': timestamp,
+                'image_name': image_name
+            }
+            self.temp_photos.append(photo_metadata)
+            
+            # Limit to 10 photos per piece
+            piece_photos = [p for p in self.temp_photos if p['piece_label'] == piece_label]
+            if len(piece_photos) > 10:
+                # Remove the oldest photo for this piece
+                oldest_photo = min(piece_photos, key=lambda x: x['timestamp'])
+                self.temp_photos.remove(oldest_photo)
+                if os.path.exists(oldest_photo['file_path']):
+                    os.remove(oldest_photo['file_path'])
+                raise HTTPException(status_code=400, detail="Maximum 10 photos per piece. Oldest photo removed.")
+            
+            logger.info(f"Captured image {image_count} for piece {piece_label}")
+            return image_data
+            
         except ConnectionError:
             raise HTTPException(status_code=503, detail="Hardware service unavailable")
         except Exception as e:
             logger.error(f"Error capturing images: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to capture images: {str(e)}")
+    
+    def get_temp_photos(self, piece_label: str = None) -> List[Dict[str, Any]]:
+        """Get temporary photos, optionally filtered by piece_label."""
+        if piece_label:
+            return [photo for photo in self.temp_photos if photo['piece_label'] == piece_label]
+        return self.temp_photos
     
     def cleanup_temp_photos(self) -> Dict[str, str]:
         """Clean up temporary photos."""
@@ -295,38 +339,82 @@ class CameraService:
             db.add(piece)
             db.commit()
             db.refresh(piece)
+
+        if piece.nbre_img >= 10:
+            raise HTTPException(status_code=400, detail="Maximum number of images reached for this piece.")
         
-        # Now save the temporary images to the database
-        # This would typically involve getting the list of temp images from the hardware service
-        # But for simplicity, we'll just assume the hardware service handles this
         try:
-            # Make the API call to save images
-            # (In a real implementation, you might need to retrieve the list of images first)
-            self.hardware_client.cleanup_temp_photos()  # This would also handle saving in a real implementation
+            # Get temporary photos for this piece
+            piece_photos = self.get_temp_photos(piece_label)
             
-            return {"message": "Images saved to database successfully"}
-        except ConnectionError:
-            raise HTTPException(status_code=503, detail="Hardware service unavailable")
+            if not piece_photos:
+                raise HTTPException(status_code=400, detail=f"No temporary photos found for piece {piece_label}.")
+            
+            # Check if adding these photos would exceed the limit
+            if piece.nbre_img + len(piece_photos) > 10:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Adding {len(piece_photos)} photos would exceed the maximum of 10 images for this piece."
+                )
+            
+            saved_images = []
+            
+            # Save each photo to the database
+            for photo_data in piece_photos:
+                try:
+                    # Read the image file from disk
+                    with open(photo_data['file_path'], 'rb') as image_file:
+                        image_content = image_file.read()
+                    
+                    # Create PieceImage record
+                    piece_image = PieceImage(
+                        piece_id=piece.id,
+                        image_name=photo_data['image_name'],
+                        image_data=image_content,  # Store binary data
+                        created_at=photo_data['timestamp']
+                    )
+                    
+                    db.add(piece_image)
+                    saved_images.append(photo_data['image_name'])
+                    
+                except FileNotFoundError:
+                    logger.warning(f"Image file not found: {photo_data['file_path']}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing image {photo_data['image_name']}: {str(e)}")
+                    continue
+            
+            # Update the piece's image count
+            piece.nbre_img += len(saved_images)
+            
+            # Commit all changes
+            db.commit()
+            db.refresh(piece)
+            
+            # Clean up temporary photos for this piece
+            cleanup_response = self.cleanup_temp_photos(piece_label)
+            
+            logger.info(f"Successfully saved {len(saved_images)} images for piece {piece_label}")
+            
+            return {
+                "message": f"Successfully saved {len(saved_images)} images to database",
+                "piece_label": piece_label,
+                "images_saved": saved_images,
+                "total_images": piece.nbre_img,
+                "cleanup_status": cleanup_response
+            }
+            
         except Exception as e:
+            db.rollback()
             logger.error(f"Error saving images: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to save images: {str(e)}")
-    
-    def get_circuit_breaker_status(self) -> Dict[str, Any]:
-        """Get the status of all circuit breakers."""
+
+    def __del__(self):
+        """Cleanup temp directory on service destruction."""
         try:
-            return self.hardware_client.get_circuit_breaker_status()
-        except ConnectionError:
-            raise HTTPException(status_code=503, detail="Hardware service unavailable")
+            if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+                import shutil
+                shutil.rmtree(self.temp_dir)
+                logger.info(f"Cleaned up temp directory: {self.temp_dir}")
         except Exception as e:
-            logger.error(f"Error getting circuit breaker status: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to get circuit breaker status: {str(e)}")
-    
-    def reset_circuit_breaker(self, breaker_name: str) -> Dict[str, str]:
-        """Reset a specific circuit breaker."""
-        try:
-            return self.hardware_client.reset_circuit_breaker(breaker_name)
-        except ConnectionError:
-            raise HTTPException(status_code=503, detail="Hardware service unavailable")
-        except Exception as e:
-            logger.error(f"Error resetting circuit breaker: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to reset circuit breaker: {str(e)}")
+            logger.warning(f"Failed to cleanup temp directory: {str(e)}")

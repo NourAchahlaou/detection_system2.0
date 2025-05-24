@@ -16,4 +16,4 @@ class CameraSettings (Base):
     white_balance = Column(String)
 
 
-    camera = relationship("Camera", back_populates="sittings", uselist=True)
+    camera = relationship("Camera", back_populates="settings", uselist=False)

@@ -17,7 +17,6 @@ from artifact_keeper.app.response.camera import (
     CameraResponse,
     CameraStatusResponse,
     CameraStopResponse,
-    CameraWithSettingsResponse,
     CleanupResponse,
     CircuitBreakerStatusResponse,
 )
@@ -57,7 +56,7 @@ async def get_all_cameras(db: db_dependency):
     cameras = camera_service.get_all_cameras(db)
     return cameras
 
-@camera_router.get("/cameras/{camera_id}", response_model=CameraWithSettingsResponse)
+@camera_router.get("/cameras/{camera_id}", response_model=CameraResponse)
 async def get_camera_by_id(camera_id: int, db: db_dependency):
     """
     Get a camera by its ID.
@@ -176,7 +175,7 @@ async def video_feed():
         logger.error(f"Error streaming video feed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to stream video feed: {str(e)}")
 
-@camera_router.put("/settings/{camera_id}", response_model=CameraWithSettingsResponse)
+@camera_router.put("/settings/{camera_id}", response_model=CameraResponse)
 async def update_camera_settings(
     camera_id: int, 
     settings: UpdateCameraSettings,

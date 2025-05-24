@@ -1,15 +1,3 @@
-# This should be added to your hardwareServiceClient.py file or wherever your CameraClient class is defined
-import json
-import logging
-import requests
-from typing import Dict, List, Any
-
-logger = logging.getLogger(__name__)
-
-class CameraClient:
-    """Client for communicating with the Hardware Service API."""
-    
-    
 import json
 import logging
 import requests
@@ -89,12 +77,16 @@ class CameraClient:
     def start_opencv_camera(self, camera_index: int):
         """Start OpenCV camera."""
         try:
-            response = requests.post(f"{self.base_url}/camera/opencv/start/{camera_index}")
+            # Correct endpoint without camera_index in URL
+            response = requests.post(
+                f"{self.base_url}/camera/opencv/start",
+                json={"camera_index": camera_index}  # Send camera_index in request body
+            )
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
             raise ConnectionError(f"Failed to start OpenCV camera: {str(e)}")
-            
+        
     def start_basler_camera(self, serial_number: str):
         """Start Basler camera."""
         try:
@@ -116,7 +108,7 @@ class CameraClient:
     def check_camera(self):
         """Check if a camera is running."""
         try:
-            response = requests.get(f"{self.base_url}/camera/check")
+            response = requests.get(f"{self.base_url}/camera/check_camera")
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
@@ -125,8 +117,8 @@ class CameraClient:
     def capture_images(self, piece_label: str):
         """Capture images for a piece."""
         try:
-            response = requests.post(
-                f"{self.base_url}/camera/capture/{piece_label}",
+            response = requests.get(
+                f"{self.base_url}/camera/capture_images/{piece_label}",
                 timeout=30  # Increased timeout for image capture
             )
             response.raise_for_status()
@@ -137,9 +129,9 @@ class CameraClient:
     def cleanup_temp_photos(self):
         """Clean up temporary photos."""
         try:
-            response = requests.post(f"{self.base_url}/camera/cleanup")
+            response = requests.post(f"{self.base_url}/camera/cleanup-temp-photos")
             response.raise_for_status()
-            return response.json()
+            return response.json() 
         except requests.RequestException as e:
             raise ConnectionError(f"Failed to clean up temporary photos: {str(e)}")
             
