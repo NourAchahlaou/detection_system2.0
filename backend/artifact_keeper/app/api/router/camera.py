@@ -99,12 +99,6 @@ async def cleanup_temp_photos():
     Clean up temporary photos.
     """
     return camera_service.cleanup_temp_photos()
-@camera_router.post("/cleanup_temp_files", response_model=CleanupResponse)
-async def cleanup_temp_files():
-    """
-    Clean up temporary files.
-    """
-    return camera_service.__del__()
 
 @camera_router.post("/save-images", response_model=SaveImagesResponse)
 async def save_images(request: SaveImagesRequest, db: db_dependency):

@@ -67,13 +67,7 @@ psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "CREATE SCHEMA IF NOT EX
 
 echo "Schemas created successfully!"
 
-# Go to the directory where alembic.ini exists
-cd /usr/srv/user_management
 
-# Only apply existing migrations
-alembic upgrade head || echo "Migration failed, but continuing startup"
- 
-cd ..
 
 # Start the application
 echo "Starting application"

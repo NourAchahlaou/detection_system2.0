@@ -35,6 +35,7 @@ services:
     volumes:
       - ./backend/artifact_keeper:/usr/srv/artifact_keeper
       - ./.env:/usr/srv/.env
+      - ./dataset:/app/shared/dataset
 
   databasePostgres:
     image: postgres:15

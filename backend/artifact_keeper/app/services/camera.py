@@ -8,11 +8,14 @@ from sqlalchemy import func
 from fastapi import HTTPException
 import logging
 import json
+import shutil
+from pathlib import Path
 from artifact_keeper.app.services.hardwareServiceClient import CameraClient
 from artifact_keeper.app.db.models.camera_settings import CameraSettings
 from artifact_keeper.app.db.models.piece import Piece
 from artifact_keeper.app.db.models.piece_image import PieceImage
 from artifact_keeper.app.db.models.camera import Camera
+
 logger = logging.getLogger(__name__)
 
 class CameraService:
@@ -21,12 +24,48 @@ class CameraService:
     the database and the hardware service.
     """   
     
-    def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
+    def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003", 
+                 dataset_base_path: str = "/app/shared/dataset"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         self.temp_photos = []
-                # Create a temp directory for storing images
+        
+        # Dataset structure: dataset/piece/piece/{piece_name}/images/
+        self.dataset_base_path = dataset_base_path
+        self.dataset_piece_path = os.path.join(self.dataset_base_path, "piece", "piece")
+        
+        # Create the base dataset structure if it doesn't exist
+        os.makedirs(self.dataset_piece_path, exist_ok=True)
+        
+        # Create a temp directory for storing images before moving to dataset
         self.temp_dir = tempfile.mkdtemp(prefix="camera_images_")
         logger.info(f"Initialized temp directory: {self.temp_dir}")
+        logger.info(f"Dataset base path: {self.dataset_base_path}")
+        logger.info(f"Dataset piece path: {self.dataset_piece_path}")
+
+    def _create_piece_directory(self, piece_label: str) -> str:
+        """Create directory structure for a piece if it doesn't exist."""
+        piece_dir = os.path.join(self.dataset_piece_path, piece_label)
+        images_dir = os.path.join(piece_dir, "images")
+        
+        # Create the directory structure: dataset/piece/piece/{piece_name}/images/
+        os.makedirs(images_dir, exist_ok=True)
+        
+        logger.info(f"Created/verified directory structure: {images_dir}")
+        return images_dir
+
+    def _get_piece_images_path(self, piece_label: str) -> str:
+        """Get the images directory path for a piece."""
+        return os.path.join(self.dataset_piece_path, piece_label, "images")
+
+    def _count_existing_images(self, piece_label: str) -> int:
+        """Count existing images in the piece's dataset directory."""
+        images_dir = self._get_piece_images_path(piece_label)
+        if not os.path.exists(images_dir):
+            return 0
+        
+        # Count .jpg files in the directory
+        jpg_files = [f for f in os.listdir(images_dir) if f.lower().endswith('.jpg')]
+        return len(jpg_files)
 
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:
@@ -256,7 +295,7 @@ class CameraService:
             raise HTTPException(status_code=500, detail=f"Failed to check camera: {str(e)}")
     
     def capture_images(self, piece_label: str) -> bytes:
-        """Capture images for a piece and store them locally."""
+        """Capture images for a piece and store them temporarily."""
         # Validate piece label format
         if not re.match(r'([A-Z]\d{3}\.\d{5})', piece_label):
             raise HTTPException(status_code=400, detail="Invalid piece_label format.")
@@ -265,36 +304,35 @@ class CameraService:
             # Get the image from hardware service
             image_data = self.hardware_client.capture_images(piece_label)
             
+            # Count existing images in temp and dataset
+            temp_count = len([p for p in self.temp_photos if p['piece_label'] == piece_label])
+            dataset_count = self._count_existing_images(piece_label)
+            total_count = temp_count + dataset_count
+            
+            # Check if we've reached the limit
+            if total_count >= 10:
+                raise HTTPException(status_code=400, detail="Maximum 10 photos per piece reached.")
+            
             # Store the image locally in temp directory
             timestamp = datetime.now()
-            image_count = len([p for p in self.temp_photos if p['piece_label'] == piece_label]) + 1
-            image_name = f"{piece_label}_{image_count}.jpg"
-            file_path = os.path.join(self.temp_dir, image_name)
+            image_count = temp_count + 1
+            image_name = f"{piece_label}_{total_count + 1}.jpg"
+            temp_file_path = os.path.join(self.temp_dir, image_name)
             
             # Save image to local temp directory
-            with open(file_path, 'wb') as f:
+            with open(temp_file_path, 'wb') as f:
                 f.write(image_data)
             
             # Store metadata in temp_photos list
             photo_metadata = {
                 'piece_label': piece_label,
-                'file_path': file_path,
+                'file_path': temp_file_path,
                 'timestamp': timestamp,
                 'image_name': image_name
             }
             self.temp_photos.append(photo_metadata)
             
-            # Limit to 10 photos per piece
-            piece_photos = [p for p in self.temp_photos if p['piece_label'] == piece_label]
-            if len(piece_photos) > 10:
-                # Remove the oldest photo for this piece
-                oldest_photo = min(piece_photos, key=lambda x: x['timestamp'])
-                self.temp_photos.remove(oldest_photo)
-                if os.path.exists(oldest_photo['file_path']):
-                    os.remove(oldest_photo['file_path'])
-                raise HTTPException(status_code=400, detail="Maximum 10 photos per piece. Oldest photo removed.")
-            
-            logger.info(f"Captured image {image_count} for piece {piece_label}")
+            logger.info(f"Captured image {image_count} for piece {piece_label} (total: {total_count + 1})")
             return image_data
             
         except ConnectionError:
@@ -312,6 +350,16 @@ class CameraService:
     def cleanup_temp_photos(self) -> Dict[str, str]:
         """Clean up temporary photos."""
         try:
+            # Clean up local temp files
+            for photo in self.temp_photos:
+                if os.path.exists(photo['file_path']):
+                    os.remove(photo['file_path'])
+                    logger.info(f"Removed temp file: {photo['file_path']}")
+            
+            # Clear the temp_photos list
+            self.temp_photos.clear()
+            
+            # Also call hardware service cleanup
             return self.hardware_client.cleanup_temp_photos()
         except ConnectionError:
             raise HTTPException(status_code=503, detail="Hardware service unavailable")
@@ -320,7 +368,7 @@ class CameraService:
             raise HTTPException(status_code=500, detail=f"Failed to clean up temporary photos: {str(e)}")
     
     def save_images_to_database(self, db: Session, piece_label: str) -> Dict[str, str]:
-        """Save captured images to the database."""
+        """Save captured images to the dataset and database."""
         # Extract the group prefix from the piece label
         match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
         if not match:
@@ -343,7 +391,10 @@ class CameraService:
             db.commit()
             db.refresh(piece)
 
-        if piece.nbre_img >= 10:
+        # Count existing images in dataset
+        existing_dataset_images = self._count_existing_images(piece_label)
+        
+        if existing_dataset_images >= 10:
             raise HTTPException(status_code=400, detail="Maximum number of images reached for this piece.")
         
         try:
@@ -354,51 +405,68 @@ class CameraService:
                 raise HTTPException(status_code=400, detail=f"No temporary photos found for piece {piece_label}.")
             
             # Check if adding these photos would exceed the limit
-            if piece.nbre_img + len(piece_photos) > 10:
+            if existing_dataset_images + len(piece_photos) > 10:
                 raise HTTPException(
                     status_code=400, 
                     detail=f"Adding {len(piece_photos)} photos would exceed the maximum of 10 images for this piece."
                 )
             
+            # Create the piece directory structure
+            images_dir = self._create_piece_directory(piece_label)
+            
             saved_images = []
             
-            # Save each photo to the database
+            # Move each photo from temp to dataset and save to database
             for photo_data in piece_photos:
                 try:
-                    # Create PieceImage record (corrected field names)
+                    temp_file_path = photo_data['file_path']
+                    
+                    if not os.path.exists(temp_file_path):
+                        logger.warning(f"Temp image file not found: {temp_file_path}")
+                        continue
+                    
+                    # Create final path in dataset
+                    final_file_path = os.path.join(images_dir, photo_data['image_name'])
+                    
+                    # Move file from temp to dataset directory
+                    shutil.move(temp_file_path, final_file_path)
+                    logger.info(f"Moved image from {temp_file_path} to {final_file_path}")
+                    
+                    # Create PieceImage record with dataset path
                     piece_image = PieceImage(
                         piece_id=piece.id,
-                        file_name=photo_data['image_name'],      # Use file_name (not image_name)
-                        image_path=photo_data['file_path'],      # Use image_path (not image_data)
-                        upload_date=photo_data['timestamp'],     # Use upload_date (not created_at)
-                        is_deleted=False                         # Set default value
+                        file_name=photo_data['image_name'],
+                        image_path=final_file_path,  # Store the actual dataset path
+                        upload_date=photo_data['timestamp'],
+                        is_deleted=False
                     )
                     
                     db.add(piece_image)
                     saved_images.append(photo_data['image_name'])
                     
-                except FileNotFoundError:
-                    logger.warning(f"Image file not found: {photo_data['file_path']}")
+                except Exception as e:
+                    logger.error(f"Error processing image {photo_data['image_name']}: {str(e)}")
                     continue
-
             
             # Update the piece's image count
-            piece.nbre_img += len(saved_images)
+            piece.nbre_img = existing_dataset_images + len(saved_images)
             
             # Commit all changes
             db.commit()
             db.refresh(piece)
             
-            # Clean up temporary photos for this piece
-            cleanup_response = self.cleanup_temp_photos()
-            logger.info(f"Successfully saved {len(saved_images)} images for piece {piece_label}")
+            # Clear temp photos for this piece from memory
+            self.temp_photos = [p for p in self.temp_photos if p['piece_label'] != piece_label]
+            
+            logger.info(f"Successfully saved {len(saved_images)} images for piece {piece_label} to dataset")
             
             return {
-                "message": f"Successfully saved {len(saved_images)} images to database",
+                "message": f"Successfully saved {len(saved_images)} images to dataset",
                 "piece_label": piece_label,
                 "images_saved": saved_images,
                 "total_images": piece.nbre_img,
-                "cleanup_status": cleanup_response
+                "dataset_path": images_dir,
+                "cleanup_status": {"message": "Temp files moved to dataset"}
             }
             
         except Exception as e:
@@ -406,11 +474,35 @@ class CameraService:
             logger.error(f"Error saving images: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to save images: {str(e)}")
 
+    def get_piece_dataset_info(self, piece_label: str) -> Dict[str, Any]:
+        """Get information about a piece's dataset directory."""
+        images_dir = self._get_piece_images_path(piece_label)
+        
+        if not os.path.exists(images_dir):
+            return {
+                "piece_label": piece_label,
+                "dataset_path": images_dir,
+                "exists": False,
+                "image_count": 0,
+                "images": []
+            }
+        
+        # Get list of image files
+        image_files = [f for f in os.listdir(images_dir) if f.lower().endswith('.jpg')]
+        image_files.sort()  # Sort for consistent ordering
+        
+        return {
+            "piece_label": piece_label,
+            "dataset_path": images_dir,
+            "exists": True,
+            "image_count": len(image_files),
+            "images": image_files
+        }
+
     def __del__(self):
         """Cleanup temp directory on service destruction."""
         try:
             if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
-                import shutil
                 shutil.rmtree(self.temp_dir)
                 logger.info(f"Cleaned up temp directory: {self.temp_dir}")
         except Exception as e:
