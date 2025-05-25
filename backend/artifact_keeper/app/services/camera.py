@@ -1,6 +1,7 @@
 from datetime import datetime
 import os
 import re
+import tempfile
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -23,7 +24,9 @@ class CameraService:
     def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         self.temp_photos = []
-
+                # Create a temp directory for storing images
+        self.temp_dir = tempfile.mkdtemp(prefix="camera_images_")
+        logger.info(f"Initialized temp directory: {self.temp_dir}")
 
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:
@@ -362,16 +365,13 @@ class CameraService:
             # Save each photo to the database
             for photo_data in piece_photos:
                 try:
-                    # Read the image file from disk
-                    with open(photo_data['file_path'], 'rb') as image_file:
-                        image_content = image_file.read()
-                    
-                    # Create PieceImage record
+                    # Create PieceImage record (corrected field names)
                     piece_image = PieceImage(
                         piece_id=piece.id,
-                        image_name=photo_data['image_name'],
-                        image_data=image_content,  # Store binary data
-                        created_at=photo_data['timestamp']
+                        file_name=photo_data['image_name'],      # Use file_name (not image_name)
+                        image_path=photo_data['file_path'],      # Use image_path (not image_data)
+                        upload_date=photo_data['timestamp'],     # Use upload_date (not created_at)
+                        is_deleted=False                         # Set default value
                     )
                     
                     db.add(piece_image)
@@ -380,9 +380,7 @@ class CameraService:
                 except FileNotFoundError:
                     logger.warning(f"Image file not found: {photo_data['file_path']}")
                     continue
-                except Exception as e:
-                    logger.error(f"Error processing image {photo_data['image_name']}: {str(e)}")
-                    continue
+
             
             # Update the piece's image count
             piece.nbre_img += len(saved_images)
@@ -392,8 +390,7 @@ class CameraService:
             db.refresh(piece)
             
             # Clean up temporary photos for this piece
-            cleanup_response = self.cleanup_temp_photos(piece_label)
-            
+            cleanup_response = self.cleanup_temp_photos()
             logger.info(f"Successfully saved {len(saved_images)} images for piece {piece_label}")
             
             return {

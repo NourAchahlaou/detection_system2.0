@@ -154,7 +154,7 @@ async def capture_images(
     image_capture_cb = CircuitBreaker(failure_threshold=2, recovery_timeout=30, name="image_capture")
     
     def capture_image():
-        return ImageCapture().capture_images(frame_source, save_folder, piece_label)
+        return ImageCapture().capture_images(frame_source, save_folder, url, piece_label)
     
     def capture_fallback():
         # Return a default "service unavailable" image or None

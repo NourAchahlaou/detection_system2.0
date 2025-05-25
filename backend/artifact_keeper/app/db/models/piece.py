@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, Null, String,Boolean
+
+from sqlalchemy import Column, DateTime, Integer, Null, String,Boolean, func
 from sqlalchemy.orm import relationship
 from artifact_keeper.app.db.session import Base
 
@@ -12,5 +13,6 @@ class Piece(Base):
     is_annotated = Column(Boolean,default=False)
     is_yolo_trained = Column(Boolean,default=False)
     nbre_img= Column(Integer,default = Null)
-
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # Added this field
+ 
     piece_img = relationship("PieceImage", back_populates="piece", cascade="all, delete-orphan")

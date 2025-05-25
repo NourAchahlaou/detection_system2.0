@@ -1,7 +1,7 @@
 
 # Piece Models
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 
@@ -21,7 +21,15 @@ class PieceResponse(BaseModel):
     nbre_img: int
     class_data_id: Optional[int] = None
     created_at: datetime
+    nbre_img: Optional[int] = None
     images: List[PieceImageResponse] = []
 
     class Config:
         orm_mode = True
+
+class SaveImagesResponse(BaseModel):
+    message: str
+    piece_label: str
+    images_saved: List[str]  # List of image names
+    total_images: int        # Integer count
+    cleanup_status: Dict[str, str]  # Dictionary with cleanup info        

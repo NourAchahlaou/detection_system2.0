@@ -21,7 +21,8 @@ from artifact_keeper.app.response.camera import (
     CircuitBreakerStatusResponse,
 )
 from artifact_keeper.app.response.piece import (
-    PieceResponse
+    PieceResponse,
+    SaveImagesResponse
 )
 
 from artifact_keeper.app.request.piece import (
@@ -98,8 +99,14 @@ async def cleanup_temp_photos():
     Clean up temporary photos.
     """
     return camera_service.cleanup_temp_photos()
+@camera_router.post("/cleanup_temp_files", response_model=CleanupResponse)
+async def cleanup_temp_files():
+    """
+    Clean up temporary files.
+    """
+    return camera_service.__del__()
 
-@camera_router.post("/save-images", response_model=Dict[str, str])
+@camera_router.post("/save-images", response_model=SaveImagesResponse)
 async def save_images(request: SaveImagesRequest, db: db_dependency):
     """
     Save captured images to the database.
@@ -115,7 +122,7 @@ async def get_piece_by_label(piece_label: str, db: db_dependency):
     from artifact_keeper.app.db.models.piece import Piece
     
     piece = db.query(Piece).filter(Piece.piece_label == piece_label).options(
-        joinedload(Piece.images)
+        joinedload(Piece.piece_img)  # Changed from Piece.images to Piece.piece_img
     ).first()
     
     if not piece:
