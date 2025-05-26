@@ -26,7 +26,7 @@ const Container = styled("div")(({ theme }) => ({
 
 const startCamera = async (cameraId) => {
   try {
-    const response = await api.post(" /api/pieces/camera/start-camera", { 
+    const response = await api.post(" /api/artifact_keeper/camera/start-camera", { 
       camera_id: cameraId 
     });
     
@@ -40,8 +40,8 @@ const startCamera = async (cameraId) => {
 
 const stopCamera = async () => {
   try {
-    await api.post("/api/pieces/camera/cleanup-temp-photos");
-    const response = await api.post("/api/pieces/camera/stop");
+    await api.post("/api/artifact_keeper/camera/cleanup_temp_photos");
+    const response = await api.post("/api/artifact_keeper/camera/stop");
     
     console.log("Camera stopped and temporary photos cleaned up.");
     window.location.reload();
@@ -52,7 +52,7 @@ const stopCamera = async () => {
 
 const captureImages = async (pieceLabel) => {
   try {
-    const response = await api.get(`/api/pieces/camera/capture_images/${pieceLabel}`, {
+    const response = await api.get(`/api/artifact_keeper/camera/capture_images/${pieceLabel}`, {
       responseType: 'blob'
     });
     
@@ -66,7 +66,7 @@ const captureImages = async (pieceLabel) => {
 
 const saveImagesToDatabase = async (pieceLabel) => {
   try {
-    const response = await api.post(" /api/pieces/camera/save-images", null, {
+    const response = await api.post(" /api/artifact_keeper/camera/save-images", null, {
       params: { piece_label: pieceLabel }
     });
 
@@ -96,7 +96,7 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
     if (isCameraStarted) {
       // Note: for video streaming, we might still need a direct URL
       // Since the API interceptor can't handle streaming data properly
-      setVideoUrl("/api/pieces/camera/video_feed");
+      setVideoUrl("/api/artifact_keeper/camera/video_feed");
     } else {
       setVideoUrl("");
     }
@@ -274,7 +274,7 @@ export default function AppPartLibrary() {
         await api.post("/api/camera/stop");
         
         // Cleanup temporary photos
-        await api.post(" /api/pieces/camera/cleanup-temp-photos");
+        await api.post(" /api/artifact_keeper/camera/cleanup-temp-photos");
       } catch (error) {
         console.error("Error during cleanup:", error);
       }
@@ -294,7 +294,7 @@ export default function AppPartLibrary() {
   
   useEffect(() => {
     // Fetch the list of cameras from the backend using the API
-    api.get(' /api/pieces/camera/get_allcameras/')
+    api.get('/api/artifact_keeper/camera/get_allcameras/')
       .then(response => {
         setCameras(response.data);
       })
@@ -319,7 +319,7 @@ export default function AppPartLibrary() {
   };
   
   const handleStopCamera = async () => {
-    await api.post(" /api/pieces/camera/cleanup-temp-photos");
+    await api.post(" /api/artifact_keeper/camera/cleanup-temp-photos");
     await stopCamera(); // Stop camera functionality
     setCameraStarted(false);
   };

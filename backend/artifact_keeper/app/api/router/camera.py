@@ -49,7 +49,7 @@ async def detect_cameras(db: db_dependency):
     logger.info("Detecting cameras")
     return camera_service.detect_and_save_cameras(db)
 
-@camera_router.get("/cameras", response_model=List[CameraResponse])
+@camera_router.get("/get_allcameras", response_model=List[CameraResponse])
 async def get_all_cameras(db: db_dependency):
     """
     Get all registered cameras from the database.
