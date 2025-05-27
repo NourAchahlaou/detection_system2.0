@@ -68,7 +68,30 @@ const ImageSlider = ({ targetLabel }) => {
 
   // Fetch images when targetLabel changes
   useEffect(() => {
-    fetchImages();
+    const fetchImagesAsync = async () => {
+      if (!targetLabel || targetLabel.trim() === '') {
+        setImages([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        // You'll need to implement this endpoint in your backend
+        const response = await cameraService.getImagesByLabel(targetLabel);
+        setImages(response || []);
+        setCurrentIndex(0);
+      } catch (err) {
+        console.error('Error fetching images:', err);
+        setError('Failed to load images');
+        setImages([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchImagesAsync();
   }, [targetLabel]);
 
   // Get visible images (current, previous, next)

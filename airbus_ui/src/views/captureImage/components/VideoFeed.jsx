@@ -6,12 +6,13 @@ import LiveCameraView from "../LiveCamera";
 import CaptureDialog from "../CaptureDialog";
 import { cameraService } from "../CameraService";
 
-const VideoFeed = ({ 
-  isCameraStarted, 
-  onStartCamera, 
-  onStopCamera, 
-  cameraId, 
-  targetLabel 
+const VideoFeed = ({
+  isCameraStarted,
+  onStartCamera,
+  onStopCamera,
+  cameraId,
+  targetLabel,
+  onImagesCaptured  // New prop to communicate with parent
 }) => {
   const [videoUrl, setVideoUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -31,6 +32,41 @@ const VideoFeed = ({
     }
   }, [isCameraStarted]);
 
+  // Reset captured images when target label changes
+  useEffect(() => {
+    if (targetLabel !== '') {
+      // Clean up old blob URLs
+      capturedImages.forEach(imageUrl => {
+        if (imageUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(imageUrl);
+        }
+      });
+      
+      setCapturedImages([]);
+      setCapturedImagesCount(0);
+      
+      // Notify parent component about the reset
+      if (onImagesCaptured) {
+        onImagesCaptured([]);
+      }
+    }
+  }, [targetLabel, capturedImages, onImagesCaptured]);
+
+  // Notify parent component when images change
+  useEffect(() => {
+    if (onImagesCaptured) {
+      const imageObjects = capturedImages.map((url, index) => ({
+        url,
+        src: url,
+        image_name: `capture_${Date.now()}_${index}.jpg`,
+        timestamp: new Date().toISOString(),
+        isTemporary: true,
+        isLocal: true  // Flag to distinguish from server temp images
+      }));
+      onImagesCaptured(imageObjects);
+    }
+  }, [capturedImages, onImagesCaptured]);
+
   const handleCaptureImages = async () => {
     if (isCapturing) return;
     
@@ -47,6 +83,7 @@ const VideoFeed = ({
       if (imageUrl) {
         setCapturedImages((prevImages) => [...prevImages, imageUrl]);
         setCapturedImagesCount((prevCount) => prevCount + 1);
+        
         if (capturedImagesCount + 1 >= requiredCaptures) {
           setDialogOpen(true);
         }
@@ -70,6 +107,20 @@ const VideoFeed = ({
     
     const success = await cameraService.saveImagesToDatabase(targetLabel);
     if (success) {
+      // Clean up captured images
+      capturedImages.forEach(imageUrl => {
+        if (imageUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(imageUrl);
+        }
+      });
+      setCapturedImages([]);
+      setCapturedImagesCount(0);
+      
+      // Notify parent component
+      if (onImagesCaptured) {
+        onImagesCaptured([]);
+      }
+      
       await onStopCamera();
       window.location.reload();
     }

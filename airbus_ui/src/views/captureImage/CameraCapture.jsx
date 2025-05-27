@@ -4,7 +4,7 @@ import { Box, Grid, Card, Stack } from '@mui/material';
 
 import CameraControls from "./components/CameraControls";
 import VideoFeed from "./components/VideoFeed";
-import ImageSlider from "./ImageSlider"; // New import
+import ImageSlider from "./ImageSlider";
 import { cameraService } from "./CameraService";
 
 export default function AppPartLibrary() {
@@ -13,6 +13,7 @@ export default function AppPartLibrary() {
   const [cameras, setCameras] = useState([]);
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [capturedImages, setCapturedImages] = useState([]); // Add this state
   
   // Cleanup on component unmount or page unload
   useEffect(() => {
@@ -77,6 +78,11 @@ export default function AppPartLibrary() {
     setTargetLabel(event.target.value);
   };
 
+  // Handle captured images update from VideoFeed
+  const handleImagesCaptured = (images) => {
+    setCapturedImages(images);
+  };
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
       <Grid
@@ -85,7 +91,7 @@ export default function AppPartLibrary() {
         columns={12}
         sx={{ mb: (theme) => theme.spacing(2) }}
       >
-        <Grid size={{ xs: 12, md: 9 }}>
+        <Grid item xs={12} md={9}>
           <Stack spacing={3}>
             <CameraControls
               targetLabel={targetLabel}
@@ -101,12 +107,12 @@ export default function AppPartLibrary() {
               onStopCamera={handleStopCamera}
               cameraId={cameraId}
               targetLabel={targetLabel}
+              onImagesCaptured={handleImagesCaptured} // Pass the handler
             />
           </Stack>
         </Grid>
         
-        <Grid size={{ xs: 12, md: 3 }}>
-          {/* Image Slider Component */}
+        <Grid item xs={12} md={3}>
           <Card 
             sx={{ 
               height: '100%', 
@@ -115,7 +121,10 @@ export default function AppPartLibrary() {
               flexDirection: 'column'
             }}
           >
-            <ImageSlider targetLabel={targetLabel} />
+            <ImageSlider 
+              targetLabel={targetLabel}
+              capturedImages={capturedImages}
+            />         
           </Card>
         </Grid>
       </Grid>

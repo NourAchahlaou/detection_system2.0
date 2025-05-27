@@ -10,7 +10,7 @@ export const cameraService = {
         throw new Error("Invalid camera ID: must be a number");
       }
 
-      const response = await api.post("/api/artifact_keeper/camera/start", { 
+      const response = await api.post("/api/artifact_keeper/camera/start", {
         camera_id: numericCameraId
       });
       
@@ -53,6 +53,63 @@ export const cameraService = {
     } catch (error) {
       console.error("Error capturing images:", error.response?.data?.detail || error.message);
       return null;
+    }
+  },
+
+  // Get temporary images for a piece
+  getTempImages: async (pieceLabel) => {
+    try {
+      const response = await api.get(`/api/artifact_keeper/camera/temp-photos/${pieceLabel}`);
+      return response.data || [];
+    } catch (error) {
+      console.error("Error fetching temp images:", error.response?.data?.detail || error.message);
+      return [];
+    }
+  },
+
+  // Get temporary image blob by name
+  getTempImageBlob: async (imageName) => {
+    try {
+      const response = await api.get(`/api/artifact_keeper/camera/temp-image/${imageName}`, {
+        responseType: 'blob'
+      });
+      
+      if (response.data instanceof Blob) {
+        return URL.createObjectURL(response.data);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error fetching temp image blob:", error.response?.data?.detail || error.message);
+      return null;
+    }
+  },
+
+  // Get images by label (for saved images)
+  getImagesByLabel: async (targetLabel) => {
+    try {
+      // First try to get temporary images
+      const tempImages = await this.getTempImages(targetLabel);
+      
+      // Convert temp images to proper format with blob URLs
+      const processedTempImages = await Promise.all(
+        tempImages.map(async (img) => {
+          const blobUrl = await this.getTempImageBlob(img.image_name);
+          return {
+            ...img,
+            url: blobUrl,
+            src: blobUrl,
+            isTemporary: true
+          };
+        })
+      );
+
+      // You can also fetch saved images from database here if needed
+      // const savedImages = await this.getSavedImages(targetLabel);
+      
+      return processedTempImages;
+    } catch (error) {
+      console.error("Error fetching images by label:", error);
+      return [];
     }
   },
 

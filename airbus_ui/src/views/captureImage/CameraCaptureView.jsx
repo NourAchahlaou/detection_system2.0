@@ -13,10 +13,22 @@ import {
   Select, 
   MenuItem,
   Card,
-  CardContent } from "@mui/material";
-import { Videocam, VideocamOff } from "@mui/icons-material";
+  CardContent,
+  Grid,
+  IconButton,
+  CardMedia,
+  Tooltip
+} from "@mui/material";
+import { 
+  Videocam, 
+  VideocamOff, 
+  KeyboardArrowUp, 
+  KeyboardArrowDown, 
+  Photo,
+  Refresh 
+} from "@mui/icons-material";
 
-import api from "../../utils/UseAxios" // Import the API module instead of axios directly
+import api from "../../utils/UseAxios"
 
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
@@ -28,7 +40,7 @@ const Container = styled("div")(({ theme }) => ({
 }));
 
 const VideoCard = styled(Card)(({ theme }) => ({
-  width: "900px",
+  width: "100%",
   height: "480px",
   display: "flex",
   alignItems: "center",
@@ -38,10 +50,18 @@ const VideoCard = styled(Card)(({ theme }) => ({
   borderRadius: "12px",
   position: "relative",
   overflow: "hidden",
-  [theme.breakpoints.down("md")]: {
-    width: "100%",
-    maxWidth: "700px",
+  [theme.breakpoints.down("sm")]: {
+    height: "300px",
   },
+}));
+
+const ImageSliderCard = styled(Card)(({ theme }) => ({
+  height: "480px",
+  display: "flex",
+  flexDirection: "column",
+  backgroundColor: "#f5f5f5",
+  border: "1px solid #ddd",
+  borderRadius: "12px",
   [theme.breakpoints.down("sm")]: {
     height: "300px",
   },
@@ -62,23 +82,23 @@ const VideoImage = styled("img")({
   objectFit: "cover",
 });
 
+// API functions
 const startCamera = async (cameraId) => {
   try {
-    // Convert to integer and use correct field name
     const numericCameraId = parseInt(cameraId);
     if (isNaN(numericCameraId)) {
       throw new Error("Invalid camera ID: must be a number");
     }
 
     const response = await api.post("/api/artifact_keeper/camera/start", { 
-      camera_id: numericCameraId  // ✅ Correct field name and type
+      camera_id: numericCameraId
     });
     
     console.log(response.data.message || "Camera started successfully");
-    return true; // Indicate success
+    return true;
   } catch (error) {
     console.error("Error starting camera:", error.response?.data?.detail || error.message);
-    return false; // Indicate failure
+    return false;
   }
 };
 
@@ -96,15 +116,13 @@ const stopCamera = async () => {
 
 const captureImages = async (pieceLabel) => {
   try {
-    // Fixed: Ensure we get the response as a blob
     const response = await api.get(`/api/artifact_keeper/camera/capture_images/${pieceLabel}`, {
       responseType: 'blob'
     });
     
-    // Check if the response is actually a blob
     if (response.data instanceof Blob) {
       const imageUrl = URL.createObjectURL(response.data);
-      return imageUrl; // Return the image URL
+      return imageUrl;
     } else {
       console.error("Response is not a blob:", response.data);
       return null;
@@ -115,6 +133,16 @@ const captureImages = async (pieceLabel) => {
   }
 };
 
+const getTempImages = async (pieceLabel) => {
+  try {
+    const response = await api.get(`/api/artifact_keeper/camera/temp-photos/${pieceLabel}`);
+    return response.data || [];
+  } catch (error) {
+    console.error("Error fetching temp images:", error.response?.data?.detail || error.message);
+    return [];
+  }
+};
+
 const saveImagesToDatabase = async (pieceLabel) => {
   try {
     const response = await api.post("/api/artifact_keeper/camera/save-images", {
@@ -122,11 +150,7 @@ const saveImagesToDatabase = async (pieceLabel) => {
     });
 
     console.log(response.data.message || "Images saved successfully");
-
-    // Stop the camera after saving images
-    await stopCamera(); // Wait for the camera to stop
-
-    // Reload the window after the camera is stopped
+    await stopCamera();
     window.location.reload();
   } catch (error) {
     const errorMessage = error.response?.data?.detail || "Error saving images";
@@ -134,20 +158,180 @@ const saveImagesToDatabase = async (pieceLabel) => {
   }
 };
 
-const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImages, cameraId, targetLabel }) => {
+// Image Slider Component
+const ImageSlider = ({ capturedImages, targetLabel }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  const handlePrevious = () => {
+    if (capturedImages.length > 0) {
+      setCurrentIndex((prev) => (prev > 0 ? prev - 1 : capturedImages.length - 1));
+    }
+  };
+
+  const handleNext = () => {
+    if (capturedImages.length > 0) {
+      setCurrentIndex((prev) => (prev < capturedImages.length - 1 ? prev + 1 : 0));
+    }
+  };
+
+  const getVisibleImages = () => {
+    if (capturedImages.length === 0) return [];
+    
+    const visibleImages = [];
+    const totalImages = capturedImages.length;
+    
+    if (totalImages === 1) {
+      return [{ ...capturedImages[0], position: 'middle', index: 0 }];
+    }
+    
+    // Previous image (top)
+    const prevIndex = currentIndex > 0 ? currentIndex - 1 : totalImages - 1;
+    visibleImages.push({ ...capturedImages[prevIndex], position: 'top', index: prevIndex });
+    
+    // Current image (middle)
+    visibleImages.push({ ...capturedImages[currentIndex], position: 'middle', index: currentIndex });
+    
+    // Next image (bottom)
+    const nextIndex = currentIndex < totalImages - 1 ? currentIndex + 1 : 0;
+    visibleImages.push({ ...capturedImages[nextIndex], position: 'bottom', index: nextIndex });
+    
+    return visibleImages;
+  };
+
+  const visibleImages = getVisibleImages();
+
+  return (
+    <ImageSliderCard>
+      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+        <Typography variant="h6" sx={{ color: '#666', textAlign: 'center' }}>
+          Captured Images
+        </Typography>
+      </Box>
+
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 2 }}>
+        {capturedImages.length === 0 ? (
+          <Box 
+            sx={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              textAlign: 'center',
+              color: 'text.secondary'
+            }}
+          >
+            <Photo sx={{ fontSize: 48, opacity: 0.5, mb: 1 }} />
+            <Typography variant="body2">
+              {targetLabel ? `No images captured yet for "${targetLabel}"` : 'Enter a piece label and start capturing'}
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            {/* Navigation and Images */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              {/* Up Arrow */}
+              {capturedImages.length > 1 && (
+                <IconButton
+                  onClick={handlePrevious}
+                  sx={{
+                    mb: 1,
+                    backgroundColor: 'primary.main',
+                    color: 'white',
+                    '&:hover': { backgroundColor: 'primary.dark' },
+                    boxShadow: 2
+                  }}
+                >
+                  <KeyboardArrowUp />
+                </IconButton>
+              )}
+
+              {/* Images Container */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, flex: 1, justifyContent: 'center' }}>
+                {visibleImages.map((image, index) => (
+                  <Card
+                    key={`${image.index}-${image.position}`}
+                    sx={{
+                      width: image.position === 'middle' ? '200px' : '160px',
+                      opacity: image.position === 'middle' ? 1 : 0.6,
+                      transform: image.position === 'middle' ? 'scale(1)' : 'scale(0.9)',
+                      transition: 'all 0.3s ease-in-out',
+                      cursor: image.position !== 'middle' ? 'pointer' : 'default',
+                      boxShadow: image.position === 'middle' ? 4 : 2,
+                      '&:hover': {
+                        opacity: image.position !== 'middle' ? 0.8 : 1
+                      }
+                    }}
+                    onClick={() => {
+                      if (image.position === 'top') handlePrevious();
+                      if (image.position === 'bottom') handleNext();
+                    }}
+                  >
+                    <CardMedia
+                      component="img"
+                      height={image.position === 'middle' ? '150' : '120'}
+                      image={image.url}
+                      alt={`Captured image ${image.index + 1}`}
+                      sx={{ objectFit: 'cover' }}
+                    />
+                    <Box sx={{ position: 'absolute', top: 4, left: 4, backgroundColor: 'rgba(0,0,0,0.7)', color: 'white', px: 1, py: 0.5, borderRadius: 1, fontSize: '0.75rem' }}>
+                      {image.index + 1}
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+
+              {/* Down Arrow */}
+              {capturedImages.length > 1 && (
+                <IconButton
+                  onClick={handleNext}
+                  sx={{
+                    mt: 1,
+                    backgroundColor: 'primary.main',
+                    color: 'white',
+                    '&:hover': { backgroundColor: 'primary.dark' },
+                    boxShadow: 2
+                  }}
+                >
+                  <KeyboardArrowDown />
+                </IconButton>
+              )}
+            </Box>
+
+            {/* Image Counter */}
+            <Typography
+              variant="caption"
+              sx={{
+                mt: 1,
+                px: 2,
+                py: 0.5,
+                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                borderRadius: 1,
+                textAlign: 'center',
+                alignSelf: 'center'
+              }}
+            >
+              {currentIndex + 1} of {capturedImages.length}
+            </Typography>
+          </>
+        )}
+      </Box>
+    </ImageSliderCard>
+  );
+};
+
+// Main Video Feed Component
+const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImages, cameraId, targetLabel, capturedImages, onImageCaptured }) => {
   const [videoUrl, setVideoUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [capturedImages, setCapturedImages] = useState([]);
-  const [capturedImagesCount, setCapturedImagesCount] = useState(0);
   const [snapshotEffect, setSnapshotEffect] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false); // Add loading state
+  const [isCapturing, setIsCapturing] = useState(false);
   const requiredCaptures = 10;
   const videoRef = useRef(null);
 
   useEffect(() => {
     if (isCameraStarted) {
-      // Note: for video streaming, we might still need a direct URL
-      // Since the API interceptor can't handle streaming data properly
       setVideoUrl("/api/artifact_keeper/camera/video_feed");
     } else {
       setVideoUrl("");
@@ -155,7 +339,7 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
   }, [isCameraStarted]);
 
   const handleCaptureImages = async () => {
-    if (isCapturing) return; // Prevent multiple captures
+    if (isCapturing) return;
     
     if (!targetLabel || targetLabel.trim() === "") {
       alert("Please enter a piece label before capturing images.");
@@ -168,9 +352,10 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
     try {
       const imageUrl = await onCaptureImages(targetLabel);
       if (imageUrl) {
-        setCapturedImages((prevImages) => [...prevImages, imageUrl]);
-        setCapturedImagesCount((prevCount) => prevCount + 1);
-        if (capturedImagesCount + 1 >= requiredCaptures) {
+        // Notify parent component about the new image
+        onImageCaptured(imageUrl);
+        
+        if (capturedImages.length + 1 >= requiredCaptures) {
           setDialogOpen(true);
         }
       } else {
@@ -181,7 +366,7 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
       alert("Error capturing image. Please try again.");
     } finally {
       setIsCapturing(false);
-      setTimeout(() => setSnapshotEffect(false), 1000); // Hide effect after 1 second
+      setTimeout(() => setSnapshotEffect(false), 1000);
     }
   };
 
@@ -194,19 +379,8 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
     setDialogOpen(false);
   };
 
-  // Clean up object URLs when component unmounts or images change
-  useEffect(() => {
-    return () => {
-      capturedImages.forEach(imageUrl => {
-        if (imageUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(imageUrl);
-        }
-      });
-    };
-  }, [capturedImages]);
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
       <VideoCard>
         {isCameraStarted ? (
           <>
@@ -235,55 +409,6 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
                 {isCapturing ? "Capturing..." : "Snapshot"}
               </div>
             )}
-            {/* Captured Images Stack */}
-            <div
-              style={{
-                position: "absolute",
-                bottom: "20px",
-                right: "20px",
-                width: "120px",
-              }}
-            >
-              {capturedImages.map((imageUrl, index) => (
-                <div
-                  key={index}
-                  style={{
-                    position: "absolute",
-                    bottom: index * 5 + "px",
-                    right: index * 5 + "px",
-                    transform: `rotate(${index % 2 === 0 ? "0deg" : "25deg"})`,
-                    zIndex: index,
-                  }}
-                >
-                  <img
-                    src={imageUrl}
-                    alt={`Captured ${index + 1}`}
-                    style={{
-                      width: "100px",
-                      height: "auto",
-                      border: "2px solid white",
-                      borderRadius: "8px",
-                      boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "5px",
-                      left: "5px",
-                      fontSize: "12px",
-                      color: "white",
-                      backgroundColor: "rgba(0, 0, 0, 0.6)",
-                      padding: "2px 5px",
-                      borderRadius: "5px",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {index + 1}
-                  </div>
-                </div>
-              ))}
-            </div>
           </>
         ) : (
           <PlaceholderContent>
@@ -325,10 +450,10 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
               variant="contained" 
               onClick={handleCaptureImages} 
               style={{ margin: "0 10px" }}
-              disabled={isCapturing || capturedImagesCount >= requiredCaptures}
+              disabled={isCapturing || capturedImages.length >= requiredCaptures}
               startIcon={<Videocam />}
             >
-              {isCapturing ? "Capturing..." : `Capture Images (${capturedImagesCount}/${requiredCaptures})`}
+              {isCapturing ? "Capturing..." : `Capture Images (${capturedImages.length}/${requiredCaptures})`}
             </Button>
             <Button 
               variant="outlined" 
@@ -362,7 +487,7 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
         <DialogTitle id="alert-dialog-title">{"Capture Complete"}</DialogTitle>
         <DialogContent>
           <Typography variant="body1">
-            You have captured {capturedImagesCount} images. Please save them to the database.
+            You have captured {capturedImages.length} images. Please save them to the database.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -378,44 +503,37 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
   );
 };
 
+// Main Component
 export default function AppPartLibrary() {
   const [targetLabel, setTargetLabel] = useState("");
   const [cameraId, setCameraId] = useState("");
   const [cameras, setCameras] = useState([]);
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [capturedImages, setCapturedImages] = useState([]);
   
   useEffect(() => {
-    // Function to clean up temp photos and stop the camera
     const handleBeforeUnload = async () => {
       try {
-        // Stop the camera
         await api.post("/api/artifact_keeper/camera/stop");
-        
-        // Cleanup temporary photos
         await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
       } catch (error) {
         console.error("Error during cleanup:", error);
       }
     };
   
-    // Add event listener for page refresh/unload
     window.addEventListener("beforeunload", handleBeforeUnload);
   
-    // Add cleanup function for component unmount or effect re-run
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-  
-      // Optionally stop the camera on component unmount
       handleBeforeUnload();
     };
   }, []);
   
   useEffect(() => {
-    // Fetch the list of cameras from the backend using the API
     api.get('/api/artifact_keeper/camera/get_allcameras')
       .then(response => {
-        console.log("Cameras received:", response.data); // Debug log
+        console.log("Cameras received:", response.data);
         setCameras(response.data);
       })
       .catch(error => {
@@ -423,15 +541,20 @@ export default function AppPartLibrary() {
       });
   }, []);
 
+  // Clear captured images when target label changes
+  useEffect(() => {
+    setCapturedImages([]);
+  }, [targetLabel]);
+
   const handleCameraChange = (event) => {
     const selectedCameraId = event.target.value;
-    console.log("Selected camera ID:", selectedCameraId, "Type:", typeof selectedCameraId); // Debug log
+    console.log("Selected camera ID:", selectedCameraId, "Type:", typeof selectedCameraId);
     setSelectedCameraId(selectedCameraId);
-    setCameraId(selectedCameraId); // Update cameraId state when a camera is selected
+    setCameraId(selectedCameraId);
   };
   
   const handleStartCamera = async (cameraId) => {
-    console.log("Starting camera with ID:", cameraId); // Debug log
+    console.log("Starting camera with ID:", cameraId);
     if (cameraId && cameraId !== '') {
       const success = await startCamera(cameraId);
       setCameraStarted(success);
@@ -442,13 +565,29 @@ export default function AppPartLibrary() {
   
   const handleStopCamera = async () => {
     await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
-    await stopCamera(); // Stop camera functionality
+    await stopCamera();
     setCameraStarted(false);
+    setCapturedImages([]); // Clear captured images when stopping camera
   };
 
   const handleTargetLabelChange = (event) => {
     setTargetLabel(event.target.value);
   };
+
+  const handleImageCaptured = (imageUrl) => {
+    setCapturedImages(prev => [...prev, { url: imageUrl, timestamp: new Date() }]);
+  };
+
+  // Clean up object URLs when component unmounts or images change
+  useEffect(() => {
+    return () => {
+      capturedImages.forEach(image => {
+        if (image.url && image.url.startsWith('blob:')) {
+          URL.revokeObjectURL(image.url);
+        }
+      });
+    };
+  }, [capturedImages]);
 
   return (
     <Container>
@@ -486,14 +625,28 @@ export default function AppPartLibrary() {
             ))}
           </Select>
         </Box>
-        <VideoFeed
-          isCameraStarted={isCameraStarted}
-          onStartCamera={handleStartCamera}
-          onStopCamera={handleStopCamera}
-          onCaptureImages={captureImages}
-          cameraId={cameraId}
-          targetLabel={targetLabel}
-        />
+
+        {/* Main Content - Video Feed and Image Slider */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={8}>
+            <VideoFeed
+              isCameraStarted={isCameraStarted}
+              onStartCamera={handleStartCamera}
+              onStopCamera={handleStopCamera}
+              onCaptureImages={captureImages}
+              cameraId={cameraId}
+              targetLabel={targetLabel}
+              capturedImages={capturedImages}
+              onImageCaptured={handleImageCaptured}
+            />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <ImageSlider 
+              capturedImages={capturedImages}
+              targetLabel={targetLabel}
+            />
+          </Grid>
+        </Grid>
       </Stack>
     </Container>
   );
