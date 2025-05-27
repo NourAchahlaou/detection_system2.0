@@ -5,21 +5,33 @@ WORKDIR /usr/srv
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
-
+# Install system dependencies
 RUN apt-get update && apt-get install -y postgresql-client ca-certificates && rm -rf /var/lib/apt/lists/*
 
+# Create user and directories with proper permissions
+RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
+
+# Create all necessary directories as root first
+RUN mkdir -p /app/shared/dataset/piece/piece
+RUN mkdir -p /usr/srv/artifact_keeper/migrations
+
+# Install Python dependencies
 COPY ./requirements.txt /usr/srv/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
+# Copy application code
 COPY . /usr/srv/artifact_keeper
-RUN mkdir -p /usr/srv/artifact_keeper/migrations
-RUN chmod 755 /usr/srv/artifact_keeper/entrypoint.sh
-RUN chown -R ubuntu:ubuntu /usr/srv
 
-# Verify that the entrypoint file exists and has correct permissions
+# Set proper ownership and permissions
+RUN chown -R ubuntu:ubuntu /usr/srv /app/shared
+RUN chmod -R 755 /app/shared /usr/srv/artifact_keeper
+RUN chmod +x /usr/srv/artifact_keeper/entrypoint.sh
+
+# Verify permissions
 RUN ls -la /usr/srv/artifact_keeper/entrypoint.sh
+RUN ls -la /app/shared/dataset/
 
+# Switch to non-root user
 USER ubuntu
 
 EXPOSE 8000

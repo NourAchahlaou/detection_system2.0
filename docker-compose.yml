@@ -5,7 +5,6 @@ services:
     container_name: userManagementMicroservice
     build:
       context: ./backend/user_management
-
     env_file:
       - ./.env
     ports:
@@ -35,7 +34,10 @@ services:
     volumes:
       - ./backend/artifact_keeper:/usr/srv/artifact_keeper
       - ./.env:/usr/srv/.env
-      - ./dataset:/app/shared/dataset
+      # Create a named volume with proper permissions
+      - dataset:/app/shared/dataset
+    # Ensure the container user can write to the volume
+    user: "1001:1001"
 
   databasePostgres:
     image: postgres:15
@@ -94,3 +96,5 @@ networks:
 
 volumes:
   user_postgres_data:
+  # Named volume for dataset with proper permissions
+  dataset:
