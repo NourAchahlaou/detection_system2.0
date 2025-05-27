@@ -298,19 +298,37 @@ class CameraService:
         """Capture images for a piece and store them temporarily."""
         # Validate piece label format
         if not re.match(r'([A-Z]\d{3}\.\d{5})', piece_label):
+            logger.error(f"Invalid piece_label format: {piece_label}")
             raise HTTPException(status_code=400, detail="Invalid piece_label format.")
         
         try:
+            logger.info(f"Starting image capture for piece: {piece_label}")
+            
             # Get the image from hardware service
-            image_data = self.hardware_client.capture_images(piece_label)
+            try:
+                image_data = self.hardware_client.capture_images(piece_label)
+                logger.info(f"Successfully received image data from hardware service. Size: {len(image_data)} bytes")
+            except Exception as hw_error:
+                logger.error(f"Hardware client error: {str(hw_error)}")
+                raise HTTPException(status_code=503, detail=f"Hardware service error: {str(hw_error)}")
             
             # Count existing images in temp and dataset
             temp_count = len([p for p in self.temp_photos if p['piece_label'] == piece_label])
-            dataset_count = self._count_existing_images(piece_label)
+            logger.info(f"Temporary images count for {piece_label}: {temp_count}")
+            
+            try:
+                dataset_count = self._count_existing_images(piece_label)
+                logger.info(f"Dataset images count for {piece_label}: {dataset_count}")
+            except Exception as count_error:
+                logger.error(f"Error counting existing images: {str(count_error)}")
+                dataset_count = 0  # Default to 0 if we can't count
+            
             total_count = temp_count + dataset_count
+            logger.info(f"Total images count for {piece_label}: {total_count}")
             
             # Check if we've reached the limit
             if total_count >= 10:
+                logger.warning(f"Maximum photo limit reached for piece {piece_label}: {total_count}/10")
                 raise HTTPException(status_code=400, detail="Maximum 10 photos per piece reached.")
             
             # Store the image locally in temp directory
@@ -319,9 +337,24 @@ class CameraService:
             image_name = f"{piece_label}_{total_count + 1}.jpg"
             temp_file_path = os.path.join(self.temp_dir, image_name)
             
+            logger.info(f"Saving image to temp path: {temp_file_path}")
+            
+            # Ensure temp directory exists
+            try:
+                os.makedirs(self.temp_dir, exist_ok=True)
+                logger.info(f"Temp directory verified: {self.temp_dir}")
+            except Exception as dir_error:
+                logger.error(f"Error creating temp directory: {str(dir_error)}")
+                raise HTTPException(status_code=500, detail=f"Failed to create temp directory: {str(dir_error)}")
+            
             # Save image to local temp directory
-            with open(temp_file_path, 'wb') as f:
-                f.write(image_data)
+            try:
+                with open(temp_file_path, 'wb') as f:
+                    f.write(image_data)
+                logger.info(f"Successfully wrote image to file: {temp_file_path}")
+            except Exception as file_error:
+                logger.error(f"Error writing image file: {str(file_error)}")
+                raise HTTPException(status_code=500, detail=f"Failed to save image file: {str(file_error)}")
             
             # Store metadata in temp_photos list
             photo_metadata = {
@@ -331,14 +364,22 @@ class CameraService:
                 'image_name': image_name
             }
             self.temp_photos.append(photo_metadata)
+            logger.info(f"Added photo metadata to temp list. Current temp photos count: {len(self.temp_photos)}")
             
-            logger.info(f"Captured image {image_count} for piece {piece_label} (total: {total_count + 1})")
+            logger.info(f"Successfully captured image {image_count} for piece {piece_label} (total: {total_count + 1})")
             return image_data
             
-        except ConnectionError:
+        except HTTPException:
+            # Re-raise HTTP exceptions as-is
+            raise
+        except ConnectionError as conn_error:
+            logger.error(f"Connection error: {str(conn_error)}")
             raise HTTPException(status_code=503, detail="Hardware service unavailable")
         except Exception as e:
-            logger.error(f"Error capturing images: {str(e)}")
+            logger.error(f"Unexpected error capturing images: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Failed to capture images: {str(e)}")
     
     def get_temp_photos(self, piece_label: str = None) -> List[Dict[str, Any]]:

@@ -11,7 +11,10 @@ import {
   DialogTitle, 
   Typography,
   Select, 
-  MenuItem } from "@mui/material";
+  MenuItem,
+  Card,
+  CardContent } from "@mui/material";
+import { Videocam, VideocamOff } from "@mui/icons-material";
 
 import api from "../../utils/UseAxios" // Import the API module instead of axios directly
 
@@ -24,10 +27,51 @@ const Container = styled("div")(({ theme }) => ({
   },
 }));
 
+const VideoCard = styled(Card)(({ theme }) => ({
+  width: "900px",
+  height: "480px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#f5f5f5",
+  border: "2px dashed #ccc",
+  borderRadius: "12px",
+  position: "relative",
+  overflow: "hidden",
+  [theme.breakpoints.down("md")]: {
+    width: "100%",
+    maxWidth: "700px",
+  },
+  [theme.breakpoints.down("sm")]: {
+    height: "300px",
+  },
+}));
+
+const PlaceholderContent = styled(Box)({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center",
+  color: "#666",
+});
+
+const VideoImage = styled("img")({
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+});
+
 const startCamera = async (cameraId) => {
   try {
-    const response = await api.post(" /api/artifact_keeper/camera/start-camera", { 
-      camera_id: cameraId 
+    // Convert to integer and use correct field name
+    const numericCameraId = parseInt(cameraId);
+    if (isNaN(numericCameraId)) {
+      throw new Error("Invalid camera ID: must be a number");
+    }
+
+    const response = await api.post("/api/artifact_keeper/camera/start", { 
+      camera_id: numericCameraId  // ✅ Correct field name and type
     });
     
     console.log(response.data.message || "Camera started successfully");
@@ -40,7 +84,7 @@ const startCamera = async (cameraId) => {
 
 const stopCamera = async () => {
   try {
-    await api.post("/api/artifact_keeper/camera/cleanup_temp_photos");
+    await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
     const response = await api.post("/api/artifact_keeper/camera/stop");
     
     console.log("Camera stopped and temporary photos cleaned up.");
@@ -52,12 +96,19 @@ const stopCamera = async () => {
 
 const captureImages = async (pieceLabel) => {
   try {
+    // Fixed: Ensure we get the response as a blob
     const response = await api.get(`/api/artifact_keeper/camera/capture_images/${pieceLabel}`, {
       responseType: 'blob'
     });
     
-    const imageUrl = URL.createObjectURL(response.data);
-    return imageUrl; // Return the image URL
+    // Check if the response is actually a blob
+    if (response.data instanceof Blob) {
+      const imageUrl = URL.createObjectURL(response.data);
+      return imageUrl; // Return the image URL
+    } else {
+      console.error("Response is not a blob:", response.data);
+      return null;
+    }
   } catch (error) {
     console.error("Error capturing images:", error.response?.data?.detail || error.message);
     return null;
@@ -66,8 +117,8 @@ const captureImages = async (pieceLabel) => {
 
 const saveImagesToDatabase = async (pieceLabel) => {
   try {
-    const response = await api.post(" /api/artifact_keeper/camera/save-images", null, {
-      params: { piece_label: pieceLabel }
+    const response = await api.post("/api/artifact_keeper/camera/save-images", {
+      piece_label: pieceLabel
     });
 
     console.log(response.data.message || "Images saved successfully");
@@ -89,6 +140,7 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
   const [capturedImages, setCapturedImages] = useState([]);
   const [capturedImagesCount, setCapturedImagesCount] = useState(0);
   const [snapshotEffect, setSnapshotEffect] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false); // Add loading state
   const requiredCaptures = 10;
   const videoRef = useRef(null);
 
@@ -103,14 +155,32 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
   }, [isCameraStarted]);
 
   const handleCaptureImages = async () => {
+    if (isCapturing) return; // Prevent multiple captures
+    
+    if (!targetLabel || targetLabel.trim() === "") {
+      alert("Please enter a piece label before capturing images.");
+      return;
+    }
+
+    setIsCapturing(true);
     setSnapshotEffect(true);
-    const imageUrl = await onCaptureImages(targetLabel);
-    if (imageUrl) {
-      setCapturedImages((prevImages) => [...prevImages, imageUrl]);
-      setCapturedImagesCount((prevCount) => prevCount + 1);
-      if (capturedImagesCount + 1 >= requiredCaptures) {
-        setDialogOpen(true);
+    
+    try {
+      const imageUrl = await onCaptureImages(targetLabel);
+      if (imageUrl) {
+        setCapturedImages((prevImages) => [...prevImages, imageUrl]);
+        setCapturedImagesCount((prevCount) => prevCount + 1);
+        if (capturedImagesCount + 1 >= requiredCaptures) {
+          setDialogOpen(true);
+        }
+      } else {
+        alert("Failed to capture image. Please try again.");
       }
+    } catch (error) {
+      console.error("Error during image capture:", error);
+      alert("Error capturing image. Please try again.");
+    } finally {
+      setIsCapturing(false);
       setTimeout(() => setSnapshotEffect(false), 1000); // Hide effect after 1 second
     }
   };
@@ -124,15 +194,25 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
     setDialogOpen(false);
   };
 
+  // Clean up object URLs when component unmounts or images change
+  useEffect(() => {
+    return () => {
+      capturedImages.forEach(imageUrl => {
+        if (imageUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(imageUrl);
+        }
+      });
+    };
+  }, [capturedImages]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ position: "relative" }}>
+      <VideoCard>
         {isCameraStarted ? (
           <>
-            <img
+            <VideoImage
               ref={videoRef}
               src={videoUrl}
-              style={{ width: "900px", maxHeight: "480px", position: "relative" }}
               alt="Video Feed"
             />
             {snapshotEffect && (
@@ -152,75 +232,111 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
                   fontWeight: "bold",
                 }}
               >
-                Snapshot
+                {isCapturing ? "Capturing..." : "Snapshot"}
               </div>
             )}
-  <div
-    style={{
-      position: "fixed", // Fixes the stack's position on the screen
-      bottom: "50px", // Adjust distance from the bottom of the screen
-      right: "50px", // Adjust distance from the right of the screen
-      width: "120px", // Controls stack width
-    }}
-  >
-    {capturedImages.map((imageUrl, index) => (
-      <div
-        key={index}
-        style={{
-          position: "absolute", // Ensures images stack on top of each other
-          bottom: index * 5 + "px", // Offset each image slightly for stacking effect
-          right: index * 5 + "px",
-          transform: `rotate(${index % 2 === 0 ? "0deg" : "25deg"})`, // Alternate rotation
-          zIndex: index, // Layer each image on top of the previous one
-        }}
-      >
-        {/* Image element */}
-        <img
-          src={imageUrl}
-          alt={`Captured ${index + 1}`}
-          style={{
-            width: "100px",
-            height: "auto",
-            border: "2px solid white",
-            borderRadius: "8px",
-            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2)",
-          }}
-        />
-
-        {/* Small number in the top-left corner */}
-        <div
-          style={{
-            position: "absolute",
-            top: "5px", // Fixed position within the image
-            left: "5px", // Fixed position within the image
-            fontSize: "12px", // Small font size for the count
-            color: "white", // Text color
-            backgroundColor: "rgba(0, 0, 0, 0.6)", // Background for visibility
-            padding: "2px 5px",
-            borderRadius: "5px",
-            fontWeight: "bold",
-          }}
-        >
-          {index + 1}
-        </div>
-      </div>
-    ))}
-  </div>
-
+            {/* Captured Images Stack */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: "20px",
+                right: "20px",
+                width: "120px",
+              }}
+            >
+              {capturedImages.map((imageUrl, index) => (
+                <div
+                  key={index}
+                  style={{
+                    position: "absolute",
+                    bottom: index * 5 + "px",
+                    right: index * 5 + "px",
+                    transform: `rotate(${index % 2 === 0 ? "0deg" : "25deg"})`,
+                    zIndex: index,
+                  }}
+                >
+                  <img
+                    src={imageUrl}
+                    alt={`Captured ${index + 1}`}
+                    style={{
+                      width: "100px",
+                      height: "auto",
+                      border: "2px solid white",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "5px",
+                      left: "5px",
+                      fontSize: "12px",
+                      color: "white",
+                      backgroundColor: "rgba(0, 0, 0, 0.6)",
+                      padding: "2px 5px",
+                      borderRadius: "5px",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {index + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         ) : (
-          <p>No Video Feed</p>
+          <PlaceholderContent>
+            <VideocamOff 
+              sx={{ 
+                fontSize: 80, 
+                color: "#bbb", 
+                marginBottom: 2 
+              }} 
+            />
+            <Typography 
+              variant="h5" 
+              sx={{ 
+                color: "#888", 
+                marginBottom: 1,
+                fontWeight: 500 
+              }}
+            >
+              Camera Not Started
+            </Typography>
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                color: "#aaa",
+                maxWidth: "300px",
+                lineHeight: 1.5
+              }}
+            >
+              Select a camera and click "Start Camera" to begin video feed
+            </Typography>
+          </PlaceholderContent>
         )}
-      </div>
+      </VideoCard>
 
       <div style={{ marginTop: "20px" }}>
         {isCameraStarted ? (
           <>
-            <Button variant="contained" onClick={handleCaptureImages} style={{ margin: "0 10px" }}>
-              Capture Images
+            <Button 
+              variant="contained" 
+              onClick={handleCaptureImages} 
+              style={{ margin: "0 10px" }}
+              disabled={isCapturing || capturedImagesCount >= requiredCaptures}
+              startIcon={<Videocam />}
+            >
+              {isCapturing ? "Capturing..." : `Capture Images (${capturedImagesCount}/${requiredCaptures})`}
             </Button>
-            <Button variant="contained" onClick={onStopCamera} style={{ margin: "0 10px" }}>
-              Cancel
+            <Button 
+              variant="outlined" 
+              color="error"
+              onClick={onStopCamera} 
+              style={{ margin: "0 10px" }}
+            >
+              Stop Camera
             </Button>
           </>
         ) : (
@@ -228,6 +344,9 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
             variant="contained"
             onClick={() => onStartCamera(cameraId)}
             style={{ margin: "10px" }}
+            disabled={!cameraId}
+            startIcon={<Videocam />}
+            size="large"
           >
             Start Camera
           </Button>
@@ -247,7 +366,7 @@ const VideoFeed = ({ isCameraStarted, onStartCamera, onStopCamera, onCaptureImag
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSaveImages} color="primary">
+          <Button onClick={handleSaveImages} color="primary" variant="contained">
             Save
           </Button>
           <Button onClick={() => setDialogOpen(false)} color="secondary">
@@ -271,10 +390,10 @@ export default function AppPartLibrary() {
     const handleBeforeUnload = async () => {
       try {
         // Stop the camera
-        await api.post("/api/camera/stop");
+        await api.post("/api/artifact_keeper/camera/stop");
         
         // Cleanup temporary photos
-        await api.post(" /api/artifact_keeper/camera/cleanup-temp-photos");
+        await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
       } catch (error) {
         console.error("Error during cleanup:", error);
       }
@@ -294,32 +413,35 @@ export default function AppPartLibrary() {
   
   useEffect(() => {
     // Fetch the list of cameras from the backend using the API
-    api.get('/api/artifact_keeper/camera/get_allcameras/')
+    api.get('/api/artifact_keeper/camera/get_allcameras')
       .then(response => {
+        console.log("Cameras received:", response.data); // Debug log
         setCameras(response.data);
       })
       .catch(error => {
-        console.error('There was an error fetching the camera data!', error);
+        console.error('There were an error fetching the camera data!', error);
       });
   }, []);
 
   const handleCameraChange = (event) => {
     const selectedCameraId = event.target.value;
+    console.log("Selected camera ID:", selectedCameraId, "Type:", typeof selectedCameraId); // Debug log
     setSelectedCameraId(selectedCameraId);
     setCameraId(selectedCameraId); // Update cameraId state when a camera is selected
   };
   
   const handleStartCamera = async (cameraId) => {
-    if (cameraId) {
+    console.log("Starting camera with ID:", cameraId); // Debug log
+    if (cameraId && cameraId !== '') {
       const success = await startCamera(cameraId);
       setCameraStarted(success);
     } else {
-      alert("Please enter a valid camera ID.");
+      alert("Please select a camera first.");
     }
   };
   
   const handleStopCamera = async () => {
-    await api.post(" /api/artifact_keeper/camera/cleanup-temp-photos");
+    await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
     await stopCamera(); // Stop camera functionality
     setCameraStarted(false);
   };
@@ -331,22 +453,39 @@ export default function AppPartLibrary() {
   return (
     <Container>
       <Stack spacing={3}>
-        <div className="controls">
-          <TextField label="Target Label" value={targetLabel} onChange={handleTargetLabelChange} />
+        <Box 
+          className="controls"
+          sx={{
+            display: "flex",
+            gap: 2,
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          <TextField 
+            label="Target Label" 
+            value={targetLabel} 
+            onChange={handleTargetLabelChange}
+            placeholder="e.g., G123.12345.123.12"
+            required
+            sx={{ minWidth: 250 }}
+          />
           <Select
             labelId="camera-select-label"
             value={selectedCameraId}
             onChange={handleCameraChange}
             displayEmpty
+            sx={{ minWidth: 200 }}
           >
             <MenuItem value="" disabled>Select a Camera</MenuItem>
             {cameras.map((camera) => (
-              <MenuItem key={camera.camera_id} value={camera.camera_id}>
+              <MenuItem key={camera.id} value={camera.id}>
                 {camera.model}
               </MenuItem>
             ))}
           </Select>
-        </div>
+        </Box>
         <VideoFeed
           isCameraStarted={isCameraStarted}
           onStartCamera={handleStartCamera}
