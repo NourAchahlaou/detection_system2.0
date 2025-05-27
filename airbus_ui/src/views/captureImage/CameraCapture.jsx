@@ -1,9 +1,10 @@
 // pages/AppPartLibrary.jsx
 import React, { useState, useEffect } from "react";
-import { Stack } from "@mui/material";
-import { Container } from "./components/styledComponents";
+import { Box, Grid, Card, Stack } from '@mui/material';
+
 import CameraControls from "./components/CameraControls";
 import VideoFeed from "./components/VideoFeed";
+import ImageSlider from "./ImageSlider"; // New import
 import { cameraService } from "./CameraService";
 
 export default function AppPartLibrary() {
@@ -23,9 +24,9 @@ export default function AppPartLibrary() {
         console.error("Error during cleanup:", error);
       }
     };
-  
+    
     window.addEventListener("beforeunload", handleBeforeUnload);
-  
+    
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       handleBeforeUnload();
@@ -77,23 +78,47 @@ export default function AppPartLibrary() {
   };
 
   return (
-    <Container>
-      <Stack spacing={3}>
-        <CameraControls
-          targetLabel={targetLabel}
-          onTargetLabelChange={handleTargetLabelChange}
-          selectedCameraId={selectedCameraId}
-          onCameraChange={handleCameraChange}
-          cameras={cameras}
-        />
-        <VideoFeed
-          isCameraStarted={isCameraStarted}
-          onStartCamera={handleStartCamera}
-          onStopCamera={handleStopCamera}
-          cameraId={cameraId}
-          targetLabel={targetLabel}
-        />
-      </Stack>
-    </Container>
+    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
+      <Grid
+        container
+        spacing={2}
+        columns={12}
+        sx={{ mb: (theme) => theme.spacing(2) }}
+      >
+        <Grid size={{ xs: 12, md: 9 }}>
+          <Stack spacing={3}>
+            <CameraControls
+              targetLabel={targetLabel}
+              onTargetLabelChange={handleTargetLabelChange}
+              selectedCameraId={selectedCameraId}
+              onCameraChange={handleCameraChange}
+              cameras={cameras}
+            />
+            
+            <VideoFeed
+              isCameraStarted={isCameraStarted}
+              onStartCamera={handleStartCamera}
+              onStopCamera={handleStopCamera}
+              cameraId={cameraId}
+              targetLabel={targetLabel}
+            />
+          </Stack>
+        </Grid>
+        
+        <Grid size={{ xs: 12, md: 3 }}>
+          {/* Image Slider Component */}
+          <Card 
+            sx={{ 
+              height: '100%', 
+              minHeight: '500px',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <ImageSlider targetLabel={targetLabel} />
+          </Card>
+        </Grid>
+      </Grid>
+    </Box>
   );
 }

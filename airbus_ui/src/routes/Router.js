@@ -13,6 +13,7 @@ const BlankLayout = lazy(() => import('../layouts/blank/BlankLayout'));
 const Dashboard = lazy(() => import('../views/dashboard/Dashboard'));
 const CaptureImage = lazy(() => import('../views/captureImage/CameraCapture'));
 const SignInSide = lazy(() => import('../views/auth/sign-in-side/SignInSide'));
+const CaptureImageView = lazy(() => import('../views/captureImage/CameraCaptureView'));
 
 const router = createBrowserRouter([
   // Root redirect to dashboard
@@ -38,6 +39,10 @@ const router = createBrowserRouter([
       {
         path: 'captureImage',
         element: <CaptureImage />,
+      },
+      {
+        path : 'captureImageView',
+        element: <CaptureImageView />,
       },
       {
         path: 'profile',

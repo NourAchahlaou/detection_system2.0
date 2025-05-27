@@ -548,3 +548,46 @@ class CameraService:
                 logger.info(f"Cleaned up temp directory: {self.temp_dir}")
         except Exception as e:
             logger.warning(f"Failed to cleanup temp directory: {str(e)}")
+    def get_temp_images_for_piece(self, piece_label: str) -> List[Dict[str, Any]]:
+        """Get temporary images for a specific piece with file URLs."""
+        try:
+            piece_photos = self.get_temp_photos(piece_label)
+            
+            temp_images = []
+            for photo in piece_photos:
+                # Create a temporary URL that can be served by your API
+                temp_images.append({
+                    'image_name': photo['image_name'],
+                    'timestamp': photo['timestamp'].isoformat(),
+                    'file_path': photo['file_path'],
+                    # You'll need to create an endpoint to serve these temp files
+                    'url': f'/api/artifact_keeper/camera/temp-image/{photo["image_name"]}'
+                })
+            
+            logger.info(f"Retrieved {len(temp_images)} temporary images for piece {piece_label}")
+            return temp_images
+            
+        except Exception as e:
+            logger.error(f"Error getting temp images for piece {piece_label}: {str(e)}")
+            return []
+
+    def serve_temp_image(self, image_name: str) -> bytes:
+        """Serve a temporary image file by name."""
+        try:
+            # Find the image in temp_photos
+            for photo in self.temp_photos:
+                if photo['image_name'] == image_name:
+                    file_path = photo['file_path']
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            return f.read()
+                    else:
+                        raise HTTPException(status_code=404, detail=f"Temp image file not found: {image_name}")
+            
+            raise HTTPException(status_code=404, detail=f"Temp image not found: {image_name}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error serving temp image {image_name}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to serve temp image: {str(e)}")        

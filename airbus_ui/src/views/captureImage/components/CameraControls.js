@@ -1,7 +1,7 @@
 // components/camera/CameraControls.jsx
 import React from "react";
 import { 
-  Box, 
+  Stack, 
   TextField, 
   Select, 
   MenuItem 
@@ -15,15 +15,17 @@ const CameraControls = ({
   cameras 
 }) => {
   return (
-    <Box 
-      className="controls"
+    <Stack
+      direction="row"
       sx={{
-        display: "flex",
-        gap: 2,
-        flexWrap: "wrap",
-        alignItems: "center",
-        justifyContent: "center"
+        display: { xs: 'none', md: 'flex' },
+        width: '100%',
+        alignItems: { xs: 'flex-start', md: 'center' },
+        justifyContent: 'center',
+        maxWidth: { sm: '100%', md: '1700px' },
+        pt: 1.5,
       }}
+      spacing={2}
     >
       <TextField 
         label="Target Label" 
@@ -47,7 +49,7 @@ const CameraControls = ({
           </MenuItem>
         ))}
       </Select>
-    </Box>
+    </Stack>
   );
 };
 

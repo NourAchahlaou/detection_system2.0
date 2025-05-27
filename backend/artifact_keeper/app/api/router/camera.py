@@ -200,3 +200,35 @@ async def update_camera_settings(
     db.refresh(camera)
     
     return camera
+
+@camera_router.get("/temp-photos/{piece_label}")
+async def get_temp_photos_endpoint(
+    piece_label: str,
+    db: Session = Depends(get_session),
+    
+):
+    """Get temporary photos for a piece."""
+    try:
+        temp_images = camera_service.get_temp_images_for_piece(piece_label)
+        return temp_images
+    except Exception as e:
+        logger.error(f"Error in get_temp_photos_endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@camera_router.get("/temp-image/{image_name}")
+async def serve_temp_image_endpoint(
+    image_name: str,
+):
+    """Serve a temporary image file."""
+    try:
+        image_data = camera_service.serve_temp_image(image_name)
+        return Response(
+            content=image_data,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in serve_temp_image_endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
