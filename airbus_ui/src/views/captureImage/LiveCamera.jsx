@@ -1,4 +1,4 @@
-// components/camera/LiveCameraView.jsx
+// components/LiveCamera.jsx
 import React from "react";
 import { Box, IconButton, Typography, Tooltip } from "@mui/material";
 import { CameraAlt, Stop, FiberManualRecord } from "@mui/icons-material";
@@ -31,8 +31,8 @@ const LiveCameraView = ({
         alt="Video Feed"
       />
       
-      {/* Status Indicator */}
-      <StatusIndicator active={true}>
+      {/* Status Indicator - Fixed: Use data attributes instead of invalid props */}
+      <StatusIndicator data-active={true}>
         <FiberManualRecord sx={{ fontSize: 8 }} />
         LIVE
       </StatusIndicator>

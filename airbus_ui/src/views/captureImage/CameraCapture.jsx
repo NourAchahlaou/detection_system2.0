@@ -13,7 +13,6 @@ export default function AppPartLibrary() {
   const [cameras, setCameras] = useState([]);
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
-  const [capturedImages, setCapturedImages] = useState([]); // Add this state
   
   // Cleanup on component unmount or page unload
   useEffect(() => {
@@ -78,11 +77,6 @@ export default function AppPartLibrary() {
     setTargetLabel(event.target.value);
   };
 
-  // Handle captured images update from VideoFeed
-  const handleImagesCaptured = (images) => {
-    setCapturedImages(images);
-  };
-
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
       <Grid
@@ -91,7 +85,7 @@ export default function AppPartLibrary() {
         columns={12}
         sx={{ mb: (theme) => theme.spacing(2) }}
       >
-        <Grid item xs={12} md={9}>
+        <Grid size={{ xs: 12, md: 9 }}>
           <Stack spacing={3}>
             <CameraControls
               targetLabel={targetLabel}
@@ -107,12 +101,13 @@ export default function AppPartLibrary() {
               onStopCamera={handleStopCamera}
               cameraId={cameraId}
               targetLabel={targetLabel}
-              onImagesCaptured={handleImagesCaptured} // Pass the handler
+              // Remove the onImagesCaptured prop - no longer needed
             />
           </Stack>
         </Grid>
         
-        <Grid item xs={12} md={3}>
+        <Grid size={{ xs: 12, md: 3 }}>
+          {/* Image Slider Component - now self-managing */}
           <Card 
             sx={{ 
               height: '100%', 
@@ -123,7 +118,7 @@ export default function AppPartLibrary() {
           >
             <ImageSlider 
               targetLabel={targetLabel}
-              capturedImages={capturedImages}
+              // Remove refreshTrigger - component now handles its own refresh logic
             />         
           </Card>
         </Grid>

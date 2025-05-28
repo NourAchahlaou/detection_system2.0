@@ -84,16 +84,16 @@ export const cameraService = {
     }
   },
 
-  // Get images by label (for saved images)
+  // Get images by label (for saved images) - Fixed the 'this' context issue
   getImagesByLabel: async (targetLabel) => {
     try {
-      // First try to get temporary images
-      const tempImages = await this.getTempImages(targetLabel);
+      // First try to get temporary images - using cameraService instead of 'this'
+      const tempImages = await cameraService.getTempImages(targetLabel);
       
       // Convert temp images to proper format with blob URLs
       const processedTempImages = await Promise.all(
         tempImages.map(async (img) => {
-          const blobUrl = await this.getTempImageBlob(img.image_name);
+          const blobUrl = await cameraService.getTempImageBlob(img.image_name);
           return {
             ...img,
             url: blobUrl,
@@ -104,7 +104,7 @@ export const cameraService = {
       );
 
       // You can also fetch saved images from database here if needed
-      // const savedImages = await this.getSavedImages(targetLabel);
+      // const savedImages = await cameraService.getSavedImages(targetLabel);
       
       return processedTempImages;
     } catch (error) {

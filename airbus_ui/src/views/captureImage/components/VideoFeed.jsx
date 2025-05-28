@@ -1,4 +1,4 @@
-// components/camera/VideoFeed.jsx
+// components/VideoFeed.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
@@ -11,8 +11,7 @@ const VideoFeed = ({
   onStartCamera,
   onStopCamera,
   cameraId,
-  targetLabel,
-  onImagesCaptured  // New prop to communicate with parent
+  targetLabel
 }) => {
   const [videoUrl, setVideoUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -24,6 +23,7 @@ const VideoFeed = ({
   const requiredCaptures = 10;
   const videoRef = useRef(null);
 
+  // Fixed: Only update video URL when camera state changes
   useEffect(() => {
     if (isCameraStarted) {
       setVideoUrl("/api/artifact_keeper/camera/video_feed");
@@ -32,40 +32,26 @@ const VideoFeed = ({
     }
   }, [isCameraStarted]);
 
-  // Reset captured images when target label changes
+  // Fixed: Prevent infinite loop by using stable dependency
+  const targetLabelRef = useRef(targetLabel);
   useEffect(() => {
-    if (targetLabel !== '') {
-      // Clean up old blob URLs
-      capturedImages.forEach(imageUrl => {
-        if (imageUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(imageUrl);
-        }
-      });
+    // Only reset if target label actually changed
+    if (targetLabelRef.current !== targetLabel) {
+      targetLabelRef.current = targetLabel;
       
-      setCapturedImages([]);
-      setCapturedImagesCount(0);
-      
-      // Notify parent component about the reset
-      if (onImagesCaptured) {
-        onImagesCaptured([]);
+      if (targetLabel !== '') {
+        // Clean up old blob URLs
+        capturedImages.forEach(imageUrl => {
+          if (imageUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(imageUrl);
+          }
+        });
+        
+        setCapturedImages([]);
+        setCapturedImagesCount(0);
       }
     }
-  }, [targetLabel, capturedImages, onImagesCaptured]);
-
-  // Notify parent component when images change
-  useEffect(() => {
-    if (onImagesCaptured) {
-      const imageObjects = capturedImages.map((url, index) => ({
-        url,
-        src: url,
-        image_name: `capture_${Date.now()}_${index}.jpg`,
-        timestamp: new Date().toISOString(),
-        isTemporary: true,
-        isLocal: true  // Flag to distinguish from server temp images
-      }));
-      onImagesCaptured(imageObjects);
-    }
-  }, [capturedImages, onImagesCaptured]);
+  }, [targetLabel]); // Removed capturedImages from dependencies
 
   const handleCaptureImages = async () => {
     if (isCapturing) return;
@@ -84,7 +70,9 @@ const VideoFeed = ({
         setCapturedImages((prevImages) => [...prevImages, imageUrl]);
         setCapturedImagesCount((prevCount) => prevCount + 1);
         
-        if (capturedImagesCount + 1 >= requiredCaptures) {
+        // Check if we've reached required captures
+        const newCount = capturedImagesCount + 1;
+        if (newCount >= requiredCaptures) {
           setDialogOpen(true);
         }
       } else {
@@ -116,11 +104,6 @@ const VideoFeed = ({
       setCapturedImages([]);
       setCapturedImagesCount(0);
       
-      // Notify parent component
-      if (onImagesCaptured) {
-        onImagesCaptured([]);
-      }
-      
       await onStopCamera();
       window.location.reload();
     }
@@ -136,12 +119,13 @@ const VideoFeed = ({
         }
       });
     };
-  }, [capturedImages]);
+  }, []); // Empty dependency array - only run on unmount
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <VideoCard
-        cameraActive={isCameraStarted}
+        // Fixed: Remove invalid DOM props
+        data-camera-active={isCameraStarted}
         onMouseEnter={() => setShowControls(true)}
         onMouseLeave={() => setShowControls(false)}
       >
