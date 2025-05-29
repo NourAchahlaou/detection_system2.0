@@ -7,37 +7,29 @@ import {
   Card,
   CardMedia,
   Tooltip,
-  CircularProgress 
+  CircularProgress,
+  Fade,
+  Chip
 } from '@mui/material';
 import { 
   KeyboardArrowUp, 
   KeyboardArrowDown, 
   Photo,
-  Refresh 
+  Refresh,
+  Collections
 } from '@mui/icons-material';
 import { cameraService } from './CameraService';
 
-const ImageSlider = ({ targetLabel }) => {
+const ImageSlider = ({ targetLabel, refreshTrigger }) => {
   const [images, setImages] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  // Use refs to track state without causing re-renders
-  const intervalRef = useRef(null);
   const mountedRef = useRef(true);
-  const lastFetchTimeRef = useRef(0);
 
-  // Stable fetch function with proper error handling
-  const fetchImages = useCallback(async (immediate = false) => {
-    const now = Date.now();
-    const timeSinceLastFetch = now - lastFetchTimeRef.current;
-    
-    // Rate limiting: don't fetch too frequently unless immediate
-    if (!immediate && timeSinceLastFetch < 2000) {
-      return;
-    }
-
+  // Fetch images function
+  const fetchImages = useCallback(async () => {
     if (!targetLabel || targetLabel.trim() === '') {
       setImages([]);
       setCurrentIndex(0);
@@ -47,24 +39,15 @@ const ImageSlider = ({ targetLabel }) => {
     try {
       setLoading(true);
       setError(null);
-      lastFetchTimeRef.current = now;
 
       const serverTempImages = await cameraService.getImagesByLabel(targetLabel);
       const validImages = serverTempImages.filter(img => img.url || img.src);
 
-      // Only update if component is still mounted
       if (mountedRef.current) {
-        setImages(prevImages => {
-          // Only update if the number of images changed or if we have no images
-          if (prevImages.length !== validImages.length || prevImages.length === 0) {
-            return validImages;
-          }
-          return prevImages;
-        });
-        
+        setImages(validImages);
         setCurrentIndex(prevIndex => {
           if (prevIndex >= validImages.length && validImages.length > 0) {
-            return 0;
+            return validImages.length - 1;
           }
           return prevIndex;
         });
@@ -85,41 +68,15 @@ const ImageSlider = ({ targetLabel }) => {
 
   // Initial fetch when targetLabel changes
   useEffect(() => {
-    if (targetLabel && targetLabel.trim() !== '') {
-      fetchImages(true); // Immediate fetch on label change
-    } else {
-      setImages([]);
-      setCurrentIndex(0);
-    }
+    fetchImages();
   }, [targetLabel, fetchImages]);
 
-  // Auto-refresh with polling - Fixed to prevent infinite loops
+  // React to refresh trigger (when new images are captured)
   useEffect(() => {
-    // Clear existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (refreshTrigger && targetLabel) {
+      fetchImages();
     }
-
-    if (!targetLabel || targetLabel.trim() === '') {
-      return;
-    }
-
-    // Set up new interval
-    intervalRef.current = setInterval(() => {
-      if (mountedRef.current) {
-        fetchImages(false);
-      }
-    }, 5000);
-
-    // Cleanup function
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [targetLabel, fetchImages]);
+  }, [refreshTrigger, fetchImages, targetLabel]);
 
   // Component cleanup
   useEffect(() => {
@@ -137,18 +94,12 @@ const ImageSlider = ({ targetLabel }) => {
           URL.revokeObjectURL(image.src);
         }
       });
-      
-      // Clear intervals
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
     };
-  }, []); // Empty dependency array - only run on mount/unmount
+  }, []);
 
   // Manual refresh function
   const handleRefresh = useCallback(() => {
-    fetchImages(true); // Force immediate refresh
+    fetchImages();
   }, [fetchImages]);
 
   // Navigate up in the slider
@@ -165,241 +116,421 @@ const ImageSlider = ({ targetLabel }) => {
     }
   }, [images.length]);
 
-  // Get visible images (current, previous, next)
-  const getVisibleImages = useCallback(() => {
+  // Get visible images (current, previous, next) - Memoized
+  const visibleImages = React.useMemo(() => {
     if (images.length === 0) return [];
     
     const visibleImages = [];
     const totalImages = images.length;
     
     if (totalImages === 1) {
-      visibleImages.push({ ...images[currentIndex], position: 'middle', index: currentIndex });
+      visibleImages.push({ ...images[currentIndex], position: 'center', index: currentIndex });
     } else if (totalImages === 2) {
       const otherIndex = currentIndex === 0 ? 1 : 0;
-      visibleImages.push({ ...images[otherIndex], position: 'top', index: otherIndex });
-      visibleImages.push({ ...images[currentIndex], position: 'middle', index: currentIndex });
+      visibleImages.push({ ...images[otherIndex], position: 'back', index: otherIndex });
+      visibleImages.push({ ...images[currentIndex], position: 'center', index: currentIndex });
     } else {
       const prevIndex = currentIndex > 0 ? currentIndex - 1 : totalImages - 1;
-      visibleImages.push({ ...images[prevIndex], position: 'top', index: prevIndex });
-      
-      visibleImages.push({ ...images[currentIndex], position: 'middle', index: currentIndex });
-      
       const nextIndex = currentIndex < totalImages - 1 ? currentIndex + 1 : 0;
-      visibleImages.push({ ...images[nextIndex], position: 'bottom', index: nextIndex });
+      
+      visibleImages.push({ ...images[prevIndex], position: 'back-top', index: prevIndex });
+      visibleImages.push({ ...images[nextIndex], position: 'back-bottom', index: nextIndex });
+      visibleImages.push({ ...images[currentIndex], position: 'center', index: currentIndex });
     }
     
     return visibleImages;
   }, [images, currentIndex]);
 
-  const visibleImages = getVisibleImages();
   const imageSource = (image) => image.url || image.src;
 
   return (
     <Box
       sx={{
-        height: '100%',
+        height: '600px', // Match video feed height
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
         position: 'relative',
-        backgroundColor: '#f5f5f5',
-        borderRadius: 2,
-        padding: 2,
-        minHeight: '500px'
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        borderRadius: 3,
+        overflow: 'hidden',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
       }}
     >
-      {/* Header */}
+      {/* Header with Gradient Overlay */}
       <Box
         sx={{
+          position: 'relative',
+          background: 'rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(10px)',
+          borderBottom: '1px solid rgba(255,255,255,0.2)',
+          padding: 2,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          width: '100%',
-          mb: 2
         }}
       >
-        <Typography variant="h6" sx={{ color: '#666' }}>
-          Captured Images
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Collections sx={{ color: 'white', fontSize: 20 }} />
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              color: 'white',
+              fontWeight: 600,
+              fontSize: '1rem'
+            }}
+          >
+            Gallery
+          </Typography>
+          {images.length > 0 && (
+            <Chip
+              label={`${images.length} photos`}
+              size="small"
+              sx={{
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                color: 'white',
+                fontSize: '0.75rem',
+                height: 24
+              }}
+            />
+          )}
+        </Box>
+        
         <Tooltip title="Refresh Images">
-          <IconButton onClick={handleRefresh} size="small" disabled={loading}>
+          <IconButton 
+            onClick={handleRefresh} 
+            size="small" 
+            disabled={loading}
+            sx={{
+              color: 'white',
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              '&:hover': {
+                backgroundColor: 'rgba(255,255,255,0.2)',
+              }
+            }}
+          >
             <Refresh />
           </IconButton>
         </Tooltip>
       </Box>
 
-      {/* Loading State */}
-      {loading && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, justifyContent: 'center' }}>
-          <CircularProgress size={24} />
-          <Typography variant="body2" color="textSecondary">
-            Loading images...
-          </Typography>
-        </Box>
-      )}
+      {/* Content Area */}
+      <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
 
-      {/* Error State */}
-      {error && !loading && (
-        <Box sx={{ textAlign: 'center', color: 'error.main', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <Photo sx={{ fontSize: 48, opacity: 0.5, mb: 1 }} />
-          <Typography variant="body2">{error}</Typography>
-          <IconButton onClick={handleRefresh} sx={{ mt: 1 }}>
-            <Refresh />
-          </IconButton>
-        </Box>
-      )}
+        {/* Loading State */}
+        {loading && (
+          <Fade in={loading}>
+            <Box sx={{ 
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              flexDirection: 'column',
+              gap: 2,
+              color: 'white'
+            }}>
+              <CircularProgress sx={{ color: 'white' }} size={32} />
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                Loading images...
+              </Typography>
+            </Box>
+          </Fade>
+        )}
 
-      {/* No Images State */}
-      {!loading && !error && images.length === 0 && (
-        <Box sx={{ textAlign: 'center', color: 'text.secondary', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <Photo sx={{ fontSize: 48, opacity: 0.5, mb: 1 }} />
-          <Typography variant="body2">
-            {targetLabel ? `No images captured for "${targetLabel}"` : 'Enter a piece label and start capturing'}
-          </Typography>
-        </Box>
-      )}
-
-      {/* Image Slider */}
-      {!loading && !error && images.length > 0 && (
-        <Box
-          sx={{
-            flex: 1,
+        {/* Error State */}
+        {error && !loading && (
+          <Box sx={{ 
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '100%',
-            position: 'relative'
-          }}
-        >
-          {/* Up Arrow - only show if more than 1 image */}
-          {images.length > 1 && (
-            <IconButton
-              onClick={handlePrevious}
+            color: 'white',
+            textAlign: 'center'
+          }}>
+            <Photo sx={{ fontSize: 48, opacity: 0.6, mb: 2 }} />
+            <Typography variant="body1" sx={{ mb: 2, opacity: 0.9 }}>
+              {error}
+            </Typography>
+            <IconButton 
+              onClick={handleRefresh}
               sx={{
-                mb: 1,
-                backgroundColor: 'primary.main',
                 color: 'white',
-                '&:hover': {
-                  backgroundColor: 'primary.dark'
-                },
-                boxShadow: 2
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
               }}
             >
-              <KeyboardArrowUp />
+              <Refresh />
             </IconButton>
-          )}
+          </Box>
+        )}
 
-          {/* Images Container */}
+        {/* No Images State */}
+        {!loading && !error && images.length === 0 && (
+          <Box sx={{ 
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            textAlign: 'center'
+          }}>
+            <Photo sx={{ fontSize: 64, opacity: 0.4, mb: 3 }} />
+            <Typography variant="h6" sx={{ mb: 1, opacity: 0.9 }}>
+              No Images Yet
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.7, maxWidth: 200 }}>
+              {targetLabel ? `No images captured for "${targetLabel}"` : 'Enter a piece label and start capturing'}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Image Slider with Layered Effect */}
+        {!loading && !error && images.length > 0 && (
           <Box
             sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 2,
-              width: '100%',
-              maxWidth: '300px'
+              justifyContent: 'center',
+              padding: 3
             }}
           >
-            {visibleImages.map((image, index) => (
-              <Card
-                key={`${image.index}-${image.position}`}
+            {/* Navigation Arrows */}
+            {images.length > 1 && (
+              <IconButton
+                onClick={handlePrevious}
                 sx={{
-                  width: image.position === 'middle' ? '100%' : '80%',
-                  opacity: image.position === 'middle' ? 1 : 0.6,
-                  transform: image.position === 'middle' ? 'scale(1)' : 'scale(0.9)',
-                  transition: 'all 0.3s ease-in-out',
-                  cursor: image.position !== 'middle' && images.length > 1 ? 'pointer' : 'default',
-                  boxShadow: image.position === 'middle' ? 4 : 2,
-                  border: image.isTemporary ? '2px solid #2196f3' : 'none',
-                  position: 'relative',
+                  position: 'absolute',
+                  top: 20,
+                  zIndex: 1000,
+                  backgroundColor: 'rgba(255,255,255,0.9)',
+                  color: '#667eea',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   '&:hover': {
-                    opacity: image.position !== 'middle' && images.length > 1 ? 0.8 : 1
-                  }
-                }}
-                onClick={() => {
-                  if (images.length > 1) {
-                    if (image.position === 'top') handlePrevious();
-                    if (image.position === 'bottom') handleNext();
-                  }
+                    backgroundColor: 'white',
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                  },
+                  transition: 'all 0.3s ease'
                 }}
               >
-                <CardMedia
-                  component="img"
-                  height={image.position === 'middle' ? '200' : '150'}
-                  image={imageSource(image)}
-                  alt={`Captured image ${image.index + 1}`}
-                  sx={{
-                    objectFit: 'cover'
-                  }}
-                  onError={(e) => {
-                    console.error('Image failed to load:', imageSource(image));
-                    e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
-                  }}
-                />
-                {/* Indicator for temporary images */}
-                {image.isTemporary && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      backgroundColor: 'primary.main',
-                      color: 'white',
-                      borderRadius: '50%',
-                      width: 20,
-                      height: 20,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    T
-                  </Box>
-                )}
-              </Card>
-            ))}
-          </Box>
+                <KeyboardArrowUp />
+              </IconButton>
+            )}
 
-          {/* Down Arrow - only show if more than 1 image */}
-          {images.length > 1 && (
-            <IconButton
-              onClick={handleNext}
+            {/* Images Container with Layered Effect */}
+            <Box
               sx={{
-                mt: 1,
-                backgroundColor: 'primary.main',
-                color: 'white',
-                '&:hover': {
-                  backgroundColor: 'primary.dark'
-                },
-                boxShadow: 2
+                position: 'relative',
+                width: '280px',
+                height: '360px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}
             >
-              <KeyboardArrowDown />
-            </IconButton>
-          )}
+              {visibleImages.map((image) => {
+                const isCenter = image.position === 'center';
+                const isBackTop = image.position === 'back-top';
+                const isBackBottom = image.position === 'back-bottom';
+                const isBack = image.position === 'back';
 
-          {/* Image Counter */}
+                return (
+                  <Card
+                    key={`${image.index}-${image.position}`}
+                    sx={{
+                      position: 'absolute',
+                      width: isCenter ? '280px' : '240px',
+                      height: isCenter ? '200px' : '160px',
+                      borderRadius: 3,
+                      overflow: 'hidden',
+                      cursor: !isCenter && images.length > 1 ? 'pointer' : 'default',
+                      transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                      transform: `
+                        ${isCenter ? 'translateY(0px) scale(1)' : 
+                          isBackTop ? 'translateY(-40px) scale(0.85)' : 
+                          isBackBottom ? 'translateY(40px) scale(0.85)' :
+                          isBack ? 'translateY(20px) scale(0.85)' : 'scale(0.85)'}
+                      `,
+                      zIndex: isCenter ? 100 : 50,
+                      opacity: isCenter ? 1 : 0.7,
+                      boxShadow: isCenter 
+                        ? '0 20px 40px rgba(0,0,0,0.3)' 
+                        : '0 10px 20px rgba(0,0,0,0.2)',
+                      border: image.isTemporary ? '3px solid #4CAF50' : '3px solid rgba(255,255,255,0.3)',
+                      '&:hover': {
+                        opacity: !isCenter && images.length > 1 ? 0.9 : 1,
+                        transform: !isCenter && images.length > 1 
+                          ? `${isBackTop ? 'translateY(-35px)' : isBackBottom ? 'translateY(35px)' : 'translateY(15px)'} scale(0.9)`
+                          : undefined
+                      }
+                    }}
+                    onClick={() => {
+                      if (images.length > 1) {
+                        if (isBackTop) handlePrevious();
+                        else if (isBackBottom) handleNext();
+                        else if (isBack) {
+                          // For 2-image case, toggle between them
+                          if (image.index !== currentIndex) {
+                            setCurrentIndex(image.index);
+                          }
+                        }
+                      }
+                    }}
+                  >
+                    <CardMedia
+                      component="img"
+                      height="100%"
+                      image={imageSource(image)}
+                      alt={`Image ${image.index + 1}`}
+                      sx={{
+                        objectFit: 'cover',
+                        width: '100%',
+                        height: '100%'
+                      }}
+                      onError={(e) => {
+                        console.error('Image failed to load:', imageSource(image));
+                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
+                      }}
+                    />
+                    
+                    {/* Image Number Badge */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 12,
+                        right: 12,
+                        backgroundColor: isCenter ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.6)',
+                        color: 'white',
+                        borderRadius: '50%',
+                        width: 28,
+                        height: 28,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.75rem',
+                        fontWeight: 'bold',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                      }}
+                    >
+                      {image.index + 1}
+                    </Box>
+
+                    {/* Temporary Image Indicator */}
+                    {image.isTemporary && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: 12,
+                          left: 12,
+                          backgroundColor: '#4CAF50',
+                          color: 'white',
+                          borderRadius: 1,
+                          px: 1,
+                          py: 0.5,
+                          fontSize: '0.6rem',
+                          fontWeight: 'bold',
+                          textTransform: 'uppercase',
+                          boxShadow: '0 2px 8px rgba(76, 175, 80, 0.3)'
+                        }}
+                      >
+                        New
+                      </Box>
+                    )}
+                  </Card>
+                );
+              })}
+            </Box>
+
+            {/* Navigation Arrows */}
+            {images.length > 1 && (
+              <IconButton
+                onClick={handleNext}
+                sx={{
+                  position: 'absolute',
+                  bottom: 20,
+                  zIndex: 1000,
+                  backgroundColor: 'rgba(255,255,255,0.9)',
+                  color: '#667eea',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  '&:hover': {
+                    backgroundColor: 'white',
+                    transform: 'translateY(2px)',
+                    boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                  },
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                <KeyboardArrowDown />
+              </IconButton>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      {/* Footer with Image Counter */}
+      {!loading && !error && images.length > 0 && (
+        <Box
+          sx={{
+            background: 'rgba(255,255,255,0.1)',
+            backdropFilter: 'blur(10px)',
+            borderTop: '1px solid rgba(255,255,255,0.2)',
+            padding: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
           <Typography
-            variant="caption"
+            variant="body2"
             sx={{
-              mt: 2,
-              px: 2,
-              py: 0.5,
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
               color: 'white',
-              borderRadius: 1,
-              textAlign: 'center'
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1
             }}
           >
+            <Box
+              sx={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: 'white',
+                opacity: 0.8
+              }}
+            />
             {currentIndex + 1} of {images.length}
             {images.some(img => img.isTemporary) && (
-              <Typography variant="caption" sx={{ display: 'block', fontSize: '10px', opacity: 0.8 }}>
-                Blue border = temporary
-              </Typography>
+              <Chip
+                label="New photos available"
+                size="small"
+                sx={{
+                  ml: 1,
+                  backgroundColor: '#4CAF50',
+                  color: 'white',
+                  fontSize: '0.65rem',
+                  height: 20
+                }}
+              />
             )}
           </Typography>
         </Box>

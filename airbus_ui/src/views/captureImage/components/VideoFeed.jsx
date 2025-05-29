@@ -11,7 +11,8 @@ const VideoFeed = ({
   onStartCamera,
   onStopCamera,
   cameraId,
-  targetLabel
+  targetLabel,
+  onImageCaptured // New prop to notify parent when image is captured
 }) => {
   const [videoUrl, setVideoUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -23,7 +24,7 @@ const VideoFeed = ({
   const requiredCaptures = 10;
   const videoRef = useRef(null);
 
-  // Fixed: Only update video URL when camera state changes
+  // Only update video URL when camera state changes
   useEffect(() => {
     if (isCameraStarted) {
       setVideoUrl("/api/artifact_keeper/camera/video_feed");
@@ -32,10 +33,9 @@ const VideoFeed = ({
     }
   }, [isCameraStarted]);
 
-  // Fixed: Prevent infinite loop by using stable dependency
+  // Reset captured images when target label changes
   const targetLabelRef = useRef(targetLabel);
   useEffect(() => {
-    // Only reset if target label actually changed
     if (targetLabelRef.current !== targetLabel) {
       targetLabelRef.current = targetLabel;
       
@@ -51,7 +51,7 @@ const VideoFeed = ({
         setCapturedImagesCount(0);
       }
     }
-  }, [targetLabel]); // Removed capturedImages from dependencies
+  }, [targetLabel]);
 
   const handleCaptureImages = async () => {
     if (isCapturing) return;
@@ -69,6 +69,11 @@ const VideoFeed = ({
       if (imageUrl) {
         setCapturedImages((prevImages) => [...prevImages, imageUrl]);
         setCapturedImagesCount((prevCount) => prevCount + 1);
+        
+        // Trigger ImageSlider update immediately after capture
+        if (onImageCaptured) {
+          onImageCaptured();
+        }
         
         // Check if we've reached required captures
         const newCount = capturedImagesCount + 1;
@@ -104,6 +109,11 @@ const VideoFeed = ({
       setCapturedImages([]);
       setCapturedImagesCount(0);
       
+      // Trigger final update to ImageSlider to show saved images
+      if (onImageCaptured) {
+        onImageCaptured();
+      }
+      
       await onStopCamera();
       window.location.reload();
     }
@@ -119,12 +129,11 @@ const VideoFeed = ({
         }
       });
     };
-  }, []); // Empty dependency array - only run on unmount
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <VideoCard
-        // Fixed: Remove invalid DOM props
         data-camera-active={isCameraStarted}
         onMouseEnter={() => setShowControls(true)}
         onMouseLeave={() => setShowControls(false)}

@@ -13,6 +13,7 @@ export default function AppPartLibrary() {
   const [cameras, setCameras] = useState([]);
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [imageRefreshTrigger, setImageRefreshTrigger] = useState(0);
   
   // Cleanup on component unmount or page unload
   useEffect(() => {
@@ -77,6 +78,12 @@ export default function AppPartLibrary() {
     setTargetLabel(event.target.value);
   };
 
+  // Handle image captured - trigger ImageSlider refresh
+  const handleImageCaptured = () => {
+    // Increment trigger to cause ImageSlider to refresh
+    setImageRefreshTrigger(prev => prev + 1);
+  };
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
       <Grid
@@ -101,13 +108,13 @@ export default function AppPartLibrary() {
               onStopCamera={handleStopCamera}
               cameraId={cameraId}
               targetLabel={targetLabel}
-              // Remove the onImagesCaptured prop - no longer needed
+              onImageCaptured={handleImageCaptured} // Pass the trigger function
             />
           </Stack>
         </Grid>
         
         <Grid size={{ xs: 12, md: 3 }}>
-          {/* Image Slider Component - now self-managing */}
+          {/* Image Slider Component - now event-driven */}
           <Card 
             sx={{ 
               height: '100%', 
@@ -118,7 +125,7 @@ export default function AppPartLibrary() {
           >
             <ImageSlider 
               targetLabel={targetLabel}
-              // Remove refreshTrigger - component now handles its own refresh logic
+              refreshTrigger={imageRefreshTrigger} // Pass the trigger
             />         
           </Card>
         </Grid>
