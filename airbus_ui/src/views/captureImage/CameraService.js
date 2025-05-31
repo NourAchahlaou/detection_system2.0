@@ -84,6 +84,22 @@ export const cameraService = {
     }
   },
 
+  // Delete temporary image - NEW FUNCTION
+  deleteTempImage: async (pieceLabel, imageName) => {
+    try {
+      const response = await api.delete(`/api/artifact_keeper/camera/temp-image/${pieceLabel}/${imageName}`);
+      
+      if (response.status === 200) {
+        console.log(`Successfully deleted temp image: ${imageName}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error deleting temp image:", error.response?.data?.detail || error.message);
+      return false;
+    }
+  },
+
   // Get images by label (for saved images) - Fixed the 'this' context issue
   getImagesByLabel: async (targetLabel) => {
     try {

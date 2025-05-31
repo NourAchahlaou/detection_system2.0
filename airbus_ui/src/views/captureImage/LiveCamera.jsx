@@ -86,34 +86,6 @@ const LiveCameraView = ({
         </SnapshotEffect>
       )}
 
-      {/* Captured Images Stack
-      <CapturedImagesStack>
-        {capturedImages.slice(-3).map((imageUrl, index) => (
-          <Box
-            key={capturedImages.length - 3 + index}
-            sx={{
-              position: "absolute",
-              bottom: index * 8 + "px",
-              right: index * 8 + "px",
-              transform: `rotate(${(index - 1) * 5}deg)`,
-              zIndex: 3 - index,
-            }}
-          >
-            <img
-              src={imageUrl}
-              alt={`Captured ${capturedImages.length - 3 + index + 1}`}
-              style={{
-                width: "80px",
-                height: "60px",
-                objectFit: "cover",
-                border: "3px solid white",
-                borderRadius: "8px",
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.14)",
-              }}
-            />
-          </Box>
-        ))}
-      </CapturedImagesStack> */}
     </>
   );
 };

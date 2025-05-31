@@ -9,13 +9,19 @@ import {
   Tooltip,
   CircularProgress,
   Fade,
-  Chip
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button
 } from '@mui/material';
 import { 
   KeyboardArrowUp, 
   KeyboardArrowDown, 
   Photo,
-  Refresh
+  Refresh,
+  Delete
 } from '@mui/icons-material';
 import { cameraService } from './CameraService';
 
@@ -24,6 +30,9 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [imageToDelete, setImageToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   
   const mountedRef = useRef(true);
 
@@ -115,6 +124,62 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
     }
   }, [images.length]);
 
+  // Handle delete image
+  const handleDeleteImage = useCallback(async (imageToDelete) => {
+    if (!imageToDelete || !targetLabel) return;
+
+    try {
+      setDeleting(true);
+      const success = await cameraService.deleteTempImage(targetLabel, imageToDelete.image_name);
+      
+      if (success) {
+        // Remove the image from local state
+        setImages(prevImages => {
+          const newImages = prevImages.filter(img => img.image_name !== imageToDelete.image_name);
+          
+          // Adjust current index if necessary
+          setCurrentIndex(prevIndex => {
+            if (newImages.length === 0) return 0;
+            if (prevIndex >= newImages.length) return newImages.length - 1;
+            return prevIndex;
+          });
+          
+          return newImages;
+        });
+        
+        // Clean up blob URL if it exists
+        if (imageToDelete.url && imageToDelete.url.startsWith('blob:')) {
+          URL.revokeObjectURL(imageToDelete.url);
+        }
+        
+        console.log('Image deleted successfully');
+      } else {
+        setError('Failed to delete image');
+      }
+    } catch (err) {
+      console.error('Error deleting image:', err);
+      setError('Failed to delete image');
+    } finally {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+      setImageToDelete(null);
+    }
+  }, [targetLabel]);
+
+  // Open delete confirmation dialog
+  const openDeleteDialog = useCallback((image) => {
+    setImageToDelete(image);
+    setDeleteDialogOpen(true);
+  }, []);
+
+  // Close delete dialog
+  const closeDeleteDialog = useCallback(() => {
+    if (!deleting) {
+      setDeleteDialogOpen(false);
+      setImageToDelete(null);
+    }
+  }, [deleting]);
+
   // Get image source
   const imageSource = (image) => image.url || image.src;
 
@@ -155,7 +220,6 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
         flexDirection: 'column',
         position: 'relative',
         backgroundColor: 'transparent',
-        
         overflow: 'hidden',
       }}
     >
@@ -347,19 +411,19 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                   opacity = 1;
                   rotation = 0;
                 } else if (isBackTop) {
-                  translateY = -120; // More separation
-                  translateX = 0; // Slight offset for visual effect
+                  translateY = -120;
+                  translateX = 0;
                   zIndex = 200;
                   scale = 0.88;
                   opacity = 0.5;
-                  rotation = 0; // Slight rotation for depth
+                  rotation = 0;
                 } else if (isBackBottom) {
-                  translateY = 120; // More separation
-                  translateX = 0; // Slight offset for visual effect
+                  translateY = 120;
+                  translateX = 0;
                   zIndex = 100;
                   scale = 0.88;
                   opacity = 0.5;
-                  rotation = 0; // Slight rotation for depth
+                  rotation = 0;
                 } else if (isBack) {
                   // For 2-image case
                   translateY = 80;
@@ -425,6 +489,46 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                         e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
                       }}
                     />
+                    
+                    {/* Delete Button - Only show on hover and for temporary images */}
+                    {image.isTemporary && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          opacity: 0,
+                          transition: 'opacity 0.3s ease',
+                          zIndex: 1000,
+                          '.MuiCard-root:hover &': {
+                            opacity: 1,
+                          }
+                        }}
+                      >
+                        <Tooltip title="Delete Image">
+                          <IconButton
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteDialog(image);
+                            }}
+                            sx={{
+                              backgroundColor: 'rgba(244, 63, 94, 0.9)',
+                              color: 'white',
+                              boxShadow: '0 4px 12px rgba(244, 63, 94, 0.4)',
+                              '&:hover': {
+                                backgroundColor: 'rgba(244, 63, 94, 1)',
+                                transform: 'scale(1.1)',
+                                boxShadow: '0 6px 16px rgba(244, 63, 94, 0.5)',
+                              },
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            <Delete />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    )}
                     
                     {/* Image Number Badge */}
                     <Box
@@ -555,6 +659,53 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
           </Typography>
         </Box>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={closeDeleteDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ color: '#333', pb: 1 }}>
+          Delete Image
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Are you sure you want to delete this image? This action cannot be undone.
+          </Typography>
+          {imageToDelete && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Photo sx={{ color: '#666' }} />
+              <Typography variant="body2" sx={{ color: '#666' }}>
+                {imageToDelete.image_name}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button 
+            onClick={closeDeleteDialog} 
+            disabled={deleting}
+            sx={{ color: '#666' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => handleDeleteImage(imageToDelete)}
+            variant="contained"
+            disabled={deleting}
+            sx={{
+              backgroundColor: '#f43f5e',
+              '&:hover': { backgroundColor: '#e11d48' },
+              '&:disabled': { backgroundColor: '#fca5a5' }
+            }}
+            startIcon={deleting ? <CircularProgress size={16} color="inherit" /> : <Delete />}
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -590,4 +590,34 @@ class CameraService:
             raise
         except Exception as e:
             logger.error(f"Error serving temp image {image_name}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to serve temp image: {str(e)}")        
+            raise HTTPException(status_code=500, detail=f"Failed to serve temp image: {str(e)}")  
+
+
+    def delete_temp_image(self, piece_label: str, image_name: str) -> bool:
+        """Delete a specific temporary image."""
+        try:
+            # Find and remove the image from temp_photos list
+            photo_to_remove = None
+            for photo in self.temp_photos:
+                if photo['piece_label'] == piece_label and photo['image_name'] == image_name:
+                    photo_to_remove = photo
+                    break
+            
+            if not photo_to_remove:
+                logger.warning(f"Temp image not found: {image_name} for piece {piece_label}")
+                return False
+            
+            # Remove the physical file if it exists
+            if os.path.exists(photo_to_remove['file_path']):
+                os.remove(photo_to_remove['file_path'])
+                logger.info(f"Deleted temp file: {photo_to_remove['file_path']}")
+            
+            # Remove from temp_photos list
+            self.temp_photos.remove(photo_to_remove)
+            logger.info(f"Removed temp image {image_name} for piece {piece_label}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting temp image {image_name}: {str(e)}")
+            return False

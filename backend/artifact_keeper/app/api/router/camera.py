@@ -232,3 +232,21 @@ async def serve_temp_image_endpoint(
     except Exception as e:
         logger.error(f"Error in serve_temp_image_endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+@camera_router.delete("/temp-image/{piece_label}/{image_name}")
+async def delete_temp_image(
+    piece_label: str,
+    image_name: str,
+
+):
+    """Delete a specific temporary image."""
+    try:
+        success = camera_service.delete_temp_image(piece_label, image_name)
+        if success:
+            return {"message": f"Temporary image {image_name} deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Temporary image not found")
+    except Exception as e:
+        logger.error(f"Error deleting temp image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete temporary image: {str(e)}")    
