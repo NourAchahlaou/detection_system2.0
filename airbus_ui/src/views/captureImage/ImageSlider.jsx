@@ -115,32 +115,37 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
     }
   }, [images.length]);
 
-  // Get visible images (current, previous, next) - Memoized
-  const visibleImages = React.useMemo(() => {
+  // Get image source
+  const imageSource = (image) => image.url || image.src;
+
+  // Get visible images for the stack effect
+  const getVisibleImages = () => {
     if (images.length === 0) return [];
     
-    const visibleImages = [];
-    const totalImages = images.length;
-    
-    if (totalImages === 1) {
-      visibleImages.push({ ...images[currentIndex], position: 'center', index: currentIndex });
-    } else if (totalImages === 2) {
-      const otherIndex = currentIndex === 0 ? 1 : 0;
-      visibleImages.push({ ...images[otherIndex], position: 'back', index: otherIndex });
-      visibleImages.push({ ...images[currentIndex], position: 'center', index: currentIndex });
-    } else {
-      const prevIndex = currentIndex > 0 ? currentIndex - 1 : totalImages - 1;
-      const nextIndex = currentIndex < totalImages - 1 ? currentIndex + 1 : 0;
-      
-      visibleImages.push({ ...images[prevIndex], position: 'back-top', index: prevIndex });
-      visibleImages.push({ ...images[nextIndex], position: 'back-bottom', index: nextIndex });
-      visibleImages.push({ ...images[currentIndex], position: 'center', index: currentIndex });
+    if (images.length === 1) {
+      return [{ ...images[0], position: 'center', index: 0 }];
     }
     
-    return visibleImages;
-  }, [images, currentIndex]);
+    if (images.length === 2) {
+      const otherIndex = currentIndex === 0 ? 1 : 0;
+      return [
+        { ...images[otherIndex], position: 'back', index: otherIndex },
+        { ...images[currentIndex], position: 'center', index: currentIndex }
+      ];
+    }
+    
+    // For 3 or more images
+    const prevIndex = currentIndex > 0 ? currentIndex - 1 : images.length - 1;
+    const nextIndex = currentIndex < images.length - 1 ? currentIndex + 1 : 0;
+    
+    return [
+      { ...images[prevIndex], position: 'back-top', index: prevIndex },
+      { ...images[nextIndex], position: 'back-bottom', index: nextIndex },
+      { ...images[currentIndex], position: 'center', index: currentIndex }
+    ];
+  };
 
-  const imageSource = (image) => image.url || image.src;
+  const visibleImages = getVisibleImages();
 
   return (
     <Box
@@ -150,7 +155,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
         flexDirection: 'column',
         position: 'relative',
         backgroundColor: 'transparent',
-        borderRadius: 3,
+        
         overflow: 'hidden',
       }}
     >
@@ -270,7 +275,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
           </Box>
         )}
 
-        {/* Image Slider with Layered Effect */}
+        {/* Image Slider with Improved Vertical Stack */}
         {!loading && !error && images.length > 0 && (
           <Box
             sx={{
@@ -283,18 +288,18 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: 3
+              padding: 2
             }}
           >
-            {/* Navigation Arrows */}
+            {/* Navigation Arrow - Up */}
             {images.length > 1 && (
               <IconButton
                 onClick={handlePrevious}
                 sx={{
                   position: 'absolute',
-                  top: 20,
+                  top: 30,
                   zIndex: 1500,
-                  backgroundColor: 'rgba(255,255,255,0.9)',
+                  backgroundColor: 'rgba(255,255,255,0.95)',
                   color: '#667eea',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   '&:hover': {
@@ -309,12 +314,12 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
               </IconButton>
             )}
 
-            {/* Images Container with Proper Layering */}
+            {/* Images Stack Container */}
             <Box
               sx={{
                 position: 'relative',
-                width: '320px',
-                height: '360px',
+                width: '300px',
+                height: '420px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
@@ -326,47 +331,81 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                 const isBackBottom = image.position === 'back-bottom';
                 const isBack = image.position === 'back';
 
+                // Improved positioning calculations
+                let translateY = 0;
+                let translateX = 0;
+                let zIndex = 100;
+                let scale = 0.85;
+                let opacity = 0.85;
+                let rotation = 0;
+
+                if (isCenter) {
+                  translateY = 0;
+                  translateX = 0;
+                  zIndex = 300;
+                  scale = 1;
+                  opacity = 1;
+                  rotation = 0;
+                } else if (isBackTop) {
+                  translateY = -120; // More separation
+                  translateX = 0; // Slight offset for visual effect
+                  zIndex = 200;
+                  scale = 0.88;
+                  opacity = 0.5;
+                  rotation = 0; // Slight rotation for depth
+                } else if (isBackBottom) {
+                  translateY = 120; // More separation
+                  translateX = 0; // Slight offset for visual effect
+                  zIndex = 100;
+                  scale = 0.88;
+                  opacity = 0.5;
+                  rotation = 0; // Slight rotation for depth
+                } else if (isBack) {
+                  // For 2-image case
+                  translateY = 80;
+                  translateX = 0;
+                  zIndex = 200;
+                  scale = 0.9;
+                  opacity = 0.5;
+                  rotation = 0;
+                }
+
                 return (
                   <Card
                     key={`${image.index}-${image.position}`}
                     sx={{
                       position: 'absolute',
-                      width: isCenter ? '280px' : '240px',
-                      height: isCenter ? '200px' : '160px',
+                      width: '280px',
+                      height: '200px',
                       borderRadius: 3,
                       overflow: 'hidden',
                       cursor: !isCenter && images.length > 1 ? 'pointer' : 'default',
-                      transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                      transform: `
-                        ${isCenter ? 'translateY(0px) translateX(0px) scale(1)' : 
-                          isBackTop ? 'translateY(-60px) translateX(-30px) scale(0.85)' : 
-                          isBackBottom ? 'translateY(60px) translateX(30px) scale(0.85)' :
-                          isBack ? 'translateY(30px) translateX(-20px) scale(0.85)' : 'scale(0.85)'}
-                      `,
-                      zIndex: isCenter ? 200 : (isBackTop ? 100 : (isBackBottom ? 50 : 75)),
-                      opacity: isCenter ? 1 : 0.8,
+                      transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                      transform: `translateY(${translateY}px) translateX(${translateX}px) scale(${scale}) rotate(${rotation}deg)`,
+                      transformOrigin: 'center center',
+                      zIndex: zIndex,
+                      opacity: opacity,
                       boxShadow: isCenter 
-                        ? '0 20px 40px rgba(0,0,0,0.25)' 
-                        : '0 10px 20px rgba(0,0,0,0.15)',
-                      border: image.isTemporary ? '3px solid #4CAF50' : '3px solid rgba(255,255,255,0.8)',
+                        ? '0 25px 50px rgba(0,0,0,0.3)' 
+                        : '0 15px 30px rgba(0,0,0,0.2)',
+                      border: image.isTemporary ? '3px solid #4CAF50' : '3px solid rgba(255,255,255,0.9)',
                       '&:hover': {
-                        opacity: !isCenter && images.length > 1 ? 1 : 1,
+                        opacity: !isCenter && images.length > 1 ? 1 : opacity,
                         transform: !isCenter && images.length > 1 
-                          ? `${isBackTop ? 'translateY(-55px) translateX(-25px)' : 
-                               isBackBottom ? 'translateY(55px) translateX(25px)' : 
-                               'translateY(25px) translateX(-15px)'} scale(0.9)`
-                          : undefined,
-                        zIndex: !isCenter && images.length > 1 ? 150 : undefined
+                          ? `translateY(${translateY}px) translateX(${translateX}px) scale(${Math.min(scale + 0.03, 0.95)}) rotate(${rotation}deg)` 
+                          : `translateY(${translateY}px) translateX(${translateX}px) scale(${scale}) rotate(${rotation}deg)`,
+                        zIndex: !isCenter && images.length > 1 ? zIndex + 50 : zIndex,
+                        boxShadow: !isCenter && images.length > 1 
+                          ? '0 20px 40px rgba(0,0,0,0.25)' 
+                          : (isCenter ? '0 25px 50px rgba(0,0,0,0.3)' : '0 15px 30px rgba(0,0,0,0.2)')
                       }
                     }}
                     onClick={() => {
-                      if (images.length > 1) {
+                      if (images.length > 1 && !isCenter) {
                         if (isBackTop) handlePrevious();
                         else if (isBackBottom) handleNext();
                         else if (isBack) {
-                          if (image.index !== currentIndex) {
-                            setCurrentIndex(image.index);
-                          }
+                          setCurrentIndex(image.index);
                         }
                       }
                     }}
@@ -393,15 +432,15 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                         position: 'absolute',
                         top: 12,
                         right: 12,
-                        backgroundColor: isCenter ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.6)',
+                        backgroundColor: isCenter ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.7)',
                         color: 'white',
                         borderRadius: '50%',
-                        width: 28,
-                        height: 28,
+                        width: 32,
+                        height: 32,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '0.75rem',
+                        fontSize: '0.8rem',
                         fontWeight: 'bold',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
                       }}
@@ -421,7 +460,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                           borderRadius: 1,
                           px: 1,
                           py: 0.5,
-                          fontSize: '0.6rem',
+                          fontSize: '0.65rem',
                           fontWeight: 'bold',
                           textTransform: 'uppercase',
                           boxShadow: '0 2px 8px rgba(76, 175, 80, 0.3)'
@@ -435,15 +474,15 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
               })}
             </Box>
 
-            {/* Navigation Arrows */}
+            {/* Navigation Arrow - Down */}
             {images.length > 1 && (
               <IconButton
                 onClick={handleNext}
                 sx={{
                   position: 'absolute',
-                  bottom: 20,
+                  bottom: 30,
                   zIndex: 1500,
-                  backgroundColor: 'rgba(255,255,255,0.9)',
+                  backgroundColor: 'rgba(255,255,255,0.95)',
                   color: '#667eea',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   '&:hover': {
@@ -466,10 +505,10 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
         <Box
           sx={{
             position: 'absolute',
-            bottom: 16,
+            bottom: 10,
             left: '50%',
             transform: 'translateX(-50%)',
-            background: 'rgba(255,255,255,0.9)',
+            background: 'rgba(255,255,255,0.95)',
             backdropFilter: 'blur(10px)',
             borderRadius: 2,
             padding: 1.5,

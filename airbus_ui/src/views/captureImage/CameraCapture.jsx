@@ -115,19 +115,12 @@ export default function AppPartLibrary() {
         
         <Grid size={{ xs: 12, md: 3 }}>
           {/* Image Slider Component - now event-driven */}
-          <Card 
-            sx={{ 
-              height: '100%', 
-              minHeight: '500px',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
+
             <ImageSlider 
               targetLabel={targetLabel}
               refreshTrigger={imageRefreshTrigger} // Pass the trigger
             />         
-          </Card>
+         
         </Grid>
       </Grid>
     </Box>

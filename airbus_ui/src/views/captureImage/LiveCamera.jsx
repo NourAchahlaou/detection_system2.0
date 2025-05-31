@@ -86,7 +86,7 @@ const LiveCameraView = ({
         </SnapshotEffect>
       )}
 
-      {/* Captured Images Stack */}
+      {/* Captured Images Stack
       <CapturedImagesStack>
         {capturedImages.slice(-3).map((imageUrl, index) => (
           <Box
@@ -113,7 +113,7 @@ const LiveCameraView = ({
             />
           </Box>
         ))}
-      </CapturedImagesStack>
+      </CapturedImagesStack> */}
     </>
   );
 };
