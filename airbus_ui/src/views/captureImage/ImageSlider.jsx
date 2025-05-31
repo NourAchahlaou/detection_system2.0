@@ -15,8 +15,7 @@ import {
   KeyboardArrowUp, 
   KeyboardArrowDown, 
   Photo,
-  Refresh,
-  Collections
+  Refresh
 } from '@mui/icons-material';
 import { cameraService } from './CameraService';
 
@@ -146,65 +145,39 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
   return (
     <Box
       sx={{
-        height: '600px', // Match video feed height
+        height: '550px',
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        backgroundColor: 'transparent',
         borderRadius: 3,
         overflow: 'hidden',
-        boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
       }}
     >
-      {/* Header with Gradient Overlay */}
+      {/* Refresh Button - Top Right */}
       <Box
         sx={{
-          position: 'relative',
-          background: 'rgba(255,255,255,0.1)',
-          backdropFilter: 'blur(10px)',
-          borderBottom: '1px solid rgba(255,255,255,0.2)',
-          padding: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          zIndex: 2000,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Collections sx={{ color: 'white', fontSize: 20 }} />
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              color: 'white',
-              fontWeight: 600,
-              fontSize: '1rem'
-            }}
-          >
-            Gallery
-          </Typography>
-          {images.length > 0 && (
-            <Chip
-              label={`${images.length} photos`}
-              size="small"
-              sx={{
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                color: 'white',
-                fontSize: '0.75rem',
-                height: 24
-              }}
-            />
-          )}
-        </Box>
-        
         <Tooltip title="Refresh Images">
           <IconButton 
             onClick={handleRefresh} 
             size="small" 
             disabled={loading}
             sx={{
-              color: 'white',
-              backgroundColor: 'rgba(255,255,255,0.1)',
+              backgroundColor: 'rgba(255,255,255,0.9)',
+              color: '#333',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
               '&:hover': {
-                backgroundColor: 'rgba(255,255,255,0.2)',
+                backgroundColor: 'white',
+                transform: 'scale(1.05)',
+              },
+              '&:disabled': {
+                backgroundColor: 'rgba(255,255,255,0.5)',
               }
             }}
           >
@@ -230,9 +203,9 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
               justifyContent: 'center',
               flexDirection: 'column',
               gap: 2,
-              color: 'white'
+              color: '#666'
             }}>
-              <CircularProgress sx={{ color: 'white' }} size={32} />
+              <CircularProgress sx={{ color: '#667eea' }} size={32} />
               <Typography variant="body2" sx={{ opacity: 0.8 }}>
                 Loading images...
               </Typography>
@@ -252,7 +225,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'white',
+            color: '#666',
             textAlign: 'center'
           }}>
             <Photo sx={{ fontSize: 48, opacity: 0.6, mb: 2 }} />
@@ -262,9 +235,9 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
             <IconButton 
               onClick={handleRefresh}
               sx={{
-                color: 'white',
-                backgroundColor: 'rgba(255,255,255,0.1)',
-                '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+                backgroundColor: 'rgba(255,255,255,0.9)',
+                color: '#333',
+                '&:hover': { backgroundColor: 'white' }
               }}
             >
               <Refresh />
@@ -284,7 +257,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'white',
+            color: '#666',
             textAlign: 'center'
           }}>
             <Photo sx={{ fontSize: 64, opacity: 0.4, mb: 3 }} />
@@ -320,7 +293,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                 sx={{
                   position: 'absolute',
                   top: 20,
-                  zIndex: 1000,
+                  zIndex: 1500,
                   backgroundColor: 'rgba(255,255,255,0.9)',
                   color: '#667eea',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -336,11 +309,11 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
               </IconButton>
             )}
 
-            {/* Images Container with Layered Effect */}
+            {/* Images Container with Proper Layering */}
             <Box
               sx={{
                 position: 'relative',
-                width: '280px',
+                width: '320px',
                 height: '360px',
                 display: 'flex',
                 alignItems: 'center',
@@ -365,22 +338,25 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                       cursor: !isCenter && images.length > 1 ? 'pointer' : 'default',
                       transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                       transform: `
-                        ${isCenter ? 'translateY(0px) scale(1)' : 
-                          isBackTop ? 'translateY(-40px) scale(0.85)' : 
-                          isBackBottom ? 'translateY(40px) scale(0.85)' :
-                          isBack ? 'translateY(20px) scale(0.85)' : 'scale(0.85)'}
+                        ${isCenter ? 'translateY(0px) translateX(0px) scale(1)' : 
+                          isBackTop ? 'translateY(-60px) translateX(-30px) scale(0.85)' : 
+                          isBackBottom ? 'translateY(60px) translateX(30px) scale(0.85)' :
+                          isBack ? 'translateY(30px) translateX(-20px) scale(0.85)' : 'scale(0.85)'}
                       `,
-                      zIndex: isCenter ? 100 : 50,
-                      opacity: isCenter ? 1 : 0.7,
+                      zIndex: isCenter ? 200 : (isBackTop ? 100 : (isBackBottom ? 50 : 75)),
+                      opacity: isCenter ? 1 : 0.8,
                       boxShadow: isCenter 
-                        ? '0 20px 40px rgba(0,0,0,0.3)' 
-                        : '0 10px 20px rgba(0,0,0,0.2)',
-                      border: image.isTemporary ? '3px solid #4CAF50' : '3px solid rgba(255,255,255,0.3)',
+                        ? '0 20px 40px rgba(0,0,0,0.25)' 
+                        : '0 10px 20px rgba(0,0,0,0.15)',
+                      border: image.isTemporary ? '3px solid #4CAF50' : '3px solid rgba(255,255,255,0.8)',
                       '&:hover': {
-                        opacity: !isCenter && images.length > 1 ? 0.9 : 1,
+                        opacity: !isCenter && images.length > 1 ? 1 : 1,
                         transform: !isCenter && images.length > 1 
-                          ? `${isBackTop ? 'translateY(-35px)' : isBackBottom ? 'translateY(35px)' : 'translateY(15px)'} scale(0.9)`
-                          : undefined
+                          ? `${isBackTop ? 'translateY(-55px) translateX(-25px)' : 
+                               isBackBottom ? 'translateY(55px) translateX(25px)' : 
+                               'translateY(25px) translateX(-15px)'} scale(0.9)`
+                          : undefined,
+                        zIndex: !isCenter && images.length > 1 ? 150 : undefined
                       }
                     }}
                     onClick={() => {
@@ -388,7 +364,6 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                         if (isBackTop) handlePrevious();
                         else if (isBackBottom) handleNext();
                         else if (isBack) {
-                          // For 2-image case, toggle between them
                           if (image.index !== currentIndex) {
                             setCurrentIndex(image.index);
                           }
@@ -467,7 +442,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                 sx={{
                   position: 'absolute',
                   bottom: 20,
-                  zIndex: 1000,
+                  zIndex: 1500,
                   backgroundColor: 'rgba(255,255,255,0.9)',
                   color: '#667eea',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -490,19 +465,25 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
       {!loading && !error && images.length > 0 && (
         <Box
           sx={{
-            background: 'rgba(255,255,255,0.1)',
+            position: 'absolute',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(255,255,255,0.9)',
             backdropFilter: 'blur(10px)',
-            borderTop: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: 2,
             padding: 1.5,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            zIndex: 1000
           }}
         >
           <Typography
             variant="body2"
             sx={{
-              color: 'white',
+              color: '#333',
               fontWeight: 500,
               display: 'flex',
               alignItems: 'center',
@@ -514,14 +495,14 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                backgroundColor: 'white',
+                backgroundColor: '#667eea',
                 opacity: 0.8
               }}
             />
             {currentIndex + 1} of {images.length}
             {images.some(img => img.isTemporary) && (
               <Chip
-                label="New photos available"
+                label="New"
                 size="small"
                 sx={{
                   ml: 1,
