@@ -12,7 +12,8 @@ const VideoFeed = ({
   onStopCamera,
   cameraId,
   targetLabel,
-  onImageCaptured // New prop to notify parent when image is captured
+  onImageCaptured, // New prop to notify parent when image is captured
+  onSetImageCountCallback // New prop to register callback
 }) => {
   const [videoUrl, setVideoUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -23,6 +24,13 @@ const VideoFeed = ({
   const [showControls, setShowControls] = useState(false);
   const requiredCaptures = 10;
   const videoRef = useRef(null);
+
+  // Register the callback with parent component
+  useEffect(() => {
+    if (onSetImageCountCallback) {
+      onSetImageCountCallback(handleImageCountChange);
+    }
+  }, [onSetImageCountCallback]);
 
   // Only update video URL when camera state changes
   useEffect(() => {
@@ -52,6 +60,11 @@ const VideoFeed = ({
       }
     }
   }, [targetLabel]);
+
+  // Handle image count change from ImageSlider
+  const handleImageCountChange = (newCount) => {
+    setCapturedImagesCount(newCount);
+  };
 
   const handleCaptureImages = async () => {
     if (isCapturing) return;

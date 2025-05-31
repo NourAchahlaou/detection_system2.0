@@ -1,6 +1,6 @@
 // components/LiveCamera.jsx
 import React from "react";
-import { Box, IconButton, Typography, Tooltip } from "@mui/material";
+import {  IconButton, Typography, Tooltip } from "@mui/material";
 import { CameraAlt, Stop, FiberManualRecord } from "@mui/icons-material";
 import { 
   VideoImage, 
@@ -8,7 +8,6 @@ import {
   StatusIndicator, 
   CaptureCounter, 
   SnapshotEffect,
-  CapturedImagesStack 
 } from "./components/styledComponents";
 
 const LiveCameraView = ({
@@ -52,8 +51,8 @@ const LiveCameraView = ({
             disabled={isCapturing || capturedImagesCount >= requiredCaptures}
             sx={{ 
               color: "white",
-              backgroundColor: "rgba(76, 175, 80, 0.8)",
-              "&:hover": { backgroundColor: "rgba(76, 175, 80, 1)" },
+              backgroundColor: "#667eea",
+              "&:hover": { backgroundColor: "rgb(91, 76, 175)" },
               "&:disabled": { backgroundColor: "rgba(255, 255, 255, 0.2)" }
             }}
           >

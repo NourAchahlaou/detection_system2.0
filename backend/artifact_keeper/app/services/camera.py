@@ -331,13 +331,51 @@ class CameraService:
                 logger.warning(f"Maximum photo limit reached for piece {piece_label}: {total_count}/10")
                 raise HTTPException(status_code=400, detail="Maximum 10 photos per piece reached.")
             
+            # FIXED: Calculate the next sequential number properly
+            # Get existing temp image numbers for this piece
+            existing_temp_numbers = []
+            for photo in self.temp_photos:
+                if photo['piece_label'] == piece_label:
+                    # Extract number from image name (e.g., "G123.12345.123.11_5.jpg" -> 5)
+                    match = re.search(r'_(\d+)\.jpg$', photo['image_name'])
+                    if match:
+                        existing_temp_numbers.append(int(match.group(1)))
+            
+            # Get existing dataset image numbers
+            existing_dataset_numbers = []
+            try:
+                images_dir = self._get_piece_images_path(piece_label)
+                if os.path.exists(images_dir):
+                    for filename in os.listdir(images_dir):
+                        if filename.lower().endswith('.jpg'):
+                            match = re.search(r'_(\d+)\.jpg$', filename)
+                            if match:
+                                existing_dataset_numbers.append(int(match.group(1)))
+            except Exception as e:
+                logger.error(f"Error reading dataset directory: {str(e)}")
+                existing_dataset_numbers = []
+            
+            # Combine all existing numbers
+            all_existing_numbers = existing_temp_numbers + existing_dataset_numbers
+            
+            # Find the next available number (1-10)
+            next_number = 1
+            for i in range(1, 11):  # 1 to 10
+                if i not in all_existing_numbers:
+                    next_number = i
+                    break
+            
+            # Double-check we haven't exceeded the limit
+            if next_number > 10:
+                logger.warning(f"Cannot assign number > 10 for piece {piece_label}")
+                raise HTTPException(status_code=400, detail="Maximum 10 photos per piece reached.")
+            
             # Store the image locally in temp directory
             timestamp = datetime.now()
-            image_count = temp_count + 1
-            image_name = f"{piece_label}_{total_count + 1}.jpg"
+            image_name = f"{piece_label}_{next_number}.jpg"
             temp_file_path = os.path.join(self.temp_dir, image_name)
             
-            logger.info(f"Saving image to temp path: {temp_file_path}")
+            logger.info(f"Saving image to temp path: {temp_file_path} with number: {next_number}")
             
             # Ensure temp directory exists
             try:
@@ -366,7 +404,7 @@ class CameraService:
             self.temp_photos.append(photo_metadata)
             logger.info(f"Added photo metadata to temp list. Current temp photos count: {len(self.temp_photos)}")
             
-            logger.info(f"Successfully captured image {image_count} for piece {piece_label} (total: {total_count + 1})")
+            logger.info(f"Successfully captured image {next_number} for piece {piece_label} (total: {len(all_existing_numbers) + 1})")
             return image_data
             
         except HTTPException:
@@ -615,6 +653,10 @@ class CameraService:
             # Remove from temp_photos list
             self.temp_photos.remove(photo_to_remove)
             logger.info(f"Removed temp image {image_name} for piece {piece_label}")
+            
+            # Log the current state after deletion
+            remaining_temp_count = len([p for p in self.temp_photos if p['piece_label'] == piece_label])
+            logger.info(f"Remaining temp images for {piece_label}: {remaining_temp_count}")
             
             return True
             

@@ -25,7 +25,7 @@ import {
 } from '@mui/icons-material';
 import { cameraService } from './CameraService';
 
-const ImageSlider = ({ targetLabel, refreshTrigger }) => {
+const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
   const [images, setImages] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -41,6 +41,10 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
     if (!targetLabel || targetLabel.trim() === '') {
       setImages([]);
       setCurrentIndex(0);
+      // Notify parent about count change
+      if (onImageCountChange) {
+        onImageCountChange(0);
+      }
       return;
     }
 
@@ -59,6 +63,11 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
           }
           return prevIndex;
         });
+        
+        // Notify parent component about the image count change
+        if (onImageCountChange) {
+          onImageCountChange(validImages.length);
+        }
       }
     } catch (err) {
       console.error('Error fetching images:', err);
@@ -66,13 +75,17 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
         setError('Failed to load images');
         setImages([]);
         setCurrentIndex(0);
+        // Notify parent about count change
+        if (onImageCountChange) {
+          onImageCountChange(0);
+        }
       }
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
     }
-  }, [targetLabel]);
+  }, [targetLabel, onImageCountChange]);
 
   // Initial fetch when targetLabel changes
   useEffect(() => {
@@ -144,6 +157,11 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
             return prevIndex;
           });
           
+          // Notify parent component about the updated count
+          if (onImageCountChange) {
+            onImageCountChange(newImages.length);
+          }
+          
           return newImages;
         });
         
@@ -164,7 +182,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
       setDeleteDialogOpen(false);
       setImageToDelete(null);
     }
-  }, [targetLabel]);
+  }, [targetLabel, onImageCountChange]);
 
   // Open delete confirmation dialog
   const openDeleteDialog = useCallback((image) => {
@@ -363,21 +381,34 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                   position: 'absolute',
                   top: 30,
                   zIndex: 1500,
-                  backgroundColor: 'rgba(255,255,255,0.95)',
+                  backgroundColor: 'transparent !important', // Force transparency
                   color: '#667eea',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  border: 'none',
+                  boxShadow: 'none !important',
+                  '&:before': { // Remove any pseudo-element backgrounds
+                    display: 'none'
+                  },
                   '&:hover': {
-                    backgroundColor: 'white',
+                    backgroundColor: 'transparent !important', // Keep transparent on hover
+                    color: 'white',
                     transform: 'translateY(-2px)',
-                    boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                    boxShadow: 'none !important',
+                  },
+                  '&:focus': { // Remove focus background
+                    backgroundColor: 'transparent !important',
+                  },
+                  '&:active': { // Remove active background
+                    backgroundColor: 'transparent !important',
                   },
                   transition: 'all 0.3s ease'
                 }}
+                disableRipple // This removes the ripple effect background
+                disableFocusRipple // This removes focus ripple
+                disableTouchRipple // This removes touch ripple
               >
                 <KeyboardArrowUp />
               </IconButton>
             )}
-
             {/* Images Stack Container */}
             <Box
               sx={{
@@ -452,7 +483,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                       boxShadow: isCenter 
                         ? '0 25px 50px rgba(0,0,0,0.3)' 
                         : '0 15px 30px rgba(0,0,0,0.2)',
-                      border: image.isTemporary ? '3px solid #4CAF50' : '3px solid rgba(255,255,255,0.9)',
+                      border: image.isTemporary ? '3px solid #667eea' : '3px solid rgba(255,255,255,0.9)',
                       '&:hover': {
                         opacity: !isCenter && images.length > 1 ? 1 : opacity,
                         transform: !isCenter && images.length > 1 
@@ -552,27 +583,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                       {image.index + 1}
                     </Box>
 
-                    {/* Temporary Image Indicator */}
-                    {image.isTemporary && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          top: 12,
-                          left: 12,
-                          backgroundColor: '#4CAF50',
-                          color: 'white',
-                          borderRadius: 1,
-                          px: 1,
-                          py: 0.5,
-                          fontSize: '0.65rem',
-                          fontWeight: 'bold',
-                          textTransform: 'uppercase',
-                          boxShadow: '0 2px 8px rgba(76, 175, 80, 0.3)'
-                        }}
-                      >
-                        New
-                      </Box>
-                    )}
+
                   </Card>
                 );
               })}
@@ -586,16 +597,30 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                   position: 'absolute',
                   bottom: 30,
                   zIndex: 1500,
-                  backgroundColor: 'rgba(255,255,255,0.95)',
                   color: '#667eea',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  backgroundColor: 'transparent !important', // Force transparency
+                  border: 'none',
+                  boxShadow: 'none !important',
+                  '&:before': { // Remove any pseudo-element backgrounds
+                    display: 'none'
+                  },
                   '&:hover': {
-                    backgroundColor: 'white',
+                    color: 'white',
                     transform: 'translateY(2px)',
-                    boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                    backgroundColor: 'transparent !important', // Keep transparent on hover
+                    boxShadow: 'none !important',
+                  },
+                  '&:focus': { // Remove focus background
+                    backgroundColor: 'transparent !important',
+                  },
+                  '&:active': { // Remove active background
+                    backgroundColor: 'transparent !important',
                   },
                   transition: 'all 0.3s ease'
                 }}
+                disableRipple // This removes the ripple effect background
+                disableFocusRipple // This removes focus ripple
+                disableTouchRipple // This removes touch ripple
               >
                 <KeyboardArrowDown />
               </IconButton>
@@ -609,10 +634,10 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
         <Box
           sx={{
             position: 'absolute',
-            bottom: 10,
+            bottom: 0,
             left: '50%',
             transform: 'translateX(-50%)',
-            background: 'rgba(255,255,255,0.95)',
+            backgroundColor: 'transparent',
             backdropFilter: 'blur(10px)',
             borderRadius: 2,
             padding: 1.5,
@@ -649,7 +674,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger }) => {
                 size="small"
                 sx={{
                   ml: 1,
-                  backgroundColor: '#4CAF50',
+                  backgroundColor: '#667eea',
                   color: 'white',
                   fontSize: '0.65rem',
                   height: 20

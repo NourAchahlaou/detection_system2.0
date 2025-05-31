@@ -60,9 +60,9 @@ class ImageCapture:
             'image_name': image_name
         })
 
-        # Limit the number of captured photos to 10
-        if len(frame_source.temp_photos) > 10:
-            raise SystemError("Already 10 pictures captured.")
+        # # Limit the number of captured photos to 10
+        # if len(frame_source.temp_photos) > 10:
+        #     raise SystemError("Already 10 pictures captured.")
         
         print(f"Captured {len(frame_source.temp_photos)} photo(s) so far.")
         return frame

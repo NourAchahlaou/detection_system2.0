@@ -1,6 +1,6 @@
 // pages/AppPartLibrary.jsx
-import React, { useState, useEffect } from "react";
-import { Box, Grid, Card, Stack } from '@mui/material';
+import React, { useState, useEffect, useRef } from "react";
+import { Box, Grid, Stack } from '@mui/material';
 
 import CameraControls from "./components/CameraControls";
 import VideoFeed from "./components/VideoFeed";
@@ -14,6 +14,9 @@ export default function AppPartLibrary() {
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
   const [imageRefreshTrigger, setImageRefreshTrigger] = useState(0);
+  
+  // Add ref to store VideoFeed's image count callback
+  const imageCountCallbackRef = useRef(null);
   
   // Cleanup on component unmount or page unload
   useEffect(() => {
@@ -84,6 +87,18 @@ export default function AppPartLibrary() {
     setImageRefreshTrigger(prev => prev + 1);
   };
 
+  // Handle image count change from ImageSlider (to update VideoFeed)
+  const handleImageCountChange = (newCount) => {
+    if (imageCountCallbackRef.current) {
+      imageCountCallbackRef.current(newCount);
+    }
+  };
+
+  // Set the callback ref when VideoFeed provides it
+  const setImageCountCallback = (callback) => {
+    imageCountCallbackRef.current = callback;
+  };
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
       <Grid
@@ -108,19 +123,19 @@ export default function AppPartLibrary() {
               onStopCamera={handleStopCamera}
               cameraId={cameraId}
               targetLabel={targetLabel}
-              onImageCaptured={handleImageCaptured} // Pass the trigger function
+              onImageCaptured={handleImageCaptured}
+              onSetImageCountCallback={setImageCountCallback} // New prop
             />
           </Stack>
         </Grid>
         
         <Grid size={{ xs: 12, md: 3 }}>
           {/* Image Slider Component - now event-driven */}
-
-            <ImageSlider 
-              targetLabel={targetLabel}
-              refreshTrigger={imageRefreshTrigger} // Pass the trigger
-            />         
-         
+          <ImageSlider 
+            targetLabel={targetLabel}
+            refreshTrigger={imageRefreshTrigger}
+            onImageCountChange={handleImageCountChange} // Pass the callback
+          />         
         </Grid>
       </Grid>
     </Box>
