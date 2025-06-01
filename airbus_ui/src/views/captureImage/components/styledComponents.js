@@ -17,7 +17,7 @@ export const VideoCard = styled(Card)(({ theme, cameraActive }) => ({
   alignItems: "center",
   justifyContent: "center",
   backgroundColor: "#f5f5f5",
-  border: cameraActive ? "2px solid #ccc" : "2px dashed #ccc",
+  border: cameraActive ? "2px solid #667eea" : "2px dashed #ccc",
   borderRadius: "12px",
   position: "relative",
   overflow: "hidden",

@@ -147,7 +147,7 @@ const VideoFeed = ({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <VideoCard
-        data-camera-active={isCameraStarted}
+        cameraActive={isCameraStarted}
         onMouseEnter={() => setShowControls(true)}
         onMouseLeave={() => setShowControls(false)}
       >

@@ -484,6 +484,13 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                         ? '0 25px 50px rgba(0,0,0,0.3)' 
                         : '0 15px 30px rgba(0,0,0,0.2)',
                       border: image.isTemporary ? '3px solid #667eea' : '3px solid rgba(255,255,255,0.9)',
+                      // Remove all padding from the card
+                      padding: 0,
+                      margin: 0,
+                      '& .MuiCard-root': {
+                        padding: 0,
+                        margin: 0,
+                      },
                       '&:hover': {
                         opacity: !isCenter && images.length > 1 ? 1 : opacity,
                         transform: !isCenter && images.length > 1 
@@ -507,13 +514,26 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                   >
                     <CardMedia
                       component="img"
-                      height="100%"
                       image={imageSource(image)}
                       alt={`Image ${image.index + 1}`}
                       sx={{
                         objectFit: 'cover',
                         width: '100%',
-                        height: '100%'
+                        height: '100%',
+                        // Ensure no spacing or padding
+                        display: 'block',
+                        margin: 0,
+                        padding: 0,
+                        border: 'none',
+                        outline: 'none',
+                        // Remove any default spacing
+                        verticalAlign: 'top',
+                        // Ensure the image takes the full container space
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0
                       }}
                       onError={(e) => {
                         console.error('Image failed to load:', imageSource(image));
@@ -577,7 +597,8 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                         justifyContent: 'center',
                         fontSize: '0.8rem',
                         fontWeight: 'bold',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                        zIndex: 1001
                       }}
                     >
                       {image.index + 1}
