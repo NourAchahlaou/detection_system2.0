@@ -52,7 +52,8 @@ const LiveCameraView = ({
             sx={{ 
               color: "white",
               backgroundColor: "#667eea",
-              "&:hover": { backgroundColor: "rgb(91, 76, 175)" },
+              "&:hover": { backgroundColor: "rgb(91, 76, 175)",
+                           boxShadow: '0 6px 16px rgba(103, 126, 234, 0.5)',},
               "&:disabled": { backgroundColor: "rgba(255, 255, 255, 0.2)" }
             }}
           >
@@ -69,8 +70,10 @@ const LiveCameraView = ({
             onClick={onStopCamera}
             sx={{ 
               color: "white",
-              backgroundColor: "rgba(244, 67, 54, 0.8)",
-              "&:hover": { backgroundColor: "rgba(244, 67, 54, 1)" }
+              backgroundColor: "rgba(244, 63, 94, 0.9)",
+              "&:hover": { backgroundColor: "rgba(244, 63, 94, 1)",
+                           boxShadow: '0 6px 16px rgba(244, 63, 94, 0.5)',
+ }
             }}
           >
             <Stop />

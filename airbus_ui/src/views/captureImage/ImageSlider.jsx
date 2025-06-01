@@ -25,7 +25,7 @@ import {
 } from '@mui/icons-material';
 import { cameraService } from './CameraService';
 
-const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
+const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange, onImageDoubleClick }) => {
   const [images, setImages] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -35,6 +35,12 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
   const [deleting, setDeleting] = useState(false);
   
   const mountedRef = useRef(true);
+
+  const handleImageDoubleClick = useCallback((imageIndex) => {
+    if (onImageDoubleClick) {
+      onImageDoubleClick(imageIndex);
+    }
+  }, [onImageDoubleClick]);
 
   // Fetch images function
   const fetchImages = useCallback(async () => {
@@ -247,7 +253,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
           position: 'absolute',
           top: 16,
           right: 16,
-          zIndex: 2000,
+          zIndex: 1001,
         }}
       >
         <Tooltip title="Refresh Images">
@@ -380,7 +386,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                 sx={{
                   position: 'absolute',
                   top: 30,
-                  zIndex: 1500,
+                  zIndex: 400,
                   backgroundColor: 'transparent !important', // Force transparency
                   color: '#667eea',
                   border: 'none',
@@ -511,6 +517,8 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                         }
                       }
                     }}
+                    onDoubleClick={() => handleImageDoubleClick(image.index)} // Add this line
+
                   >
                     <CardMedia
                       component="img"
@@ -598,7 +606,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                         fontSize: '0.8rem',
                         fontWeight: 'bold',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                        zIndex: 1001
+                        zIndex: 399
                       }}
                     >
                       {image.index + 1}
@@ -617,7 +625,7 @@ const ImageSlider = ({ targetLabel, refreshTrigger, onImageCountChange }) => {
                 sx={{
                   position: 'absolute',
                   bottom: 30,
-                  zIndex: 1500,
+                  zIndex: 400,
                   color: '#667eea',
                   backgroundColor: 'transparent !important', // Force transparency
                   border: 'none',

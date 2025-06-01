@@ -21,6 +21,12 @@ export const VideoCard = styled(Card)(({ theme, cameraActive }) => ({
   borderRadius: "12px",
   position: "relative",
   overflow: "hidden",
+  padding: 0, 
+  margin: 0,  
+  // Override any Material-UI Card default styles
+  '& .MuiCard-root': {
+    padding: 0,
+  },
   [theme.breakpoints.down("md")]: {
     width: "100%",
     maxWidth: "700px",
@@ -29,6 +35,7 @@ export const VideoCard = styled(Card)(({ theme, cameraActive }) => ({
     height: "300px",
   },
 }));
+
 
 export const PlaceholderContent = styled(Box)({
   display: "flex",
@@ -43,6 +50,9 @@ export const VideoImage = styled("img")({
   width: "100%",
   height: "100%",
   objectFit: "cover",
+  display: "block", // Removes any inline spacing
+  border: "none",   // Ensure no border
+  outline: "none",  // Ensure no outline
 });
 
 export const FloatingControls = styled(Box)(({ theme }) => ({

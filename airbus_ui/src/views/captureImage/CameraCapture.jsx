@@ -6,6 +6,7 @@ import CameraControls from "./components/CameraControls";
 import VideoFeed from "./components/VideoFeed";
 import ImageSlider from "./ImageSlider";
 import { cameraService } from "./CameraService";
+import HorizontalImageSlider from "./HorizontalImageSlider";
 
 export default function AppPartLibrary() {
   const [targetLabel, setTargetLabel] = useState("");
@@ -14,10 +15,19 @@ export default function AppPartLibrary() {
   const [isCameraStarted, setCameraStarted] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
   const [imageRefreshTrigger, setImageRefreshTrigger] = useState(0);
+  const [horizontalSliderOpen, setHorizontalSliderOpen] = useState(false);
+  const [horizontalSliderInitialIndex, setHorizontalSliderInitialIndex] = useState(0);
   
   // Add ref to store VideoFeed's image count callback
   const imageCountCallbackRef = useRef(null);
-  
+
+  const handleImageDoubleClick = (imageIndex) => {
+    setHorizontalSliderInitialIndex(imageIndex);
+    setHorizontalSliderOpen(true);
+  };
+  const handleHorizontalSliderClose = () => {
+    setHorizontalSliderOpen(false);
+  };  
   // Cleanup on component unmount or page unload
   useEffect(() => {
     const handleBeforeUnload = async () => {
@@ -134,10 +144,19 @@ export default function AppPartLibrary() {
           <ImageSlider 
             targetLabel={targetLabel}
             refreshTrigger={imageRefreshTrigger}
-            onImageCountChange={handleImageCountChange} // Pass the callback
+            onImageCountChange={handleImageCountChange} 
+            onImageDoubleClick={handleImageDoubleClick} 
+
           />         
         </Grid>
       </Grid>
+      <HorizontalImageSlider
+        open={horizontalSliderOpen}
+        onClose={handleHorizontalSliderClose}
+        targetLabel={targetLabel}
+        initialIndex={horizontalSliderInitialIndex}
+        onImageCountChange={handleImageCountChange}
+      />      
     </Box>
   );
 }
