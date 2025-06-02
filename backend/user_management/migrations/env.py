@@ -42,58 +42,107 @@ target_metadata = Base.metadata
 # Add under the imports
 SCHEMA_NAME = "user_mgmt"  # Unique schema for this service  
 
-# This is the key function that determines what's included in migrations
+OWNED_TABLES = {
+    'user',          # Service-specific model
+    'user_token',    # Service-specific model
+    'activity',      # Service-specific model
+    'shift',         # Service-specific model
+    'work_hours',    # Service-specific model
+    'task'           # Service-specific model
+}
 def include_object(object, name, type_, reflected, compare_to):
-    # Skip other schemas' tables during migration
-    if type_ == "table" and hasattr(object, "schema") and object.schema != SCHEMA_NAME:
-        return False
+    """
+    Enhanced filtering logic for shared models across schemas
+    """
+    if type_ == "table":
+        # Check if this service owns this table (regardless of schema)
+        table_name = name
+        if hasattr(object, 'name'):
+            table_name = object.name
+            
+        # Only include tables this service owns
+        if table_name not in OWNED_TABLES:
+            print(f"SKIPPING table '{table_name}' - not owned by {SCHEMA_NAME}")
+            return False
+            
+        print(f"INCLUDING table '{table_name}' - owned by {SCHEMA_NAME}")
+        return True
     
-    # Skip other schemas' indexes
-    if type_ == "index" and hasattr(object, "table") and hasattr(object.table, "schema") and object.table.schema != SCHEMA_NAME:
-        return False
-        
-    # For other object types, check schema when it's available
-    if hasattr(object, "schema") and object.schema != SCHEMA_NAME:
-        return False
-        
-    # Include everything else in our schema
+    if type_ == "column":
+        # Include columns only if their table is owned by this service
+        table_name = object.table.name if hasattr(object, 'table') else None
+        if table_name and table_name not in OWNED_TABLES:
+            return False
+        return True
+    
+    if type_ == "index":
+        # Include indexes only if their table is owned by this service
+        table_name = None
+        if hasattr(object, 'table') and hasattr(object.table, 'name'):
+            table_name = object.table.name
+        elif hasattr(object, 'table_name'):
+            table_name = object.table_name
+            
+        if table_name and table_name not in OWNED_TABLES:
+            return False
+        return True
+    
+    if type_ == "unique_constraint" or type_ == "foreign_key_constraint":
+        # Include constraints only if their table is owned by this service
+        table_name = None
+        if hasattr(object, 'table') and hasattr(object.table, 'name'):
+            table_name = object.table.name
+        elif hasattr(object, 'table_name'):
+            table_name = object.table_name
+            
+        if table_name and table_name not in OWNED_TABLES:
+            return False
+        return True
+    
+    # Include other object types by default
     return True
 
-# This is called before generating migrations to filter the metadata
 def process_revision_directives(context, revision, directives):
+    """
+    Enhanced directive processing for shared models
+    """
     if not directives:
         return
         
-    # Process each migration script
     for directive in directives:
-        # Focus only on the upgrade operations
-        if hasattr(directive, 'upgrade_ops'):
-            # Remove operations affecting other schemas
-            directive.upgrade_ops.ops = [
-                op for op in directive.upgrade_ops.ops 
-                if not (hasattr(op, 'schema') and op.schema != SCHEMA_NAME)
-            ]
+        if hasattr(directive, 'upgrade_ops') and directive.upgrade_ops:
+            # Filter operations to only include owned tables
+            filtered_ops = []
             
-            # Handle operations that don't have a schema attribute directly
-            # but might contain nested operations affecting other schemas
             for op in directive.upgrade_ops.ops:
-                if hasattr(op, 'ops'):
-                    op.ops = [
-                        nested_op for nested_op in op.ops
-                        if not (hasattr(nested_op, 'schema') and nested_op.schema != SCHEMA_NAME)
-                    ]
+                should_include = True
+                
+                # Check various operation types for table ownership
+                if hasattr(op, 'table_name'):
+                    should_include = op.table_name in OWNED_TABLES
+                elif hasattr(op, 'source_table'):
+                    should_include = op.source_table in OWNED_TABLES
+                elif hasattr(op, 'target_table'):
+                    should_include = op.target_table in OWNED_TABLES
+                elif hasattr(op, 'table') and hasattr(op.table, 'name'):
+                    should_include = op.table.name in OWNED_TABLES
+                
+                if should_include:
+                    # Also filter nested operations
+                    if hasattr(op, 'ops'):
+                        op.ops = [
+                            nested_op for nested_op in op.ops
+                            if not hasattr(nested_op, 'table_name') or 
+                               nested_op.table_name in OWNED_TABLES
+                        ]
+                    filtered_ops.append(op)
+                else:
+                    print(f"FILTERED OUT operation for non-owned table: {getattr(op, 'table_name', 'unknown')}")
+            
+            directive.upgrade_ops.ops = filtered_ops
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-    """
+    """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -110,13 +159,8 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-    """
+    """Run migrations in 'online' mode."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -136,7 +180,6 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()
