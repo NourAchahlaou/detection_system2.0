@@ -1,8 +1,8 @@
-"""tables v1
+"""artifact_keeper tables
 
-Revision ID: 2e858e3a9a41
+Revision ID: 42c2eed02097
 Revises: 
-Create Date: 2025-05-25 16:51:23.265577
+Create Date: 2025-06-03 09:29:49.402746
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '2e858e3a9a41'
+revision: str = '42c2eed02097'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

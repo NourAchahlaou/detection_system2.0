@@ -16,7 +16,26 @@ services:
     volumes:
       - ./backend/user_management:/usr/srv/user_management
       - ./.env:/usr/srv/.env
-
+  annotation:
+    container_name: annotationMicroservice
+    build:
+      context: ./backend/annotation
+    env_file:
+      - ./.env
+    ports:
+      - "8004:8000"
+    depends_on:
+      - databasePostgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  
+    networks:
+      - airvision-net
+    volumes:
+      - ./backend/annotation:/usr/srv/annotation
+      - ./.env:/usr/srv/.env
+    # Ensure the container user can write to the volume
+    user: "1001:1001"
+    
   artifact_keeper:
     container_name: artifact_keeper
     build:

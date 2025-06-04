@@ -1,4 +1,4 @@
-from artifact_keeper.app.core.settings import get_settings
+from annotation.app.core.settings import get_settings
 from sqlalchemy.orm import sessionmaker
 from typing import Generator
 from sqlalchemy import create_engine

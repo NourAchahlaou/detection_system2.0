@@ -32,7 +32,11 @@ target_metadata = Base.metadata
 
 SCHEMA_NAME = "annotation" 
 OWNED_TABLES = {
-    'annotation',  # Service-specific model
+    'annotation', 
+}
+REFERENCED_TABLES = {
+    'piece', 
+    'piece_image'
 }
 
 def include_object(object, name, type_, reflected, compare_to):
@@ -49,7 +53,10 @@ def include_object(object, name, type_, reflected, compare_to):
         if table_name not in OWNED_TABLES:
             print(f"SKIPPING table '{table_name}' - not owned by {SCHEMA_NAME}")
             return False
-            
+        if table_name in REFERENCED_TABLES:
+            print(f"SKIPPING referenced table: {table_name}")
+            return False
+                    
         print(f"INCLUDING table '{table_name}' - owned by {SCHEMA_NAME}")
         return True
     

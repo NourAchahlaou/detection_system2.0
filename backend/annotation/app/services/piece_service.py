@@ -7,9 +7,8 @@ from sqlalchemy.orm import Session
 import yaml
 import shutil
 from annotation.app.db.models.annotation import Annotation
-from database.piece.piece import Piece
-from database.piece.piece_image import PieceImage
-from services.file_mover_with_hash_check import move_files_if_not_moved
+from annotation.app.db.models.piece import Piece
+from annotation.app.db.models.piece_image import PieceImage
 
 # Virtual storage dictionary
 virtual_storage: Dict[str, Dict] = {}
