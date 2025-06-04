@@ -1,26 +1,47 @@
 from fastapi import FastAPI
-from artifact_keeper.app.api.router import camera
+from artifact_keeper.app.api.router import camera, health
 from fastapi.middleware.cors import CORSMiddleware
 from artifact_keeper.app.db.session import get_session
+
 def create_application():
-    application = FastAPI()
+    application = FastAPI(
+        title="Artifact Keeper Service",
+        description="Microservice for managing artifacts and cameras",
+        version="1.0.0"
+    )
     application.include_router(camera.camera_router)
-
+    application.include_router(health.health_router)
     return application
-
-
-
-
 
 app = create_application()
 
+# Fixed CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost"], 
+    allow_origins=[
+        "http://localhost:3000",  # React dev server
+        "http://localhost",       # Nginx gateway
+        "http://172.23.0.5:3000", # Docker network access
+        "*"  # For development - restrict in production
+    ], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Root endpoint
+@app.get("/")
+async def root():
+    return {
+        "message": "Artifact Keeper Service", 
+        "status": "running",
+        "service": "artifact_keeper"
+    }
+
+# Simple health check at root level (for Docker health checks)
+@app.get("/health")
+async def simple_health():
+    return {"status": "healthy", "service": "artifact_keeper"}
 
 @app.on_event("startup")
 async def startup_event():
@@ -29,8 +50,3 @@ async def startup_event():
     cameraservice= CameraService()
     # Initialize camera manager and detect cameras
     cameraservice.detect_and_save_cameras(db)
-
-@app.get("/")
-async def root():
-    return {"message": "this is the artifact keeper service"}
-

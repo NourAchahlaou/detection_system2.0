@@ -67,8 +67,17 @@ psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "CREATE SCHEMA IF NOT EX
 
 echo "Schemas created successfully!"
 
-
-
+# Run Alembic migrations
+echo "Running Alembic migrations..."
+cd user_management
+alembic upgrade head
+if [ $? -eq 0 ]; then
+    echo "Alembic migrations completed successfully!"
+else
+    echo "ERROR: Alembic migrations failed!"
+    exit 1
+fi
+cd .. 
 # Start the application
 echo "Starting application"
 exec uvicorn user_management.app.main:app --host 0.0.0.0 --port 8000 --reload

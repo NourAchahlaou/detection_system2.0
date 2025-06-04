@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from annotation.app.db.session import get_session
+from annotation.app.api.router import health
 def create_application():
     application = FastAPI()
-
+    application.include_router(health.health_router)
     return application
 
 

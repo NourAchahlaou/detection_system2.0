@@ -1,5 +1,5 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config
+from sqlalchemy import engine_from_config, text
 from sqlalchemy import pool
 from alembic import context
 
@@ -13,30 +13,31 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from annotation.app.db.session import Base
 from annotation.app.core.settings import get_settings
 
+# Only import models THIS service owns
 from annotation.app.db.models.annotation import Annotation
 
 version_table = "alembic_version_annotation"
 
 config = context.config
-
 settings = get_settings()
 
-print(settings.DATABASE_URI)
+print(f"Annotation service DATABASE_URI: {settings.DATABASE_URI}")
 config.set_main_option('sqlalchemy.url', settings.DATABASE_URI.replace('%', '%%'))
-
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
-SCHEMA_NAME = "annotation" 
+SCHEMA_NAME = "annotation"
+
 OWNED_TABLES = {
-    'annotation', 
+    'annotation',  # This service owns annotations
 }
+
 REFERENCED_TABLES = {
-    'piece', 
-    'piece_image'
+    'piece',        # Owned by artifact_keeper
+    'piece_image'   # Owned by artifact_keeper
 }
 
 def include_object(object, name, type_, reflected, compare_to):
@@ -44,7 +45,6 @@ def include_object(object, name, type_, reflected, compare_to):
     Enhanced filtering logic for shared models across schemas
     """
     if type_ == "table":
-        # Check if this service owns this table (regardless of schema)
         table_name = name
         if hasattr(object, 'name'):
             table_name = object.name
@@ -53,6 +53,8 @@ def include_object(object, name, type_, reflected, compare_to):
         if table_name not in OWNED_TABLES:
             print(f"SKIPPING table '{table_name}' - not owned by {SCHEMA_NAME}")
             return False
+            
+        # Explicitly skip referenced tables
         if table_name in REFERENCED_TABLES:
             print(f"SKIPPING referenced table: {table_name}")
             return False
@@ -61,14 +63,12 @@ def include_object(object, name, type_, reflected, compare_to):
         return True
     
     if type_ == "column":
-        # Include columns only if their table is owned by this service
         table_name = object.table.name if hasattr(object, 'table') else None
         if table_name and table_name not in OWNED_TABLES:
             return False
         return True
     
     if type_ == "index":
-        # Include indexes only if their table is owned by this service
         table_name = None
         if hasattr(object, 'table') and hasattr(object.table, 'name'):
             table_name = object.table.name
@@ -80,7 +80,6 @@ def include_object(object, name, type_, reflected, compare_to):
         return True
     
     if type_ == "unique_constraint" or type_ == "foreign_key_constraint":
-        # Include constraints only if their table is owned by this service
         table_name = None
         if hasattr(object, 'table') and hasattr(object.table, 'name'):
             table_name = object.table.name
@@ -91,7 +90,6 @@ def include_object(object, name, type_, reflected, compare_to):
             return False
         return True
     
-    # Include other object types by default
     return True
 
 def process_revision_directives(context, revision, directives):
@@ -103,13 +101,11 @@ def process_revision_directives(context, revision, directives):
         
     for directive in directives:
         if hasattr(directive, 'upgrade_ops') and directive.upgrade_ops:
-            # Filter operations to only include owned tables
             filtered_ops = []
             
             for op in directive.upgrade_ops.ops:
                 should_include = True
                 
-                # Check various operation types for table ownership
                 if hasattr(op, 'table_name'):
                     should_include = op.table_name in OWNED_TABLES
                 elif hasattr(op, 'source_table'):
@@ -120,7 +116,6 @@ def process_revision_directives(context, revision, directives):
                     should_include = op.table.name in OWNED_TABLES
                 
                 if should_include:
-                    # Also filter nested operations
                     if hasattr(op, 'ops'):
                         op.ops = [
                             nested_op for nested_op in op.ops
@@ -132,6 +127,29 @@ def process_revision_directives(context, revision, directives):
                     print(f"FILTERED OUT operation for non-owned table: {getattr(op, 'table_name', 'unknown')}")
             
             directive.upgrade_ops.ops = filtered_ops
+
+def create_cross_schema_foreign_keys(connection):
+    """
+    Create foreign key constraints that reference other schemas
+    This runs AFTER the main migration to ensure referenced tables exist
+    """
+    print("Creating cross-schema foreign key constraints...")
+    
+    try:
+        # Create FK constraint for annotation.piece_image_id -> artifact_keeper.piece_image.id
+        connection.execute(text("""
+            ALTER TABLE annotation.annotation 
+            ADD CONSTRAINT fk_annotation_piece_image_id 
+            FOREIGN KEY (piece_image_id) 
+            REFERENCES artifact_keeper.piece_image(id) 
+            ON DELETE CASCADE
+        """))
+        print("✓ Created FK constraint: annotation.piece_image_id -> artifact_keeper.piece_image.id")
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create cross-schema FK constraint: {e}")
+        print("This is expected if the referenced table doesn't exist yet.")
+        print("Run artifact_keeper migrations first, then re-run annotation migrations.")
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
@@ -172,6 +190,8 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+            
+        create_cross_schema_foreign_keys(connection)
 
 if context.is_offline_mode():
     run_migrations_offline()
