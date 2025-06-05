@@ -14,5 +14,5 @@ class PieceImage(Base):
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
     is_deleted = Column(Boolean, default=False)
     is_annotated = Column(Boolean, default=False)
-
-    piece = relationship("Piece", back_populates="piece_img")
+    
+    piece = relationship("Piece", back_populates="piece_img", viewonly=True)

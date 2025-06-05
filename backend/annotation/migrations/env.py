@@ -13,8 +13,10 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from annotation.app.db.session import Base
 from annotation.app.core.settings import get_settings
 
-# Only import models THIS service owns
+# Import ALL models for relationship resolution, but only migrate owned ones
 from annotation.app.db.models.annotation import Annotation
+from annotation.app.db.models.piece import Piece  # Read-only
+from annotation.app.db.models.piece_image import PieceImage  # Read-only
 
 version_table = "alembic_version_annotation"
 
@@ -31,10 +33,12 @@ target_metadata = Base.metadata
 
 SCHEMA_NAME = "annotation"
 
+# Tables this service owns and should manage migrations for
 OWNED_TABLES = {
     'annotation',  # This service owns annotations
 }
 
+# Tables from other services that we reference but don't own
 REFERENCED_TABLES = {
     'piece',        # Owned by artifact_keeper
     'piece_image'   # Owned by artifact_keeper
@@ -136,15 +140,25 @@ def create_cross_schema_foreign_keys(connection):
     print("Creating cross-schema foreign key constraints...")
     
     try:
-        # Create FK constraint for annotation.piece_image_id -> artifact_keeper.piece_image.id
-        connection.execute(text("""
-            ALTER TABLE annotation.annotation 
-            ADD CONSTRAINT fk_annotation_piece_image_id 
-            FOREIGN KEY (piece_image_id) 
-            REFERENCES artifact_keeper.piece_image(id) 
-            ON DELETE CASCADE
+        # Check if FK constraint already exists
+        result = connection.execute(text("""
+            SELECT COUNT(*) FROM information_schema.table_constraints 
+            WHERE constraint_name = 'fk_annotation_piece_image_id' 
+            AND table_schema = 'annotation'
         """))
-        print("✓ Created FK constraint: annotation.piece_image_id -> artifact_keeper.piece_image.id")
+        
+        if result.scalar() == 0:
+            # Create FK constraint for annotation.piece_image_id -> artifact_keeper.piece_image.id
+            connection.execute(text("""
+                ALTER TABLE annotation.annotation 
+                ADD CONSTRAINT fk_annotation_piece_image_id 
+                FOREIGN KEY (piece_image_id) 
+                REFERENCES artifact_keeper.piece_image(id) 
+                ON DELETE CASCADE
+            """))
+            print("✓ Created FK constraint: annotation.piece_image_id -> artifact_keeper.piece_image.id")
+        else:
+            print("✓ FK constraint already exists: annotation.piece_image_id -> artifact_keeper.piece_image.id")
         
     except Exception as e:
         print(f"⚠️  Warning: Could not create cross-schema FK constraint: {e}")
