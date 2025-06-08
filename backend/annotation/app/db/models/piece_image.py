@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
-from artifact_keeper.app.db.session import Base
+from annotation.app.db.session import Base
 from sqlalchemy.sql import func
 
 class PieceImage(Base):

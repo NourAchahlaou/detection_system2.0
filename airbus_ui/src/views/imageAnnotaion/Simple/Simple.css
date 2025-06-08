@@ -1,0 +1,44 @@
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  
+  .button-container {
+    display: flex;
+    flex-direction:row;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  
+  .image-container {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    
+    text-align: center;
+  }
+  
+  button {
+    padding: 10px 25px;
+    font-size: 10px;
+    cursor: pointer;
+    background: rgba(0, 0, 0, .3);
+    border-radius: 5px;
+    bottom: 4px;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+
+   
+   
+    position: absolute;
+    left: 4px;
+    
+
+  }
+  
+  
+

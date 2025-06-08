@@ -14,7 +14,7 @@ const Dashboard = lazy(() => import('../views/dashboard/Dashboard'));
 const CaptureImage = lazy(() => import('../views/captureImage/CameraCapture'));
 const SignInSide = lazy(() => import('../views/auth/sign-in-side/SignInSide'));
 const CaptureImageView = lazy(() => import('../views/captureImage/CameraCaptureView'));
-
+const Annotation = lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion'))
 const router = createBrowserRouter([
   // Root redirect to dashboard
   {
@@ -48,6 +48,10 @@ const router = createBrowserRouter([
         path: 'profile',
         element: <UserProfile />,
       },
+      {
+        path: 'annotation',
+        element: <Annotation />,
+      }
     ],
   },
 
