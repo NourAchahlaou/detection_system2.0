@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Box, Card, styled } from "@mui/material";
-import Scrollbar from "react-perfect-scrollbar";
 import BadgeSelected from "../../../../components/theme/customizations/BadgeSelected";
 
 const MaxCustomaizer = styled("div")(({ theme }) => ({
@@ -34,12 +33,34 @@ const LayoutBox = styled(BadgeSelected)(({ isAnnotated }) => ({
 
 const IMG = styled("img")(() => ({ width: "100%" }));
 
-const StyledScrollBar = styled(Scrollbar)(() => ({
+const StyledScrollContainer = styled("div")(() => ({
   paddingLeft: "16px",
   paddingRight: "16px",
+  overflow: "auto",
+  height: "100%",
+  // Custom scrollbar styling (optional)
+  "&::-webkit-scrollbar": {
+    width: "8px",
+  },
+  "&::-webkit-scrollbar-track": {
+    background: "#f1f1f1",
+    borderRadius: "4px",
+  },
+  "&::-webkit-scrollbar-thumb": {
+    background: "#888",
+    borderRadius: "4px",
+  },
+  "&::-webkit-scrollbar-thumb:hover": {
+    background: "#555",
+  },
 }));
 
-export default function SidenavImageDisplay({ pieceLabel, onImageSelect, onFirstImageLoad, annotatedImages }) {
+export default function SidenavImageDisplay({ 
+  pieceLabel, 
+  onImageSelect, 
+  onFirstImageLoad, 
+  annotatedImages 
+}) {
   const [images, setImages] = useState([]);
 
   useEffect(() => {
@@ -47,7 +68,9 @@ export default function SidenavImageDisplay({ pieceLabel, onImageSelect, onFirst
       if (!pieceLabel) return;
 
       try {
-        const response = await fetch(`http://127.0.0.1:8000/piece/get_images_of_piece/${pieceLabel}`);
+        const response = await fetch(
+          `http://127.0.0.1:8000/piece/get_images_of_piece/${pieceLabel}`
+        );
         if (!response.ok) {
           throw new Error("Failed to fetch images");
         }
@@ -67,35 +90,22 @@ export default function SidenavImageDisplay({ pieceLabel, onImageSelect, onFirst
 
   return (
     <MaxCustomaizer>
-      <StyledScrollBar>
-        <div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {images.map((image, index) => (
-              <LayoutBox
-                key={index}
-                onClick={() => onImageSelect(image.url)}
-                isAnnotated={annotatedImages.includes(image.url)}
-              >
-                <Card elevation={4} sx={{ position: "relative" }}>
-                  <IMG src={image.url} alt={`Image ${index}`} />
-                </Card>
-                <div style={{
-                  position: "absolute",
-                  top: "5px",
-                  right: "5px",
-                  backgroundColor: "rgba(0, 0, 0, 0.5)",
-                  color: "white",
-                  padding: "2px 5px",
-                  borderRadius: "3px",
-                  fontSize: "12px",
-                }}>
-                  {index + 1}
-                </div>
-              </LayoutBox>
-            ))}
-          </div>
-        </div>
-      </StyledScrollBar>
+      <Card>
+        <StyledScrollContainer>
+          {images.map((image, index) => (
+            <LayoutBox
+              key={index}
+              onClick={() => onImageSelect(image.url)}
+              isAnnotated={annotatedImages.includes(image.url)}
+            >
+              <IMG src={image.url} alt={`Image ${index + 1}`} />
+              <Box className="layout-name">
+                {index + 1}
+              </Box>
+            </LayoutBox>
+          ))}
+        </StyledScrollContainer>
+      </Card>
     </MaxCustomaizer>
   );
 }

@@ -1,42 +1,38 @@
 import React, { useState } from 'react';
-import styled from 'styled-components';
+import { styled } from '@mui/material/styles';
 
-const Inner = styled.div`
-  padding: 8px 16px;
-
-  textarea {
-    border: 0;
-    font-size: 14px;
-    margin: 6px 0;
-    min-height: 30px;
-    outline: 0;
-    width: 100%;
-    z-index:999;
+const Inner = styled('div')(({ theme }) => ({
+  padding: '8px 16px',
+  '& textarea': {
+    border: 0,
+    fontSize: '14px',
+    margin: '6px 0',
+    minHeight: '30px',
+    outline: 0,
+    width: '100%',
+    zIndex: 999,
   }
-`;
+}));
 
-const Button = styled.div`
-  background: whitesmoke;
-  border: 0;
-  box-sizing: border-box;
-  color: #363636;
-  cursor: pointer;
-  font-size: 1rem;
-  margin: 0;
-  z-index:999;
-  outline: 0;
-  padding: 8px 16px;
-  text-align: center;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
-  width: 100%;
-
-  transition: background 0.21s ease-in-out;
-
-  &:focus,
-  &:hover {
-    background: #eeeeee;
+const Button = styled('div')(({ theme }) => ({
+  background: 'whitesmoke',
+  border: 0,
+  boxSizing: 'border-box',
+  color: '#363636',
+  cursor: 'pointer',
+  fontSize: '1rem',
+  margin: 0,
+  zIndex: 999,
+  outline: 0,
+  padding: '8px 16px',
+  textAlign: 'center',
+  textShadow: '0 1px 0 rgba(0, 0, 0, 0.1)',
+  width: '100%',
+  transition: 'background 0.21s ease-in-out',
+  '&:focus, &:hover': {
+    background: '#eeeeee',
   }
-`;
+}));
 
 function TextEditor(props) {
   const [isVisible, setIsVisible] = useState(true);

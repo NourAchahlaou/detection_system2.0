@@ -1,35 +1,34 @@
 import React, { Component } from 'react';
 import T from 'prop-types';
-import styled from 'styled-components';
+import { styled } from '@mui/system';
 import compose from '../utils/compose';
 import isMouseHovering from '../utils/isMouseHovering';
 import withRelativeMousePos from '../utils/withRelativeMousePos';
 import defaultProps from './defaultProps';
 import Overlay from './Overlay';
 
-const Container = styled.div`
-  clear: both;
-  position: relative;
-  width: 100%;
-  &:hover ${Overlay} {
-    opacity: 1;
-  }
-  touch-action: ${(props) => (props.allowTouch ? 'pinch-zoom' : 'auto')};
-`;
+const Container = styled('div')(({ theme, allowTouch }) => ({
+  clear: 'both',
+  position: 'relative',
+  width: '100%',
+  [`&:hover .${Overlay}`]: {
+    opacity: 1,
+  },
+  touchAction: allowTouch ? 'pinch-zoom' : 'auto',
+}));
 
-const Img = styled.img`
-  display: block;
-  width: 100%;
- 
-`;
+const Img = styled('img')(({ theme }) => ({
+  display: 'block',
+  width: '100%',
+}));
 
-const Items = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  right: 0;
-`;
+const Items = styled('div')(({ theme }) => ({
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  bottom: 0,
+  right: 0,
+}));
 
 const Target = Items;
 
@@ -38,7 +37,6 @@ export default compose(
   withRelativeMousePos()
 )(class Annotation extends Component {
   static propTypes = {
-
     innerRef: T.func,
     onMouseUp: T.func,
     onMouseDown: T.func,
@@ -112,6 +110,7 @@ export default compose(
       console.error("Error saving all annotations:", error);
     });
   };
+
   handleSaveCoordinates = () => {
     const { coordinates } = this.props.value.geometry || {};
     if (!coordinates) return; // Exit if no coordinates are available
@@ -135,10 +134,8 @@ export default compose(
   componentDidMount() {
     if (this.props.allowTouch && this.targetRef.current) {
       this.addTargetTouchEventListeners();
-      
     }
   }
-  
 
   addTargetTouchEventListeners = () => {
     if (this.targetRef.current) {
@@ -249,6 +246,7 @@ export default compose(
   onClick = (e) => {
     this.callSelectorMethod('onClick', e);
   };
+
   onSubmit = async () => {
     const { annotations, value, onChange } = this.props;
     const piece_label = value.data.text || {};
@@ -319,7 +317,6 @@ export default compose(
   };
   
   callSelectorMethod = (methodName, e) => {
-    
     if (this.props.disableAnnotation) {
       return;
     }
@@ -346,7 +343,6 @@ export default compose(
   };
 
   shouldAnnotationBeActive = (annotation, top) => {
- 
     if (this.props.activeAnnotations) {
       const isActive = !!this.props.activeAnnotations.find(active => (
         this.props.activeAnnotationComparator(annotation, active)
@@ -359,7 +355,6 @@ export default compose(
   };
 
   render() {
-   
     const { props } = this;
     const {
       isMouseHovering,
