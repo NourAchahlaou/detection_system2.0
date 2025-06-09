@@ -32,13 +32,12 @@ def get_images_of_piece(piece_label: str, db: Session):
         print("Piece images retrieved.")
         urlbase = "http://localhost:8000/images/"
         
-        # Return the list of unannotated images with their URLs
+        # Return the list of unannotated images with their URLs using image_path
         try:
-            return [{"url": urlbase + image.url.replace("\\", "/"), "name": image.id} for image in db_images]
+            return [{"url": urlbase + image.image_path.replace("\\", "/"), "name": image.id} for image in db_images]
         except Exception as e:
             print(f"Error retrieving images: {e}")
             return []
-
 
     print("Piece doesn't exist.")
     return []
@@ -70,10 +69,10 @@ def get_img_non_annotated(db: Session):
         ).first()
 
         if db_image:
-            # Construct the URL for the image and include the piece label
+            # Construct the URL for the image using image_path and include the piece label
             image_info = {
                 "piece_label": piece.piece_label,
-                "url": urlbase + db_image.url.replace("\\", "/"),
+                "url": urlbase + db_image.image_path.replace("\\", "/"),
                 "name": db_image.id,
                 "nbr_img": piece.nbre_img
             }
@@ -82,8 +81,6 @@ def get_img_non_annotated(db: Session):
             print(f"No non-annotated images registered for piece {piece.piece_label}.")
 
     return result
-
-
 
 def save_annotation_in_memory(piece_label: str, image_id: int, annotation_data: dict):
     """Save the annotation in virtual storage instead of the database."""
@@ -101,21 +98,18 @@ def save_annotation_in_memory(piece_label: str, image_id: int, annotation_data: 
     
     # Add the annotation data to the virtual storage
     virtual_storage[piece_label]['annotations'].append({
-        
         'type': str(annotation_data['type']),
         'x': float(annotation_data['x']),
         'y': float(annotation_data['y']),
         'width': float(annotation_data['width']),
         'height': float(annotation_data['height']),
         'image_id': int(image_id),
-
     })
     
     # Mark the image as annotated in virtual storage
     virtual_storage[piece_label]['images'].add(image_id)
    
     print(virtual_storage[piece_label]['annotations'])
-  
     print(f"{annotation_data['x']} {annotation_data['y']} {annotation_data['width']} {annotation_data['height']}\n")
 
 def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
@@ -170,8 +164,8 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         x_center_normalized = (annotation_data['x'] + annotation_data['width'] / 2) / 100
         y_center_normalized = (annotation_data['y'] + annotation_data['height'] / 2) / 100
 
-        # Generate the annotationTXT_name from the image name
-        image_name_without_extension = os.path.splitext(piece_image.image_name)[0]
+        # Generate the annotationTXT_name from the file_name (not image_name)
+        image_name_without_extension = os.path.splitext(piece_image.file_name)[0]
         annotationTXT_name = f"{image_name_without_extension}.txt"
 
         # Set the file path for saving the annotation
@@ -211,14 +205,15 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         PieceImage.piece_id == piece.id,
         PieceImage.is_annotated == False
     ).count() == 0
-    print ("all_images_annotated",all_images_annotated)
+    print("all_images_annotated", all_images_annotated)
     all_images_annotatedTF = db.query(PieceImage).filter(
         PieceImage.piece_id == piece.id,
         PieceImage.is_annotated == False
     ).count()
-    print ("all_images_annotatedTF",all_images_annotatedTF)
+    print("all_images_annotatedTF", all_images_annotatedTF)
+    
     # If all images are annotated, mark the piece as annotated
-    if (all_images_annotatedTF-1)  == 0 :
+    if (all_images_annotatedTF - 1) == 0:
         piece.is_annotated = True 
         print("All images annotated. Updating piece to annotated.")
         data_yaml_path = os.path.join("dataset_custom", "data.yaml")
@@ -234,8 +229,6 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                 'nc': 0,
                 'val': os.path.join("C:\\Users\\hp\\Desktop\\Airbus\\detectionSystemAirbus", "backend", "dataset_custom","images","valid"),
                 'train': os.path.join("C:\\Users\\hp\\Desktop\\Airbus\\detectionSystemAirbus", "backend", "dataset_custom", "images", "train")
-                # C:\Users\hp\Desktop\Airbus\detectionSystemAirbus
-
             }
             print("No existing data_yaml found. Creating new.")
 
@@ -253,16 +246,15 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
         print(f"data.yaml file updated at: {data_yaml_path}")
 
-
     db.commit()
     db.refresh(annotation)
     db.refresh(piece)
-    
     db.refresh(piece_image) 
           
     virtual_storage.pop(piece_label, None)
     print("Annotations saved successfully and virtual storage cleared.")
-        # Call the stop camera endpoint
+    
+    # Call the stop camera endpoint
     try:
         # Assuming you're using the requests library to make an HTTP call
         import requests

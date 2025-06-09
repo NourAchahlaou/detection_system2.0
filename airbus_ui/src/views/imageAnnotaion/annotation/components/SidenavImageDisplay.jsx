@@ -68,7 +68,7 @@ export default function SidenavImageDisplay({
       if (!pieceLabel) return;
 
       try {
-        const response = await api.get(`/api/annotation/annotations/get_images_of_annotations/${pieceLabel}`);
+        const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${pieceLabel}`);
         const data = response.data;
         setImages(data);
 
