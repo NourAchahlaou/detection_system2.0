@@ -1,8 +1,8 @@
-"""artifact_keeper tables
+""" artifact keeper tables v1
 
-Revision ID: 42c2eed02097
+Revision ID: e8bf56588d91
 Revises: 
-Create Date: 2025-06-03 09:29:49.402746
+Create Date: 2025-06-09 12:54:27.516553
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '42c2eed02097'
+revision: str = 'e8bf56588d91'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -68,6 +68,7 @@ def upgrade() -> None:
     sa.Column('image_path', sa.String(), nullable=False),
     sa.Column('upload_date', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('is_deleted', sa.Boolean(), nullable=True),
+    sa.Column('is_annotated', sa.Boolean(), nullable=True),
     sa.ForeignKeyConstraint(['piece_id'], ['artifact_keeper.piece.id'], name=op.f('fk_piece_image_piece_id_piece')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_piece_image')),
     schema='artifact_keeper'

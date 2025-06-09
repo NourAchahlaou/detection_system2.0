@@ -3,8 +3,8 @@ import { Card, Grid, Box, styled } from "@mui/material";
 import NonAnnotated from "./NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
-import axios from "axios";
-import { useNavigate } from "react-router-dom"; // Import useNavigate
+import api from "../../utils/UseAxios"; // Updated import
+import { useNavigate } from "react-router-dom";
 
 // STYLED COMPONENTS
 const Container = styled("div")(({ theme }) => ({
@@ -15,7 +15,6 @@ const Container = styled("div")(({ theme }) => ({
 const ContainerPieces = styled("div")(() => ({
   display: "flex",
   overflowX: "auto",
-  // whiteSpace: "nowrap",
   paddingBottom: "16px",
   scrollbarWidth: "none",
   "&::-webkit-scrollbar": {
@@ -32,8 +31,8 @@ export default function AppImageAnnotaion() {
   const [selectedPieceLabel, setSelectedPieceLabel] = useState('');
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   const [initialPiece, setInitialPiece] = useState(null);
-  const [annotatedImages, setAnnotatedImages] = useState([]); // State to keep track of annotated images
-  const navigate = useNavigate(); // Initialize navigate
+  const [annotatedImages, setAnnotatedImages] = useState([]);
+  const navigate = useNavigate();
 
   const handlePieceSelect = (pieceLabel) => {
     setSelectedPieceLabel(pieceLabel);
@@ -50,18 +49,18 @@ export default function AppImageAnnotaion() {
   useEffect(() => {
     async function fetchInitialPiece() {
       try {
-        const response = await axios.get("http://127.0.0.1:8000/piece/get_Img_nonAnnotated");
+        const response = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
         const pieces = response.data;
         if (pieces.length > 0) {
           const firstPiece = pieces[0];
           setInitialPiece(firstPiece.piece_label);
           setSelectedPieceLabel(firstPiece.piece_label);
         } else {
-          navigate("/204"); // Redirect to No Data page if no pieces are found
+          navigate("/204");
         }
       } catch (error) {
-        console.error("Error fetching initial piece:", error);
-        navigate("/204"); // Redirect to No Data page on error
+        console.error("Error fetching initial piece:", error.response?.data?.detail || error.message);
+        navigate("/204");
       }
     }
 
@@ -70,16 +69,15 @@ export default function AppImageAnnotaion() {
 
   const handleAnnotationSubmit = async () => {
     try {
-      await axios.post("http://127.0.0.1:8000/annotations", { imageUrl: selectedImageUrl });
+      await api.post("/api/annotation/annotations", { imageUrl: selectedImageUrl });
       setAnnotatedImages((prev) => [...prev, selectedImageUrl]);
     } catch (error) {
-      console.error("Error saving annotation:", error);
+      console.error("Error saving annotation:", error.response?.data?.detail || error.message);
     }
   };
 
   return (
     <Container>
-
       <ContainerPieces>
         <NonAnnotated onPieceSelect={handlePieceSelect} />
       </ContainerPieces>
@@ -96,11 +94,10 @@ export default function AppImageAnnotaion() {
                   }}
                   sx={{ mb: 3, flexGrow: 1 }}
                 >
-                  {/* Pass pieceLabel as a prop to the Simple component */}
                   <Simple 
                     imageUrl={selectedImageUrl} 
                     annotated={annotatedImages.includes(selectedImageUrl)} 
-                    pieceLabel={selectedPieceLabel}  // Passing piece label to the Simple component
+                    pieceLabel={selectedPieceLabel}
                   />
                 </Card>
               </Grid>

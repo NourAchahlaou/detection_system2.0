@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Annotation from '../annotation'; // Make sure Annotation component is correctly implemented
 import './Simple.css'; // Import your custom CSS file
+import api from '../../../utils/UseAxios'; // Add this import
 
 export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept pieceLabel as a prop
   const [annotations, setAnnotations] = useState([]);
@@ -56,30 +57,19 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept 
     setRedoStack((prevRedoStack) => [...prevRedoStack]);
   };
 
-const saveAnnotations = async () => {
-  try {
-    const response = await fetch(`http://localhost:8000/piece/saveAnnotation/${pieceLabel}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ piece_label: pieceLabel }), // Send the piece_label in the body
-    });
+  const saveAnnotations = async () => {
+    try {
+      const response = await api.post(`/api/annotation/annotations/saveAnnotation/${pieceLabel}`, {
+        piece_label: pieceLabel // Send the piece_label in the body
+      });
 
-    if (response.ok) {
-      const result = await response.json();
-      console.log("Annotations saved successfully:", result);
+      console.log("Annotations saved successfully:", response.data);
       // Refresh the page after successful save
       window.location.reload(); 
-    } else {
-      const errorData = await response.json();
-      console.error("Error saving annotations:", errorData.detail);
+    } catch (error) {
+      console.error("Error saving annotations:", error.response?.data?.detail || error.message);
     }
-  } catch (error) {
-    console.error("An error occurred while saving annotations:", error);
-  }
-};
-
+  };
 
   return (
     <div className="simple-container" ref={containerRef} style={{ position: 'relative' }}>

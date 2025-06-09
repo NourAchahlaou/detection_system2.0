@@ -1,20 +1,26 @@
 import { lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 
-const SignUp = lazy(()=> import( '../views/auth/sign-up/SignUp'));
-const Profile = lazy(()=> import( '../views/auth/profile-completion/Profile'));
-const UserProfile = lazy(()=> import( '../views/profile/Profile'));
+import Loadable from "../components/components/load/loadable";
+
+const SignUp = Loadable(lazy(()=> import( '../views/auth/sign-up/SignUp')));
+const Profile = Loadable(lazy(()=> import( '../views/auth/profile-completion/Profile')));
+const UserProfile = Loadable(lazy(()=> import( '../views/profile/Profile')));
 
 /* Layouts */
 const FullLayout = lazy(() => import('../layouts/full/FullLayout'));
 const BlankLayout = lazy(() => import('../layouts/blank/BlankLayout'));
 
 /* Pages */
-const Dashboard = lazy(() => import('../views/dashboard/Dashboard'));
-const CaptureImage = lazy(() => import('../views/captureImage/CameraCapture'));
-const SignInSide = lazy(() => import('../views/auth/sign-in-side/SignInSide'));
-const CaptureImageView = lazy(() => import('../views/captureImage/CameraCaptureView'));
-const Annotation = lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion'))
+const Dashboard = Loadable(lazy(() => import('../views/dashboard/Dashboard')));
+const CaptureImage = Loadable(lazy(() => import('../views/captureImage/CameraCapture')));
+const SignInSide = Loadable(lazy(() => import('../views/auth/sign-in-side/SignInSide')));
+const CaptureImageView = Loadable(lazy(() => import('../views/captureImage/CameraCaptureView')));
+const Annotation = Loadable(lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion')));
+
+const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
+const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
+
 const router = createBrowserRouter([
   // Root redirect to dashboard
   {
@@ -75,6 +81,9 @@ const router = createBrowserRouter([
 
     ],
   },
+  // { path: "/404", element: <NotFound /> },
+  { path: "/204", element: <NoData /> },
+  { path: "/204_annotation", element: <NoDataAnnotation/> },
 ]);
 
 export default router;

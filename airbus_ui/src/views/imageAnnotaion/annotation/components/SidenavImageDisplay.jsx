@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Card, styled } from "@mui/material";
 import BadgeSelected from "../../../../components/theme/customizations/BadgeSelected";
+import api from "../../../../utils/UseAxios"; // Add this import
 
 const MaxCustomaizer = styled("div")(({ theme }) => ({
   width: "auto",
@@ -18,8 +19,8 @@ const LayoutBox = styled(BadgeSelected)(({ isAnnotated }) => ({
   marginTop: "12px",
   marginBottom: "12px",
   position: "relative",
-  backgroundColor: isAnnotated ? "#e0ffe0" : "transparent", // Light green for annotated
-  border: isAnnotated ? "2px solid green" : "none", // Border for annotated
+  backgroundColor: isAnnotated ? "#e0ffe0" : "transparent",
+  border: isAnnotated ? "2px solid green" : "none",
   "& .layout-name": { display: "none" },
   "&:hover .layout-name": {
     width: "100%",
@@ -38,7 +39,6 @@ const StyledScrollContainer = styled("div")(() => ({
   paddingRight: "16px",
   overflow: "auto",
   height: "100%",
-  // Custom scrollbar styling (optional)
   "&::-webkit-scrollbar": {
     width: "8px",
   },
@@ -55,11 +55,11 @@ const StyledScrollContainer = styled("div")(() => ({
   },
 }));
 
-export default function SidenavImageDisplay({ 
-  pieceLabel, 
-  onImageSelect, 
-  onFirstImageLoad, 
-  annotatedImages 
+export default function SidenavImageDisplay({
+  pieceLabel,
+  onImageSelect,
+  onFirstImageLoad,
+  annotatedImages
 }) {
   const [images, setImages] = useState([]);
 
@@ -68,20 +68,15 @@ export default function SidenavImageDisplay({
       if (!pieceLabel) return;
 
       try {
-        const response = await fetch(
-          `http://127.0.0.1:8000/piece/get_images_of_piece/${pieceLabel}`
-        );
-        if (!response.ok) {
-          throw new Error("Failed to fetch images");
-        }
-        const data = await response.json();
+        const response = await api.get(`/api/annotation/annotations/get_images_of_annotations/${pieceLabel}`);
+        const data = response.data;
         setImages(data);
 
         if (data.length > 0 && onFirstImageLoad) {
           onFirstImageLoad(data[0].url);
         }
       } catch (error) {
-        console.error("Error fetching images:", error);
+        console.error("Error fetching images:", error.response?.data?.detail || error.message);
       }
     }
 

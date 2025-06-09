@@ -1,8 +1,8 @@
-"""annotation tables
+""" annotation tables v1
 
-Revision ID: dd05735f162f
+Revision ID: ed073df86e1f
 Revises: 
-Create Date: 2025-06-04 13:00:21.992940
+Create Date: 2025-06-09 12:55:45.574529
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'dd05735f162f'
+revision: str = 'ed073df86e1f'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -6,6 +6,7 @@ import isMouseHovering from '../utils/isMouseHovering';
 import withRelativeMousePos from '../utils/withRelativeMousePos';
 import defaultProps from './defaultProps';
 import Overlay from './Overlay';
+import api from '../../../../utils/UseAxios'; // Add this import
 
 const Container = styled('div')(({ theme, allowTouch }) => ({
   clear: 'both',
@@ -90,25 +91,17 @@ export default compose(
 
   targetRef = React.createRef();
 
-  handleSaveAllAnnotations = () => {
+  handleSaveAllAnnotations = async () => {
     const { annotations } = this.props;
 
-    // Send all annotations to the backend
-    const API_URL = "http://127.0.0.1:8000";
-    fetch(`${API_URL}/piece/annotations/save-all`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ annotations }) // Send all annotations at once
-    })
-    .then(response => response.json())
-    .then(data => {
-      console.log("All annotations saved successfully:", data);
-    })
-    .catch(error => {
-      console.error("Error saving all annotations:", error);
-    });
+    try {
+      const response = await api.post('/api/annotation/annotations/annotations/save-all', {
+        annotations
+      });
+      console.log("All annotations saved successfully:", response.data);
+    } catch (error) {
+      console.error("Error saving all annotations:", error.response?.data?.detail || error.message);
+    }
   };
 
   handleSaveCoordinates = () => {
@@ -266,18 +259,11 @@ export default compose(
   
     try {
       // Fetch the image ID based on the formatted image URL
-      const response = await fetch(`http://127.0.0.1:8000/piece/image-id?url=${encodeURIComponent(formattedUrl)}`, {
-        method: 'GET',  // Use GET request
-        headers: {
-          'Content-Type': 'application/json'
-        }
+      const imageResponse = await api.get(`/api/annotation/annotations/image-id`, {
+        params: { url: formattedUrl }
       });
   
-      if (!response.ok) {
-        throw new Error('Failed to fetch image ID');
-      }
-  
-      const { image_id } = await response.json();
+      const { image_id } = imageResponse.data;
       console.log("Formatted URL and Image ID:", formattedUrl, image_id);
   
       // Prepare the annotation data including the image ID
@@ -292,27 +278,16 @@ export default compose(
       };
   
       // Save the new annotation to the backend
-      const API_URL = "http://127.0.0.1:8000";
-      const saveResponse = await fetch(`${API_URL}/piece/annotations/${piece_label}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(annotationData)
-      });
+      const saveResponse = await api.post(`/api/annotation/annotations/annotations/${piece_label}`, annotationData);
   
-      if (!saveResponse.ok) {
-        throw new Error('Failed to save annotation');
-      }
-  
-      const data = await saveResponse.json();
+      const data = saveResponse.data;
       console.log("Annotation saved successfully:", data);
   
       // Update the annotations array with the new annotation
       const updatedAnnotations = [...annotations, { ...annotationData, data }];
       onChange({ ...value, annotations: updatedAnnotations });
     } catch (error) {
-      console.error("Error saving annotation:", error);
+      console.error("Error saving annotation:", error.response?.data?.detail || error.message);
     }
   };
   
