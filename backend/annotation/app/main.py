@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from annotation.app.api.router import health
-from annotation.app.api.router import annotation 
+from annotation.app.api.router import health,annotation
+
 def create_application():
     application = FastAPI()
     application.include_router(health.health_router)
@@ -25,5 +25,5 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "this is the artifact keeper service"}
+    return {"message": "this is the annotation service"}
 

@@ -23,9 +23,9 @@ class CameraService:
     Service class for camera-related operations that interacts with both
     the database and the hardware service.
     """   
-    
+        
     def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003", 
-                 dataset_base_path: str = "/app/shared/dataset"):
+                dataset_base_path: str = "/app/shared/dataset"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         self.temp_photos = []
         
@@ -33,12 +33,30 @@ class CameraService:
         self.dataset_base_path = dataset_base_path
         self.dataset_piece_path = os.path.join(self.dataset_base_path, "piece", "piece")
         
-        # Create the base dataset structure if it doesn't exist
-        os.makedirs(self.dataset_piece_path, exist_ok=True)
+        # Create the base dataset structure if it doesn't exist with error handling
+        try:
+            os.makedirs(self.dataset_piece_path, exist_ok=True)
+            logger.info(f"Successfully created/verified dataset directory: {self.dataset_piece_path}")
+        except PermissionError as e:
+            logger.error(f"Permission denied creating dataset directory {self.dataset_piece_path}: {str(e)}")
+            logger.error("Please check directory permissions and user ownership")
+            # You can either raise the exception or handle it gracefully
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Cannot create dataset directory due to permission error. Please check directory permissions for {self.dataset_piece_path}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error creating dataset directory: {str(e)}")
+            raise
         
         # Create a temp directory for storing images before moving to dataset
-        self.temp_dir = tempfile.mkdtemp(prefix="camera_images_")
-        logger.info(f"Initialized temp directory: {self.temp_dir}")
+        try:
+            self.temp_dir = tempfile.mkdtemp(prefix="camera_images_")
+            logger.info(f"Initialized temp directory: {self.temp_dir}")
+        except Exception as e:
+            logger.error(f"Failed to create temp directory: {str(e)}")
+            raise
+        
         logger.info(f"Dataset base path: {self.dataset_base_path}")
         logger.info(f"Dataset piece path: {self.dataset_piece_path}")
 

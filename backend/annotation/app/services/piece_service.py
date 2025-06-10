@@ -15,14 +15,12 @@ virtual_storage: Dict[str, Dict] = {}
 
 def get_images_of_piece(piece_label: str, db: Session):
     """Fetch all images of a piece that are not annotated yet."""
-    # Fetch the piece from the database
     db_piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
     
     if db_piece:
-        # Fetch images that are not annotated
         db_images = db.query(PieceImage).filter(
             PieceImage.piece_id == db_piece.id,
-            PieceImage.is_annotated == False  # Exclude annotated images
+            PieceImage.is_annotated == False
         ).all()
 
         if not db_images:
@@ -30,11 +28,29 @@ def get_images_of_piece(piece_label: str, db: Session):
             return []
 
         print("Piece images retrieved.")
-        urlbase = "http://localhost:8000/images/"
         
-        # Return the list of unannotated images with their URLs using image_path
+        # FIXED: Use artifact_keeper service to serve images
+        urlbase = "http://localhost/api/artifact_keeper/images/"
+        
         try:
-            return [{"url": urlbase + image.image_path.replace("\\", "/"), "name": image.id} for image in db_images]
+            result = []
+            for image in db_images:
+                # Convert absolute path to relative path for URL serving
+                dataset_base = "/app/shared/dataset"
+                if image.image_path.startswith(dataset_base):
+                    relative_path = image.image_path[len(dataset_base):].lstrip("/")
+                else:
+                    relative_path = image.image_path
+                
+                clean_path = relative_path.replace("\\", "/")
+                
+                result.append({
+                    "url": urlbase + clean_path,
+                    "name": image.id
+                })
+            
+            return result
+            
         except Exception as e:
             print(f"Error retrieving images: {e}")
             return []
@@ -43,7 +59,6 @@ def get_images_of_piece(piece_label: str, db: Session):
     return []
 
 def get_img_non_annotated(db: Session):
-    # Retrieve all pieces that are not annotated
     db_pieces = db.query(Piece).filter(Piece.is_annotated == False).all()
     result = []
 
@@ -51,10 +66,10 @@ def get_img_non_annotated(db: Session):
         print("No non-annotated pieces found.")
         return result
 
-    urlbase = "http://localhost:8000/images/"
+    # FIXED: Use artifact_keeper service to serve images
+    urlbase = "http://localhost/api/artifact_keeper/images/"
 
     for piece in db_pieces:
-        # Check for non-annotated images of the current piece
         non_annotated_images_count = db.query(PieceImage).filter(
             PieceImage.piece_id == piece.id,
             PieceImage.is_annotated == False
@@ -62,17 +77,23 @@ def get_img_non_annotated(db: Session):
 
         print(f"Non-annotated images count for piece {piece.id}: {non_annotated_images_count}")
 
-        # Get the first non-annotated image associated with the piece
         db_image = db.query(PieceImage).filter(
             PieceImage.piece_id == piece.id,
             PieceImage.is_annotated == False
         ).first()
 
         if db_image:
-            # Construct the URL for the image using image_path and include the piece label
+            dataset_base = "/app/shared/dataset"
+            if db_image.image_path.startswith(dataset_base):
+                relative_path = db_image.image_path[len(dataset_base):].lstrip("/")
+            else:
+                relative_path = db_image.image_path
+            
+            clean_path = relative_path.replace("\\", "/")
+            
             image_info = {
                 "piece_label": piece.piece_label,
-                "url": urlbase + db_image.image_path.replace("\\", "/"),
+                "url": urlbase + clean_path,
                 "name": db_image.id,
                 "nbr_img": piece.nbre_img
             }
@@ -82,6 +103,7 @@ def get_img_non_annotated(db: Session):
 
     return result
 
+# Rest of your functions remain the same...
 def save_annotation_in_memory(piece_label: str, image_id: int, annotation_data: dict):
     """Save the annotation in virtual storage instead of the database."""
     
@@ -133,7 +155,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
     # Save each annotation from virtual storage to the database
     for annotation_data in virtual_storage[piece_label]['annotations']:
-        print(f"Processing annotation: {annotation_data}")  # Debugging output to check the content
+        print(f"Processing annotation: {annotation_data}")
 
         # Validate required keys are present
         required_keys = ['type', 'x', 'y', 'width', 'height', 'image_id']
@@ -198,7 +220,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
         # Update the is_annotated field of the image
         piece_image.is_annotated = True
-        class_id_to_label[piece.class_data_id] = piece.piece_label  # Collect unique class IDs and labels
+        class_id_to_label[piece.class_data_id] = piece.piece_label
 
     # Check if all images related to the piece are annotated
     all_images_annotated = db.query(PieceImage).filter(
@@ -235,7 +257,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         # Update the data_yaml with new class data
         class_id_to_label[piece.class_data_id] = piece.piece_label
         data_yaml['names'].update(class_id_to_label)
-        data_yaml['nc'] = len(data_yaml['names'])  # Update number of unique classes
+        data_yaml['nc'] = len(data_yaml['names'])
 
         # Create directories if needed
         os.makedirs(os.path.dirname(data_yaml_path), exist_ok=True)
@@ -256,9 +278,9 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     
     # Call the stop camera endpoint
     try:
-        # Assuming you're using the requests library to make an HTTP call
         import requests
-        stop_camera_response = requests.post("http://127.0.0.1:8000/cameras/stop")
+        # FIXED: Use the correct URL for your artifact keeper service
+        stop_camera_response = requests.post("http://localhost/api/artifact_keeper/cameras/stop")
 
         if stop_camera_response.status_code != 200:
             print(f"Failed to stop camera: {stop_camera_response.json().get('detail')}")
