@@ -3,13 +3,17 @@ import { Card, Grid, Box, styled } from "@mui/material";
 import NonAnnotated from "./NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
-import api from "../../utils/UseAxios"; // Updated import
+import api from "../../utils/UseAxios";
 import { useNavigate } from "react-router-dom";
 
-// STYLED COMPONENTS
+// STYLED COMPONENTS - Updated to match capture theme
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
-  [theme.breakpoints.down("sm")]: { margin: "16px" }
+  [theme.breakpoints.down("sm")]: { margin: "16px" },
+  "& .breadcrumb": {
+    marginBottom: "30px",
+    [theme.breakpoints.down("sm")]: { marginBottom: "16px" },
+  },
 }));
 
 const ContainerPieces = styled("div")(() => ({
@@ -25,6 +29,52 @@ const ContainerPieces = styled("div")(() => ({
 const ContentBox = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
+}));
+
+// Updated main annotation card to match VideoCard styling
+const AnnotationCard = styled(Card)(({ theme }) => ({
+  width: "100%",
+  height: "600px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#f5f5f5",
+  border: "2px solid #667eea",
+  borderRadius: "12px",
+  position: "relative",
+  overflow: "hidden",
+  padding: 0,
+  margin: 0,
+  // Override any Material-UI Card default styles
+  '& .MuiCard-root': {
+    padding: 0,
+  },
+  [theme.breakpoints.down("md")]: {
+    height: "500px",
+  },
+  [theme.breakpoints.down("sm")]: {
+    height: "400px",
+  },
+}));
+
+// Updated sidebar card to match theme
+const SidebarCard = styled(Card)(({ theme }) => ({
+  height: "600px",
+  backgroundColor: "#f5f5f5",
+  border: "2px solid #667eea",
+  borderRadius: "12px",
+  padding: "16px",
+  margin: 0,
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  [theme.breakpoints.down("md")]: {
+    height: "500px",
+  },
+  [theme.breakpoints.down("sm")]: {
+    height: "400px",
+    // Removed marginTop to keep them in same row
+  },
 }));
 
 export default function AppImageAnnotaion() {
@@ -84,32 +134,25 @@ export default function AppImageAnnotaion() {
       <Fragment>
         <ContentBox>
           <Box display="flex" height="100%">
-            <Grid container spacing={2} style={{ flexGrow: 1 }}>
-              <Grid item lg={9} md={9} sm={12} xs={12} style={{ display: "flex" }}>
-                <Card
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  sx={{ mb: 3, flexGrow: 1 }}
-                >
+            <Grid container spacing={3} style={{ flexGrow: 1 }} wrap="nowrap">
+              <Grid item lg={9} md={8} sm={8} xs={8} style={{ display: "flex", flexShrink: 1 }}>
+                <AnnotationCard>
                   <Simple 
                     imageUrl={selectedImageUrl} 
                     annotated={annotatedImages.includes(selectedImageUrl)} 
                     pieceLabel={selectedPieceLabel}
                   />
-                </Card>
+                </AnnotationCard>
               </Grid>
-              <Grid item lg={3} md={3} sm={12} xs={12} style={{ display: "flex" }}>
-                <Card sx={{ px: 3, py: 2, mb: 3, flexGrow: 1 }}>
+              <Grid item lg={3} md={4} sm={4} xs={4} style={{ display: "flex", flexShrink: 0 }}>
+                <SidebarCard>
                   <SidenavImageDisplay
                     pieceLabel={selectedPieceLabel}
                     onImageSelect={handleImageSelect}
                     onFirstImageLoad={handleFirstImageLoad}
                     annotatedImages={annotatedImages}
                   />
-                </Card>
+                </SidebarCard>
               </Grid>
             </Grid>
           </Box>
