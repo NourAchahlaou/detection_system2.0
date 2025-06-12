@@ -1,5 +1,5 @@
 import React, {  useState, useEffect } from "react";
-import { Card, Grid, Box, styled, Stack } from "@mui/material";
+import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
 import NonAnnotated from "./NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
@@ -53,11 +53,46 @@ const AnnotationCard = styled(Card)(({ theme }) => ({
   },
 }));
 
+// Header styles moved from SidenavImageDisplay
+const HeaderBox = styled(Box)({
+  padding: "16px 0 12px 0",
+  borderBottom: "2px solid rgba(102, 126, 234, 0.1)",
+  marginBottom: "16px",
+});
+
+const HeaderTitle = styled(Typography)({
+  fontSize: "1.1rem",
+  fontWeight: "600",
+  color: "#333",
+  textAlign: "center",
+});
+
+// New styled component for centering content
+const CenteredContainer = styled(Box)({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  height: "100%",
+  minHeight: "600px", // Ensure minimum height for proper centering
+});
+
+// Sidebar container with proper centering
+const SidebarContainer = styled(Box)({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center", 
+  height: "100%",
+  minHeight: "600px", // Match the annotation card area height
+  padding: "0 16px",
+});
+
 export default function AppImageAnnotaion() {
   const [selectedPieceLabel, setSelectedPieceLabel] = useState('');
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   const [initialPiece, setInitialPiece] = useState(null);
   const [annotatedImages, setAnnotatedImages] = useState([]);
+  const [totalImages, setTotalImages] = useState(0);
   const navigate = useNavigate();
 
   const handlePieceSelect = (pieceLabel) => {
@@ -70,6 +105,10 @@ export default function AppImageAnnotaion() {
 
   const handleFirstImageLoad = (url) => {
     setSelectedImageUrl(url);
+  };
+
+  const handleImageCountUpdate = (count) => {
+    setTotalImages(count);
   };
 
   useEffect(() => {
@@ -103,22 +142,41 @@ export default function AppImageAnnotaion() {
   };
 
   return (
-    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
+    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' }, margin: '0 auto' }}>
+      {/* Header Section - Keep outside the main grid */}
+      <HeaderBox>
+        <HeaderTitle>
+          {selectedPieceLabel ? `${selectedPieceLabel} Images` : "Select a Piece"}
+        </HeaderTitle>
+        {totalImages > 0 && (
+          <Typography
+            variant="body2"
+            sx={{
+              color: "#666",
+              textAlign: "center",
+              mt: 1,
+              fontSize: "0.8rem",
+            }}
+          >
+            {totalImages} image{totalImages !== 1 ? 's' : ''} • {annotatedImages.length} annotated
+          </Typography>
+        )}
+      </HeaderBox>
+
+      {/* Main Content Grid - Single Row Layout */}
       <Grid
         container
         spacing={2}
         columns={12}
-        sx={{ mb: (theme) => theme.spacing(2) }}
+        sx={{ 
+          mb: (theme) => theme.spacing(2),
+          minHeight: "600px", // Ensure consistent height
+          alignItems: "center" // Center both grid items vertically
+        }}
       >
-        {/* Main Content Area - Match capture template structure */}
+        {/* Annotation Card Column */}
         <Grid size={{ xs: 12, md: 9 }}>
-          <Stack spacing={3}>
-            {/* Non-Annotated Pieces Selector */}
-            <ContainerPieces>
-              <NonAnnotated onPieceSelect={handlePieceSelect} />
-            </ContainerPieces>
-         
-            {/* Annotation Area - Match VideoCard dimensions exactly */}
+          <CenteredContainer>
             <AnnotationCard>
               <Simple 
                 imageUrl={selectedImageUrl} 
@@ -126,17 +184,22 @@ export default function AppImageAnnotaion() {
                 pieceLabel={selectedPieceLabel}
               />
             </AnnotationCard>
-          </Stack>
+          </CenteredContainer>
         </Grid>
         
-        {/* Sidebar - Match capture template structure */}
-        <Grid size={{ xs: 12, md: 3 }}>               
-          <SidenavImageDisplay
-            pieceLabel={selectedPieceLabel}
-            onImageSelect={handleImageSelect}
-            onFirstImageLoad={handleFirstImageLoad}
-            annotatedImages={annotatedImages}
-          />
+        {/* Sidebar Column */}
+        <Grid size={{ xs: 12, md: 3 }}>
+          <SidebarContainer>
+            <Box sx={{ width: "100%", height: "480px" }}> {/* Match annotation card height */}
+              <SidenavImageDisplay
+                pieceLabel={selectedPieceLabel}
+                onImageSelect={handleImageSelect}
+                onFirstImageLoad={handleFirstImageLoad}
+                annotatedImages={annotatedImages}
+                onImageCountUpdate={handleImageCountUpdate}
+              />
+            </Box>
+          </SidebarContainer>
         </Grid>
       </Grid>
     </Box>

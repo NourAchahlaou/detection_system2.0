@@ -32,11 +32,7 @@ const FloatingControls = styled(Box)(({ theme }) => ({
   display: 'flex',
   gap: '12px',
   alignItems: 'center',
-  padding: '12px 20px',
-  background: 'rgba(0, 0, 0, 0.8)',
   backdropFilter: 'blur(10px)',
-  borderRadius: '50px',
-  border: '1px solid rgba(255, 255, 255, 0.1)',
   zIndex: 10,
   transition: 'opacity 0.3s ease',
 }));
@@ -50,11 +46,9 @@ const SaveButton = styled(Button)({
   borderRadius: '25px',
   padding: '8px 20px',
   border: 'none',
-  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
   '&:hover': {
     backgroundColor: '#5a6fd8',
     transform: 'translateY(-1px)',
-    boxShadow: '0 6px 16px rgba(102, 126, 234, 0.4)',
   },
   '&:active': {
     transform: 'translateY(0)',
@@ -198,13 +192,12 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
             left: `${annotation.geometry.x}px`,
             top: `${annotation.geometry.y}px`,
             color: 'white',
-            backgroundColor: 'rgba(102, 126, 234, 0.9)',
+            backgroundColor: 'rgba(102, 126, 234, 0.1)',
             padding: '4px 8px',
             borderRadius: '4px',
             fontSize: '12px',
             fontWeight: '500',
             pointerEvents: 'none',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
           }}>
             {annotation.data.text}
           </div>
