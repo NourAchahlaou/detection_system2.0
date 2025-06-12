@@ -70,8 +70,6 @@ const PlaceholderContent = styled(Box)({
 export default function Simple({ imageUrl, annotated, pieceLabel }) {
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
-  const [undoStack, setUndoStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]);
   const [saving, setSaving] = useState(false);
   const containerRef = useRef(null);
 
@@ -88,9 +86,6 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
   const onSubmit = (newAnnotation) => {
     const { geometry, data } = newAnnotation;
 
-    setUndoStack((prevUndoStack) => [...prevUndoStack, [...annotations]]);
-    setRedoStack([]); // Clear redo stack after new action
-
     setAnnotations((prevAnnotations) => [
       ...prevAnnotations,
       {
@@ -104,23 +99,6 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
     setAnnotation({});
   };
 
-  const undo = () => {
-    if (undoStack.length === 0) return;
-
-    const previousAnnotations = undoStack.pop();
-    setRedoStack((prevRedoStack) => [...prevRedoStack, [...annotations]]);
-    setAnnotations(previousAnnotations);
-    setUndoStack((prevUndoStack) => [...prevUndoStack]);
-  };
-
-  const redo = () => {
-    if (redoStack.length === 0) return;
-
-    const nextAnnotations = redoStack.pop();
-    setUndoStack((prevUndoStack) => [...prevUndoStack, [...annotations]]);
-    setAnnotations(nextAnnotations);
-    setRedoStack((prevRedoStack) => [...prevRedoStack]);
-  };
 
   const saveAnnotations = async () => {
     if (!pieceLabel) {
@@ -215,7 +193,7 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
           onClick={saveAnnotations}
           disabled={saving || annotations.length === 0}
         >
-          {saving ? 'Saving...' : `Save ${annotations.length} Annotation${annotations.length !== 1 ? 's' : ''}`}
+          {saving ? 'Saving...' : 'Save'}
         </SaveButton>
       </FloatingControls>
     </AnnotationContainer>

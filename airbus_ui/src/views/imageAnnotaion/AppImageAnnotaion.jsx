@@ -16,15 +16,7 @@ const Container = styled("div")(({ theme }) => ({
   },
 }));
 
-const ContainerPieces = styled("div")(() => ({
-  display: "flex",
-  overflowX: "auto",
-  paddingBottom: "16px",
-  scrollbarWidth: "none",
-  "&::-webkit-scrollbar": {
-    display: "none",
-  },
-}));
+
 
 // Updated to match VideoCard styling exactly
 const AnnotationCard = styled(Card)(({ theme }) => ({
@@ -55,9 +47,9 @@ const AnnotationCard = styled(Card)(({ theme }) => ({
 
 // Header styles moved from SidenavImageDisplay
 const HeaderBox = styled(Box)({
-  padding: "16px 0 12px 0",
+  paddingTop: "16px",
   borderBottom: "2px solid rgba(102, 126, 234, 0.1)",
-  marginBottom: "16px",
+  
 });
 
 const HeaderTitle = styled(Typography)({

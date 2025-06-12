@@ -232,7 +232,7 @@ export default function SidenavImageDisplay({
                 onClick={handlePrevious}
                 sx={{
                   position: 'absolute',
-                  top: 30,
+                  top: 0,
                   zIndex: 400,
                   backgroundColor: 'transparent !important',
                   color: '#667eea',
@@ -437,7 +437,7 @@ export default function SidenavImageDisplay({
                 onClick={handleNext}
                 sx={{
                   position: 'absolute',
-                  bottom: 30,
+                  bottom: 0,
                   zIndex: 400,
                   color: '#667eea',
                   backgroundColor: 'transparent !important',
@@ -461,61 +461,7 @@ export default function SidenavImageDisplay({
           </Box>
         )}
 
-        {/* Footer with Image Counter - matching capture component exactly */}
-        {!loading && images.length > 0 && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 0,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              backgroundColor: 'transparent',
-              backdropFilter: 'blur(10px)',
-              borderRadius: 2,
-              padding: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-              zIndex: 1000
-            }}
-          >
-            <Typography
-              variant="body2"
-              sx={{
-                color: '#333',
-                fontWeight: 500,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}
-            >
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: '#667eea',
-                  opacity: 0.8
-                }}
-              />
-              {currentIndex + 1} of {images.length}
-              {annotatedImages.length > 0 && (
-                <Chip
-                  label="Annotated"
-                  size="small"
-                  sx={{
-                    ml: 1,
-                    backgroundColor: '#4caf50',
-                    color: 'white',
-                    fontSize: '0.65rem',
-                    height: 20
-                  }}
-                />
-              )}
-            </Typography>
-          </Box>
-        )}
+
       </Box>
     </MaxCustomaizer>
   );
