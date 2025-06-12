@@ -1,12 +1,12 @@
-import React, { Fragment, useState, useEffect } from "react";
-import { Card, Grid, Box, styled } from "@mui/material";
+import React, {  useState, useEffect } from "react";
+import { Card, Grid, Box, styled, Stack } from "@mui/material";
 import NonAnnotated from "./NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
 import api from "../../utils/UseAxios";
 import { useNavigate } from "react-router-dom";
 
-// STYLED COMPONENTS - Updated to match capture theme
+// STYLED COMPONENTS - Updated to match capture template exactly
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
@@ -26,20 +26,15 @@ const ContainerPieces = styled("div")(() => ({
   },
 }));
 
-const ContentBox = styled("div")(({ theme }) => ({
-  margin: "30px",
-  [theme.breakpoints.down("sm")]: { margin: "16px" },
-}));
-
-// Updated main annotation card to match VideoCard styling
+// Updated to match VideoCard styling exactly
 const AnnotationCard = styled(Card)(({ theme }) => ({
-  width: "100%",
-  height: "600px",
+  width: "900px", // Match VideoCard width exactly
+  height: "480px", // Match VideoCard height exactly
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   backgroundColor: "#f5f5f5",
-  border: "2px solid #667eea",
+  border: "2px solid #667eea", // Always active border like camera feed
   borderRadius: "12px",
   position: "relative",
   overflow: "hidden",
@@ -50,30 +45,11 @@ const AnnotationCard = styled(Card)(({ theme }) => ({
     padding: 0,
   },
   [theme.breakpoints.down("md")]: {
-    height: "500px",
+    width: "100%",
+    maxWidth: "700px", // Match VideoCard responsive behavior
   },
   [theme.breakpoints.down("sm")]: {
-    height: "400px",
-  },
-}));
-
-// Updated sidebar card to match theme
-const SidebarCard = styled(Card)(({ theme }) => ({
-  height: "600px",
-  backgroundColor: "#f5f5f5",
-  border: "2px solid #667eea",
-  borderRadius: "12px",
-  padding: "16px",
-  margin: 0,
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-  [theme.breakpoints.down("md")]: {
-    height: "500px",
-  },
-  [theme.breakpoints.down("sm")]: {
-    height: "400px",
-    // Removed marginTop to keep them in same row
+    height: "300px", // Match VideoCard mobile height
   },
 }));
 
@@ -127,37 +103,42 @@ export default function AppImageAnnotaion() {
   };
 
   return (
-    <Container>
-      <ContainerPieces>
-        <NonAnnotated onPieceSelect={handlePieceSelect} />
-      </ContainerPieces>
-      <Fragment>
-        <ContentBox>
-          <Box display="flex" height="100%">
-            <Grid container spacing={3} style={{ flexGrow: 1 }} wrap="nowrap">
-              <Grid item lg={9} md={8} sm={8} xs={8} style={{ display: "flex", flexShrink: 1 }}>
-                <AnnotationCard>
-                  <Simple 
-                    imageUrl={selectedImageUrl} 
-                    annotated={annotatedImages.includes(selectedImageUrl)} 
-                    pieceLabel={selectedPieceLabel}
-                  />
-                </AnnotationCard>
-              </Grid>
-              <Grid item lg={3} md={4} sm={4} xs={4} style={{ display: "flex", flexShrink: 0 }}>
-                <SidebarCard>
-                  <SidenavImageDisplay
-                    pieceLabel={selectedPieceLabel}
-                    onImageSelect={handleImageSelect}
-                    onFirstImageLoad={handleFirstImageLoad}
-                    annotatedImages={annotatedImages}
-                  />
-                </SidebarCard>
-              </Grid>
-            </Grid>
-          </Box>
-        </ContentBox>
-      </Fragment>
-    </Container>
+    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
+      <Grid
+        container
+        spacing={2}
+        columns={12}
+        sx={{ mb: (theme) => theme.spacing(2) }}
+      >
+        {/* Main Content Area - Match capture template structure */}
+        <Grid size={{ xs: 12, md: 9 }}>
+          <Stack spacing={3}>
+            {/* Non-Annotated Pieces Selector */}
+            <ContainerPieces>
+              <NonAnnotated onPieceSelect={handlePieceSelect} />
+            </ContainerPieces>
+         
+            {/* Annotation Area - Match VideoCard dimensions exactly */}
+            <AnnotationCard>
+              <Simple 
+                imageUrl={selectedImageUrl} 
+                annotated={annotatedImages.includes(selectedImageUrl)} 
+                pieceLabel={selectedPieceLabel}
+              />
+            </AnnotationCard>
+          </Stack>
+        </Grid>
+        
+        {/* Sidebar - Match capture template structure */}
+        <Grid size={{ xs: 12, md: 3 }}>               
+          <SidenavImageDisplay
+            pieceLabel={selectedPieceLabel}
+            onImageSelect={handleImageSelect}
+            onFirstImageLoad={handleFirstImageLoad}
+            annotatedImages={annotatedImages}
+          />
+        </Grid>
+      </Grid>
+    </Box>
   );
 }

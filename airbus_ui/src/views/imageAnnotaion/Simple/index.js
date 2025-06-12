@@ -1,13 +1,84 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Box, Button, styled } from '@mui/material';
 import Annotation from '../annotation'; // Make sure Annotation component is correctly implemented
-import './Simple.css'; // Import your custom CSS file
 import api from '../../../utils/UseAxios'; // Add this import
 
-export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept pieceLabel as a prop
+// Styled components to match VideoFeed styling
+const AnnotationContainer = styled(Box)({
+  position: 'relative',
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  overflow: 'hidden',
+});
+
+const AnnotationImage = styled('img')({
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block', // Removes any inline spacing
+  border: 'none',   // Ensure no border
+  outline: 'none',  // Ensure no outline
+});
+
+// Floating controls matching VideoFeed style
+const FloatingControls = styled(Box)(({ theme }) => ({
+  position: 'absolute',
+  bottom: '20px',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  display: 'flex',
+  gap: '12px',
+  alignItems: 'center',
+  padding: '12px 20px',
+  background: 'rgba(0, 0, 0, 0.8)',
+  backdropFilter: 'blur(10px)',
+  borderRadius: '50px',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  zIndex: 10,
+  transition: 'opacity 0.3s ease',
+}));
+
+const SaveButton = styled(Button)({
+  backgroundColor: '#667eea',
+  color: 'white',
+  fontWeight: '600',
+  fontSize: '14px',
+  textTransform: 'none',
+  borderRadius: '25px',
+  padding: '8px 20px',
+  border: 'none',
+  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+  '&:hover': {
+    backgroundColor: '#5a6fd8',
+    transform: 'translateY(-1px)',
+    boxShadow: '0 6px 16px rgba(102, 126, 234, 0.4)',
+  },
+  '&:active': {
+    transform: 'translateY(0)',
+  },
+  transition: 'all 0.2s ease',
+});
+
+const PlaceholderContent = styled(Box)({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  textAlign: 'center',
+  color: '#666',
+  height: '100%',
+  width: '100%',
+});
+
+export default function Simple({ imageUrl, annotated, pieceLabel }) {
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+  const [saving, setSaving] = useState(false);
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -58,9 +129,16 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept 
   };
 
   const saveAnnotations = async () => {
+    if (!pieceLabel) {
+      console.error('No piece label provided');
+      return;
+    }
+
     try {
+      setSaving(true);
       const response = await api.post(`/api/annotation/annotations/saveAnnotation/${pieceLabel}`, {
-        piece_label: pieceLabel // Send the piece_label in the body
+        piece_label: pieceLabel,
+        annotations: annotations // Include the annotations data
       });
 
       console.log("Annotations saved successfully:", response.data);
@@ -68,13 +146,32 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept 
       window.location.reload(); 
     } catch (error) {
       console.error("Error saving annotations:", error.response?.data?.detail || error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
+  // Show placeholder when no image is selected
+  if (!imageUrl) {
+    return (
+      <AnnotationContainer ref={containerRef}>
+        <PlaceholderContent>
+          <Box sx={{ fontSize: '48px', mb: 2, opacity: 0.6 }}>🖼️</Box>
+          <Box sx={{ fontSize: '18px', fontWeight: 500, mb: 1 }}>
+            No Image Selected
+          </Box>
+          <Box sx={{ fontSize: '14px', opacity: 0.7 }}>
+            Select an image from the sidebar to start annotating
+          </Box>
+        </PlaceholderContent>
+      </AnnotationContainer>
+    );
+  }
+
   return (
-    <div className="simple-container" ref={containerRef} style={{ position: 'relative' }}>
+    <AnnotationContainer ref={containerRef}>
       <Annotation
-        src={imageUrl} // Pass the image URL to Annotation component
+        src={imageUrl}
         alt="Annotatable image"
         annotations={annotations}
         value={annotation}
@@ -89,9 +186,9 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept 
               top: `${annotation.geometry.y}%`,
               width: `${annotation.geometry.width}%`,
               height: `${annotation.geometry.height}%`,
-              border: active ? '2px solid red' : '1px dashed yellow',
-              backgroundColor: active ? 'rgba(255, 0, 0, 0.2)' : 'rgba(255, 255, 0, 0.2)',
-              pointerEvents: 'none', // Ensure it doesn't interfere with mouse events
+              border: active ? '2px solid #667eea' : '1px dashed #667eea',
+              backgroundColor: active ? 'rgba(102, 126, 234, 0.2)' : 'rgba(102, 126, 234, 0.1)',
+              pointerEvents: 'none',
             }}
           />
         )}
@@ -100,19 +197,34 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) { // Accept 
             position: 'absolute',
             left: `${annotation.geometry.x}px`,
             top: `${annotation.geometry.y}px`,
-            color: 'black',
-            backgroundColor: 'white',
-            padding: '2px 5px',
-            borderRadius: '3px',
-            pointerEvents: 'none', // Ensure it doesn't interfere with mouse events
+            color: 'white',
+            backgroundColor: 'rgba(102, 126, 234, 0.9)',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            fontWeight: '500',
+            pointerEvents: 'none',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
           }}>
             {annotation.data.text}
           </div>
         )}
+        style={{
+          width: '100%',
+          height: '100%',
+          position: 'relative',
+        }}
       />
-      <div className="controls" style={{ position: 'absolute', bottom: '10px', left: '10px' }}>
-        <button onClick={saveAnnotations}>Save</button> {/* Save button triggers saveAnnotations function */}
-      </div>
-    </div>
+      
+      {/* Floating Controls - Match VideoFeed style */}
+      <FloatingControls>
+        <SaveButton 
+          onClick={saveAnnotations}
+          disabled={saving || annotations.length === 0}
+        >
+          {saving ? 'Saving...' : `Save ${annotations.length} Annotation${annotations.length !== 1 ? 's' : ''}`}
+        </SaveButton>
+      </FloatingControls>
+    </AnnotationContainer>
   );
 }

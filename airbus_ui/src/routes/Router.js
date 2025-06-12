@@ -15,7 +15,6 @@ const BlankLayout = lazy(() => import('../layouts/blank/BlankLayout'));
 const Dashboard = Loadable(lazy(() => import('../views/dashboard/Dashboard')));
 const CaptureImage = Loadable(lazy(() => import('../views/captureImage/CameraCapture')));
 const SignInSide = Loadable(lazy(() => import('../views/auth/sign-in-side/SignInSide')));
-const CaptureImageView = Loadable(lazy(() => import('../views/captureImage/CameraCaptureView')));
 const Annotation = Loadable(lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion')));
 
 const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
@@ -46,10 +45,7 @@ const router = createBrowserRouter([
         path: 'captureImage',
         element: <CaptureImage />,
       },
-      {
-        path : 'captureImageView',
-        element: <CaptureImageView />,
-      },
+
       {
         path: 'profile',
         element: <UserProfile />,
