@@ -87,7 +87,14 @@ const PlaceholderContent = styled(Box)({
   width: '100%',
 });
 
-export default function Simple({ imageUrl, annotated, pieceLabel,imageId  }) {
+export default function Simple({ 
+  imageUrl, 
+  annotated, 
+  pieceLabel, 
+  imageId, 
+  onAnnotationSaved, 
+  onMoveToNextImage 
+}) {
   // State management like paste 1 & 2
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
@@ -102,18 +109,25 @@ export default function Simple({ imageUrl, annotated, pieceLabel,imageId  }) {
     }
   }, [containerRef]);
 
-  // Load existing annotations if available
+  // Load existing annotations when image changes
   useEffect(() => {
     if (annotated && Array.isArray(annotated)) {
       setAnnotations(annotated);
+    } else {
+      // Clear annotations when switching to new image
+      setAnnotations([]);
     }
-  }, [annotated]);
+    // Clear undo/redo stacks when switching images
+    setUndoStack([]);
+    setRedoStack([]);
+    setAnnotation({});
+  }, [imageUrl, imageId]);
 
   const onChange = (newAnnotation) => {
     setAnnotation(newAnnotation);
   };
 
-// onSubmit functionality - NOW ACTUALLY SENDS TO BACKEND
+  // onSubmit functionality - NOW ACTUALLY SENDS TO BACKEND
   const onSubmit = async (newAnnotation) => {
     const { geometry, data } = newAnnotation;
 
@@ -177,14 +191,14 @@ export default function Simple({ imageUrl, annotated, pieceLabel,imageId  }) {
     setRedoStack((prevRedoStack) => prevRedoStack.slice(0, -1));
   };
 
-  // Save functionality like paste 1 & 2 (save all annotations at once, then reload)
+  // Updated save functionality - NO MORE RELOAD, SMOOTH TRANSITION
   const saveAnnotations = async () => {
     if (!pieceLabel) {
       console.error('No piece label provided');
       return;
     }
     
-    if (annotation.length === 0) {
+    if (annotations.length === 0) {
       console.error('No annotations to save');
       return;
     }
@@ -196,11 +210,25 @@ export default function Simple({ imageUrl, annotated, pieceLabel,imageId  }) {
         piece_label: pieceLabel
       });
 
-
       if (response.status === 200) {
         console.log("Annotations saved successfully:", response.data);
-        // Refresh the page after successful save (like paste 1 & 2)
-        window.location.reload(); 
+        
+        // Notify parent component that annotation was saved
+        if (onAnnotationSaved) {
+          onAnnotationSaved(imageUrl, imageId);
+        }
+
+        // Move to next image smoothly instead of reloading
+        if (onMoveToNextImage) {
+          onMoveToNextImage();
+        }
+        
+        // Clear current annotations and reset state for next image
+        setAnnotations([]);
+        setUndoStack([]);
+        setRedoStack([]);
+        setAnnotation({});
+        
       } else {
         console.error("Error saving annotations:", response.data?.detail);
       }
@@ -294,9 +322,9 @@ export default function Simple({ imageUrl, annotated, pieceLabel,imageId  }) {
         </ActionButton>
         <SaveButton 
           onClick={saveAnnotations}
-          disabled={saving}
+          disabled={saving || annotations.length === 0}
         >
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? 'Saving...' : 'Save & Next'}
         </SaveButton>
       </FloatingControls>
     </AnnotationContainer>
