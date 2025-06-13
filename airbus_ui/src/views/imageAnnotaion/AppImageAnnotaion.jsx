@@ -82,6 +82,7 @@ const SidebarContainer = styled(Box)({
 export default function AppImageAnnotaion() {
   const [selectedPieceLabel, setSelectedPieceLabel] = useState('');
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
+  const [selectedImageId, setSelectedImageId] = useState(null); // ADD THIS LINE
   const [initialPiece, setInitialPiece] = useState(null);
   const [annotatedImages, setAnnotatedImages] = useState([]);
   const [totalImages, setTotalImages] = useState(0);
@@ -91,12 +92,16 @@ export default function AppImageAnnotaion() {
     setSelectedPieceLabel(pieceLabel);
   };
 
-  const handleImageSelect = (url) => {
+  // UPDATE THIS FUNCTION to also handle imageId
+  const handleImageSelect = (url, imageId) => {
     setSelectedImageUrl(url);
+    setSelectedImageId(imageId); // ADD THIS LINE
   };
 
-  const handleFirstImageLoad = (url) => {
+  // UPDATE THIS FUNCTION to also handle imageId
+  const handleFirstImageLoad = (url, imageId) => {
     setSelectedImageUrl(url);
+    setSelectedImageId(imageId); // ADD THIS LINE
   };
 
   const handleImageCountUpdate = (count) => {
@@ -174,6 +179,7 @@ export default function AppImageAnnotaion() {
                 imageUrl={selectedImageUrl} 
                 annotated={annotatedImages.includes(selectedImageUrl)} 
                 pieceLabel={selectedPieceLabel}
+                imageId={selectedImageId} // ADD THIS LINE
               />
             </AnnotationCard>
           </CenteredContainer>

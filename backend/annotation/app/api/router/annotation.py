@@ -68,7 +68,7 @@ async def get_image_of_piece_byLabel(db: db_dependency, piece_label: str):
 def get_img_non_annotated_route(db: Session = Depends(get_session)):
     return get_img_non_annotated(db)
 
-@annotation_router.post("/annotations/{piece_label}")
+@annotation_router.post("/{piece_label}")
 def create_annotation(piece_label: str, annotation_data: AnnotationData):
     # Extract image_id from the request body
     image_id = annotation_data.image_id

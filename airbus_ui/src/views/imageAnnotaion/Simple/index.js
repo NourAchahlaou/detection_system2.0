@@ -87,7 +87,7 @@ const PlaceholderContent = styled(Box)({
   width: '100%',
 });
 
-export default function Simple({ imageUrl, annotated, pieceLabel }) {
+export default function Simple({ imageUrl, annotated, pieceLabel,imageId  }) {
   // State management like paste 1 & 2
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
@@ -113,25 +113,48 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
     setAnnotation(newAnnotation);
   };
 
-  const onSubmit = (newAnnotation) => {
+// onSubmit functionality - NOW ACTUALLY SENDS TO BACKEND
+  const onSubmit = async (newAnnotation) => {
     const { geometry, data } = newAnnotation;
 
     // Save current state to undo stack
     setUndoStack((prevUndoStack) => [...prevUndoStack, [...annotations]]);
     setRedoStack([]); // Clear redo stack after new action
 
-    // Add new annotation
+    // Add new annotation to local state
+    const newAnnotationWithId = {
+      geometry,
+      data: {
+        ...data,
+        id: Math.random(), // Use a unique identifier for each annotation
+      },
+    };
+
     setAnnotations((prevAnnotations) => [
       ...prevAnnotations,
-      {
-        geometry,
-        data: {
-          ...data,
-          id: Math.random(), // Use a unique identifier for each annotation
-        },
-      },
+      newAnnotationWithId,
     ]);
     setAnnotation({});
+
+    // ADDED: Send annotation to backend virtual storage
+    if (pieceLabel && imageId) {
+      try {
+        const annotationData = {
+          image_id: parseInt(imageId),
+          type: data.text || 'object', // Use text as type, or default to 'object'
+          x: geometry.x,
+          y: geometry.y,
+          width: geometry.width,
+          height: geometry.height
+        };
+
+        await api.post(`/api/annotation/annotations/${pieceLabel}`, annotationData);
+        console.log('Annotation sent to backend:', annotationData);
+      } catch (error) {
+        console.error('Failed to send annotation to backend:', error);
+        // Note: We don't revert the local state here, as the user can still save later
+      }
+    }
   };
 
   // Undo functionality from paste 1 & 2

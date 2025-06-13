@@ -86,10 +86,12 @@ export default function SidenavImageDisplay({
         }
 
         if (data.length > 0 && onFirstImageLoad) {
-          onFirstImageLoad(data[0].url);
-          setSelectedImageUrl(data[0].url);
+          const firstImage = data[0];
+          onFirstImageLoad(firstImage.url, firstImage.name); // Pass both URL and ID
+          setSelectedImageUrl(firstImage.url);
         }
       }
+  
     } catch (error) {
       console.error("Error fetching images:", error.response?.data?.detail || error.message);
       if (mountedRef.current) {
@@ -115,20 +117,21 @@ export default function SidenavImageDisplay({
     };
   }, [pieceLabel, fetchImages]);
 
-  const handleImageClick = (imageUrl, index) => {
+  const handleImageClick = (imageUrl, imageId, index) => {
     setSelectedImageUrl(imageUrl);
     setCurrentIndex(index);
-    onImageSelect(imageUrl);
+    onImageSelect(imageUrl, imageId); // Pass both URL and ID
   };
-
   // Navigate up in the slider
   const handlePrevious = useCallback(() => {
     if (images.length > 0) {
       const newIndex = currentIndex > 0 ? currentIndex - 1 : images.length - 1;
       setCurrentIndex(newIndex);
-      const newImageUrl = images[newIndex].url;
+      const newImage = images[newIndex];
+      const newImageUrl = newImage.url;
+      const newImageId = newImage.name; // Use 'name' as the imageId
       setSelectedImageUrl(newImageUrl);
-      onImageSelect(newImageUrl);
+      onImageSelect(newImageUrl, newImageId); // Pass both URL and ID
     }
   }, [images, currentIndex, onImageSelect]);
 
@@ -137,11 +140,14 @@ export default function SidenavImageDisplay({
     if (images.length > 0) {
       const newIndex = currentIndex < images.length - 1 ? currentIndex + 1 : 0;
       setCurrentIndex(newIndex);
-      const newImageUrl = images[newIndex].url;
+      const newImage = images[newIndex];
+      const newImageUrl = newImage.url;
+      const newImageId = newImage.name; // Use 'name' as the imageId
       setSelectedImageUrl(newImageUrl);
-      onImageSelect(newImageUrl);
+      onImageSelect(newImageUrl, newImageId); // Pass both URL and ID
     }
   }, [images, currentIndex, onImageSelect]);
+
 
   // Get visible images for the stack effect - matching capture component proportions
   const getVisibleImages = () => {
@@ -351,7 +357,7 @@ export default function SidenavImageDisplay({
                         if (isBackTop) handlePrevious();
                         else if (isBackBottom) handleNext();
                         else if (isBack) {
-                          handleImageClick(image.url, image.index);
+                          handleImageClick(image.url, image.name, image.index); // Pass image.name as imageId
                         }
                       }
                     }}
