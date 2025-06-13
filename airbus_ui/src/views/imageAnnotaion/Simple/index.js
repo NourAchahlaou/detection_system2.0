@@ -113,7 +113,6 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
     setAnnotation(newAnnotation);
   };
 
-  // onSubmit functionality like paste 1 & 2 (with undo/redo)
   const onSubmit = (newAnnotation) => {
     const { geometry, data } = newAnnotation;
 
@@ -161,6 +160,11 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
       console.error('No piece label provided');
       return;
     }
+    
+    if (annotation.length === 0) {
+      console.error('No annotations to save');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -168,6 +172,7 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
       const response = await api.post(`/api/annotation/annotations/saveAnnotation/${pieceLabel}`, {
         piece_label: pieceLabel
       });
+
 
       if (response.status === 200) {
         console.log("Annotations saved successfully:", response.data);

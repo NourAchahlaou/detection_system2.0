@@ -90,6 +90,9 @@ export default compose(
 
   targetRef = React.createRef();
 
+  // handleSaveAllAnnotations = () =>{
+    
+  // }
   handleSaveCoordinates = () => {
     const { coordinates } = this.props.value.geometry || {};
     if (!coordinates) return;
@@ -222,7 +225,6 @@ export default compose(
     this.callSelectorMethod('onClick', e);
   };
 
-  // Simple onSubmit like paste 1 & 2 - just pass to parent
   onSubmit = () => {
     if (this.props.onSubmit) {
       this.props.onSubmit(this.props.value);
