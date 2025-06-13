@@ -6,7 +6,6 @@ import isMouseHovering from '../utils/isMouseHovering';
 import withRelativeMousePos from '../utils/withRelativeMousePos';
 import defaultProps from './defaultProps';
 import Overlay from './Overlay';
-import api from '../../../../utils/UseAxios'; // Add this import
 
 const Container = styled('div')(({ theme, allowTouch }) => ({
   clear: 'both',
@@ -91,35 +90,18 @@ export default compose(
 
   targetRef = React.createRef();
 
-  handleSaveAllAnnotations = async () => {
-    const { annotations } = this.props;
-
-    try {
-      const response = await api.post('/api/annotation/annotations/annotations/save-all', {
-        annotations
-      });
-      console.log("All annotations saved successfully:", response.data);
-    } catch (error) {
-      console.error("Error saving all annotations:", error.response?.data?.detail || error.message);
-    }
-  };
-
   handleSaveCoordinates = () => {
     const { coordinates } = this.props.value.geometry || {};
-    if (!coordinates) return; // Exit if no coordinates are available
+    if (!coordinates) return;
     const { type, x, y, width, height } = coordinates;
     const content = `Type: ${type}\nX: ${x}\nY: ${y}\nWidth: ${width}\nHeight: ${height}`;
-    // Create a Blob with the text content
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    // Create a URL for the Blob
     const url = URL.createObjectURL(blob);
-    // Create an anchor element and trigger the download
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'coordinates.txt'; // Set the file name
-    document.body.appendChild(a); // Append the anchor to the DOM
-    a.click(); // Simulate a click to trigger the download
-    // Clean up: remove the anchor element and revoke the Blob URL
+    a.download = 'coordinates.txt';
+    document.body.appendChild(a);
+    a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
@@ -240,57 +222,13 @@ export default compose(
     this.callSelectorMethod('onClick', e);
   };
 
-  onSubmit = async () => {
-    const { annotations, value, onChange } = this.props;
-    const piece_label = value.data.text || {};
-    const { type, x, y, width, height } = value.geometry;
-    
-    // Function to format the image URL
-    const formatImageUrl = (url) => {
-      const baseUrl = "http://localhost:8000/images/";
-      if (url.startsWith(baseUrl)) {
-        url = url.substring(baseUrl.length);
-      }
-      return url.replace(/\//g, '\\');
-    };
-  
-    // Format the image URL
-    const formattedUrl = formatImageUrl(this.props.src);
-  
-    try {
-      // Fetch the image ID based on the formatted image URL
-      const imageResponse = await api.get(`/api/annotation/annotations/image-id`, {
-        params: { url: formattedUrl }
-      });
-  
-      const { image_id } = imageResponse.data;
-      console.log("Formatted URL and Image ID:", formattedUrl, image_id);
-  
-      // Prepare the annotation data including the image ID
-      const annotationData = {
-        type,
-        x,
-        y,
-        width,
-        height,
-        data: value.data, // Add any other data you need to keep
-        image_id // Include the image ID
-      };
-  
-      // Save the new annotation to the backend
-      const saveResponse = await api.post(`/api/annotation/annotations/annotations/${piece_label}`, annotationData);
-  
-      const data = saveResponse.data;
-      console.log("Annotation saved successfully:", data);
-  
-      // Update the annotations array with the new annotation
-      const updatedAnnotations = [...annotations, { ...annotationData, data }];
-      onChange({ ...value, annotations: updatedAnnotations });
-    } catch (error) {
-      console.error("Error saving annotation:", error.response?.data?.detail || error.message);
+  // Simple onSubmit like paste 1 & 2 - just pass to parent
+  onSubmit = () => {
+    if (this.props.onSubmit) {
+      this.props.onSubmit(this.props.value);
     }
   };
-  
+
   callSelectorMethod = (methodName, e) => {
     if (this.props.disableAnnotation) {
       return;
@@ -345,8 +283,6 @@ export default compose(
       this.props.relativeMousePos.x,
       this.props.relativeMousePos.y
     );
-    const coordinates = props.value.geometry || {};
-    const { type, x, y, width, height } = coordinates;
 
     return (
       <Container

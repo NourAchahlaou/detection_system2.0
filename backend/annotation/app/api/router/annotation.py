@@ -28,10 +28,36 @@ annotation_router = APIRouter(
 
 @annotation_router.get("/image-id")
 def get_image_id(image_path: str, db: db_dependency):
-    """Get image ID by image_path instead of url"""
+    """Get image ID by image_path"""
+    print(f"Looking for image with path: {image_path}")
+    
+    # Try exact match first
     piece_image = db.query(PieceImage).filter(PieceImage.image_path == image_path).first()
+    
     if not piece_image:
-        raise HTTPException(status_code=404, detail="Image not found")
+        # Try with different path formats if exact match fails
+        # Remove any leading/trailing slashes and try again
+        cleaned_path = image_path.strip('/')
+        piece_image = db.query(PieceImage).filter(PieceImage.image_path == cleaned_path).first()
+        
+        if not piece_image:
+            # Try with backslashes converted to forward slashes
+            path_with_forward_slashes = image_path.replace('\\', '/')
+            piece_image = db.query(PieceImage).filter(PieceImage.image_path == path_with_forward_slashes).first()
+            
+        if not piece_image:
+            # Try with forward slashes converted to backslashes
+            path_with_backslashes = image_path.replace('/', '\\')
+            piece_image = db.query(PieceImage).filter(PieceImage.image_path == path_with_backslashes).first()
+    
+    if not piece_image:
+        # Debug: Show all available image paths
+        all_images = db.query(PieceImage.image_path).all()
+        available_paths = [img.image_path for img in all_images]
+        print(f"Available image paths in database: {available_paths}")
+        raise HTTPException(status_code=404, detail=f"Image not found for path: {image_path}")
+    
+    print(f"Found image with ID: {piece_image.id}")
     return {"image_id": piece_image.id}
 
 @annotation_router.get("/get_images_of_piece/{piece_label}")

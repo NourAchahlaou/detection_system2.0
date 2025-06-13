@@ -27,6 +27,7 @@ from artifact_keeper.app.response.piece import (
 
 from artifact_keeper.app.request.piece import (
     SaveImagesRequest,
+    PieceAnnotationStatusUpdate,
 )
 
 camera_router = APIRouter(
@@ -252,4 +253,36 @@ async def delete_temp_image(
         raise HTTPException(status_code=500, detail=f"Failed to delete temporary image: {str(e)}")    
     
 
-    
+@camera_router.patch("/pieces/{piece_label}/annotation-status")
+def update_piece_annotation_status(
+    piece_label: str, 
+    status_update: PieceAnnotationStatusUpdate,
+    db: Session = Depends(get_session)
+):
+    """
+    Update the annotation status of a piece.
+    This endpoint should only be called by the annotation service.
+    """
+    try:
+        # Find the piece
+        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+        
+        if not piece:
+            raise HTTPException(status_code=404, detail="Piece not found")
+        
+        # Update the annotation status
+        piece.is_annotated = status_update.is_annotated
+        
+        # Commit the changes
+        db.commit()
+        db.refresh(piece)
+        
+        return {
+            "message": f"Piece {piece_label} annotation status updated to {status_update.is_annotated}",
+            "piece_label": piece_label,
+            "is_annotated": status_update.is_annotated
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update piece annotation status: {str(e)}")

@@ -6,6 +6,7 @@ from fastapi import HTTPException, logger
 from sqlalchemy.orm import Session
 import yaml
 import shutil
+import requests
 from annotation.app.db.models.annotation import Annotation
 from annotation.app.db.models.piece import Piece
 from annotation.app.db.models.piece_image import PieceImage
@@ -103,7 +104,6 @@ def get_img_non_annotated(db: Session):
 
     return result
 
-# Rest of your functions remain the same...
 def save_annotation_in_memory(piece_label: str, image_id: int, annotation_data: dict):
     """Save the annotation in virtual storage instead of the database."""
     
@@ -133,6 +133,29 @@ def save_annotation_in_memory(piece_label: str, image_id: int, annotation_data: 
    
     print(virtual_storage[piece_label]['annotations'])
     print(f"{annotation_data['x']} {annotation_data['y']} {annotation_data['width']} {annotation_data['height']}\n")
+
+def update_piece_annotation_status(piece_label: str, is_annotated: bool):
+    """
+    Update piece annotation status via artifact_keeper API.
+    This respects service boundaries and data ownership.
+    """
+    try:
+        response = requests.patch(
+            f"http://localhost/api/artifact_keeper/camera/pieces/{piece_label}/annotation-status",
+            json={"is_annotated": is_annotated},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            print(f"Successfully updated piece {piece_label} annotation status to {is_annotated}")
+            return True
+        else:
+            print(f"Failed to update piece annotation status: {response.status_code} - {response.text}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling artifact_keeper API: {str(e)}")
+        return False
 
 def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     """Save all annotations from virtual storage to the database."""
@@ -218,26 +241,27 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
         db.add(annotation)
 
-        # Update the is_annotated field of the image
+        # Update the is_annotated field of the image (this is owned by annotation service)
         piece_image.is_annotated = True
         class_id_to_label[piece.class_data_id] = piece.piece_label
 
-    # Check if all images related to the piece are annotated
-    all_images_annotated = db.query(PieceImage).filter(
-        PieceImage.piece_id == piece.id,
-        PieceImage.is_annotated == False
-    ).count() == 0
-    print("all_images_annotated", all_images_annotated)
-    all_images_annotatedTF = db.query(PieceImage).filter(
+    # FIXED: Check if all images related to the piece are annotated
+    remaining_unannotated = db.query(PieceImage).filter(
         PieceImage.piece_id == piece.id,
         PieceImage.is_annotated == False
     ).count()
-    print("all_images_annotatedTF", all_images_annotatedTF)
     
-    # If all images are annotated, mark the piece as annotated
-    if (all_images_annotatedTF - 1) == 0:
-        piece.is_annotated = True 
-        print("All images annotated. Updating piece to annotated.")
+    print(f"Remaining unannotated images: {remaining_unannotated}")
+    
+    # If all images are annotated, update piece status via API
+    if remaining_unannotated == 0:
+        print("All images annotated. Updating piece to annotated via API.")
+        
+        # Update piece status via artifact_keeper API
+        if not update_piece_annotation_status(piece_label, True):
+            print("Warning: Failed to update piece annotation status via API")
+        
+        # Update data.yaml
         data_yaml_path = os.path.join("dataset_custom", "data.yaml")
 
         # Load existing data if it exists
@@ -268,25 +292,27 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
         print(f"data.yaml file updated at: {data_yaml_path}")
 
+    # Commit changes to annotation service's data only
     db.commit()
     db.refresh(annotation)
-    db.refresh(piece)
-    db.refresh(piece_image) 
+    db.refresh(piece_image)
           
+    # Clear virtual storage
     virtual_storage.pop(piece_label, None)
     print("Annotations saved successfully and virtual storage cleared.")
     
-    # Call the stop camera endpoint
-    try:
-        import requests
-        # FIXED: Use the correct URL for your artifact keeper service
-        stop_camera_response = requests.post("http://localhost/api/artifact_keeper/cameras/stop")
+    # # Call the stop camera endpoint
+    # try:
+    #     # FIXED: Use the correct URL for your artifact keeper service
+    #     stop_camera_response = requests.post("ttp://localhost/api/artifact_keeper/cameras/stop", timeout=10)
 
-        if stop_camera_response.status_code != 200:
-            print(f"Failed to stop camera: {stop_camera_response.json().get('detail')}")
-        else:
-            print("Camera stopped successfully.")
-    except Exception as e:
-        print(f"Error stopping camera: {str(e)}")
+    #     if stop_camera_response.status_code != 200:
+    #         print(f"Failed to stop camera: {stop_camera_response.json().get('detail')}")
+    #     else:
+    #         print("Camera stopped successfully.")
+    # except Exception as e:
+    #     print(f"Error stopping camera: {str(e)}")
 
     return {"status": "Annotations saved successfully"}
+
+# http://localhost/api/artifact_keeper/camera/cameras/stop

@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Box, Button, styled } from '@mui/material';
 import Annotation from '../annotation'; // Make sure Annotation component is correctly implemented
-import api from '../../../utils/UseAxios'; // Add this import
+import api from '../../../utils/UseAxios'; // Keep using your API
 
-// Styled components to match VideoFeed styling
+// Styled components to match VideoFeed styling (keeping your theme)
 const AnnotationContainer = styled(Box)({
   position: 'relative',
   width: '100%',
@@ -18,9 +18,9 @@ const AnnotationImage = styled('img')({
   width: '100%',
   height: '100%',
   objectFit: 'cover',
-  display: 'block', // Removes any inline spacing
-  border: 'none',   // Ensure no border
-  outline: 'none',  // Ensure no outline
+  display: 'block',
+  border: 'none',
+  outline: 'none',
 });
 
 // Floating controls matching VideoFeed style
@@ -56,6 +56,26 @@ const SaveButton = styled(Button)({
   transition: 'all 0.2s ease',
 });
 
+const ActionButton = styled(Button)({
+  backgroundColor: 'rgba(102, 126, 234, 0.1)',
+  color: '#667eea',
+  fontWeight: '500',
+  fontSize: '12px',
+  textTransform: 'none',
+  borderRadius: '20px',
+  padding: '6px 16px',
+  border: '1px solid rgba(102, 126, 234, 0.3)',
+  '&:hover': {
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    borderColor: '#667eea',
+  },
+  '&:disabled': {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  },
+  transition: 'all 0.2s ease',
+});
+
 const PlaceholderContent = styled(Box)({
   display: 'flex',
   flexDirection: 'column',
@@ -68,8 +88,11 @@ const PlaceholderContent = styled(Box)({
 });
 
 export default function Simple({ imageUrl, annotated, pieceLabel }) {
+  // State management like paste 1 & 2
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
   const [saving, setSaving] = useState(false);
   const containerRef = useRef(null);
 
@@ -79,13 +102,26 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
     }
   }, [containerRef]);
 
+  // Load existing annotations if available
+  useEffect(() => {
+    if (annotated && Array.isArray(annotated)) {
+      setAnnotations(annotated);
+    }
+  }, [annotated]);
+
   const onChange = (newAnnotation) => {
     setAnnotation(newAnnotation);
   };
 
+  // onSubmit functionality like paste 1 & 2 (with undo/redo)
   const onSubmit = (newAnnotation) => {
     const { geometry, data } = newAnnotation;
 
+    // Save current state to undo stack
+    setUndoStack((prevUndoStack) => [...prevUndoStack, [...annotations]]);
+    setRedoStack([]); // Clear redo stack after new action
+
+    // Add new annotation
     setAnnotations((prevAnnotations) => [
       ...prevAnnotations,
       {
@@ -99,7 +135,27 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
     setAnnotation({});
   };
 
+  // Undo functionality from paste 1 & 2
+  const undo = () => {
+    if (undoStack.length === 0) return;
 
+    const previousAnnotations = undoStack[undoStack.length - 1];
+    setRedoStack((prevRedoStack) => [...prevRedoStack, [...annotations]]);
+    setAnnotations(previousAnnotations);
+    setUndoStack((prevUndoStack) => prevUndoStack.slice(0, -1));
+  };
+
+  // Redo functionality from paste 1 & 2
+  const redo = () => {
+    if (redoStack.length === 0) return;
+
+    const nextAnnotations = redoStack[redoStack.length - 1];
+    setUndoStack((prevUndoStack) => [...prevUndoStack, [...annotations]]);
+    setAnnotations(nextAnnotations);
+    setRedoStack((prevRedoStack) => prevRedoStack.slice(0, -1));
+  };
+
+  // Save functionality like paste 1 & 2 (save all annotations at once, then reload)
   const saveAnnotations = async () => {
     if (!pieceLabel) {
       console.error('No piece label provided');
@@ -108,16 +164,20 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
 
     try {
       setSaving(true);
+      
       const response = await api.post(`/api/annotation/annotations/saveAnnotation/${pieceLabel}`, {
-        piece_label: pieceLabel,
-        annotations: annotations // Include the annotations data
+        piece_label: pieceLabel
       });
 
-      console.log("Annotations saved successfully:", response.data);
-      // Refresh the page after successful save
-      window.location.reload(); 
+      if (response.status === 200) {
+        console.log("Annotations saved successfully:", response.data);
+        // Refresh the page after successful save (like paste 1 & 2)
+        window.location.reload(); 
+      } else {
+        console.error("Error saving annotations:", response.data?.detail);
+      }
     } catch (error) {
-      console.error("Error saving annotations:", error.response?.data?.detail || error.message);
+      console.error("An error occurred while saving annotations:", error.response?.data?.detail || error.message);
     } finally {
       setSaving(false);
     }
@@ -149,6 +209,7 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
         value={annotation}
         onChange={onChange}
         onSubmit={onSubmit}
+        pieceLabel={pieceLabel}
         renderHighlight={({ annotation, active }) => (
           <div
             key={annotation.data.id}
@@ -187,11 +248,25 @@ export default function Simple({ imageUrl, annotated, pieceLabel }) {
         }}
       />
       
-      {/* Floating Controls - Match VideoFeed style */}
+      {/* Floating Controls - Always show like paste 1 & 2 */}
       <FloatingControls>
+        <ActionButton 
+          onClick={undo}
+          disabled={undoStack.length === 0}
+          size="small"
+        >
+          Undo
+        </ActionButton>
+        <ActionButton 
+          onClick={redo}
+          disabled={redoStack.length === 0}
+          size="small"
+        >
+          Redo
+        </ActionButton>
         <SaveButton 
           onClick={saveAnnotations}
-          disabled={saving || annotations.length === 0}
+          disabled={saving}
         >
           {saving ? 'Saving...' : 'Save'}
         </SaveButton>
