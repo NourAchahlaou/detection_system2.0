@@ -87,7 +87,6 @@ export default function AppImageAnnotaion() {
   const [allImages, setAllImages] = useState([]);
   const navigate = useNavigate();
 
-
   // FIXED: Handle image selection from sidebar
   const handleImageSelect = (url, imageId, index) => {
     setSelectedImageUrl(url);
@@ -140,6 +139,30 @@ export default function AppImageAnnotaion() {
     }
   };
 
+  // FIXED: New function to refresh image data from backend
+  const refreshImageData = async () => {
+    if (!selectedPieceLabel) return;
+    
+    try {
+      const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${selectedPieceLabel}`);
+      const updatedImages = response.data;
+      setAllImages(updatedImages);
+      
+      // Update the is_annotated status for current image
+      const currentImage = updatedImages.find(img => img.name === selectedImageId);
+      if (currentImage && currentImage.is_annotated) {
+        setAnnotatedImages(prev => {
+          if (!prev.includes(selectedImageUrl)) {
+            return [...prev, selectedImageUrl];
+          }
+          return prev;
+        });
+      }
+    } catch (error) {
+      console.error("Error refreshing image data:", error);
+    }
+  };
+
   // Load initial piece
   useEffect(() => {
     async function fetchInitialPiece() {
@@ -171,16 +194,26 @@ export default function AppImageAnnotaion() {
       }
 
       try {
-        // This should return URLs of images that are already annotated
-        const response = await api.get(`/api/annotation/annotations/annotatedImages/${selectedPieceLabel}`);
-        if (response.data && Array.isArray(response.data)) {
-          setAnnotatedImages(response.data);
+        // Use the existing endpoint that returns all annotations for a piece
+        const response = await api.get(`/api/annotation/annotations/piece/${selectedPieceLabel}/annotations`);
+        
+        if (response.data && response.data.images) {
+          // Extract image paths that have annotations
+          const annotatedImagePaths = [];
+          
+          Object.values(response.data.images).forEach(imageData => {
+            if (imageData.annotations && imageData.annotations.length > 0) {
+              annotatedImagePaths.push(imageData.image_path);
+            }
+          });
+          
+          setAnnotatedImages(annotatedImagePaths);
         } else {
           setAnnotatedImages([]);
         }
       } catch (error) {
         console.error("Error loading existing annotations:", error);
-        // If endpoint doesn't exist, continue with empty annotated images
+        // If endpoint doesn't exist or fails, continue with empty annotated images
         setAnnotatedImages([]);
       }
     };
@@ -188,16 +221,7 @@ export default function AppImageAnnotaion() {
     loadExistingAnnotations();
   }, [selectedPieceLabel]); // Only depend on selectedPieceLabel
 
-  const handleAnnotationSubmit = async () => {
-    try {
-      await api.post("/api/annotation/annotations", { imageUrl: selectedImageUrl });
-      setAnnotatedImages((prev) => [...prev, selectedImageUrl]);
-    } catch (error) {
-      console.error("Error saving annotation:", error.response?.data?.detail || error.message);
-    }
-  };
-
-  // Get annotation statistics from allImages
+  // Get annotation statistics from allImages (using backend data)
   const getAnnotationStats = () => {
     if (allImages.length === 0) return { annotatedCount: 0, totalCount: 0 };
     const annotatedCount = allImages.filter(img => img.is_annotated === true).length;
@@ -214,7 +238,7 @@ export default function AppImageAnnotaion() {
         <HeaderTitle>
           {selectedPieceLabel ? `${selectedPieceLabel} Images` : "Select a Piece"}
         </HeaderTitle>
-        {/* Updated Stats Header */}
+        {/* FIXED: Updated Stats Header to use backend data */}
         {totalImages > 0 && (
           <Box sx={{ 
             padding: '8px 16px', 
@@ -269,6 +293,7 @@ export default function AppImageAnnotaion() {
                 imageId={selectedImageId}
                 onAnnotationSaved={handleAnnotationSaved}
                 onMoveToNextImage={moveToNextImage}
+                onRefreshImages={refreshImageData} // FIXED: Pass refresh function
               />
             </AnnotationCard>
           </CenteredContainer>

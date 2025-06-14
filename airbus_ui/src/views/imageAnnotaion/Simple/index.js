@@ -14,15 +14,6 @@ const AnnotationContainer = styled(Box)({
   overflow: 'hidden',
 });
 
-const AnnotationImage = styled('img')({
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  display: 'block',
-  border: 'none',
-  outline: 'none',
-});
-
 // Floating controls matching VideoFeed style
 const FloatingControls = styled(Box)(({ theme }) => ({
   position: 'absolute',
@@ -87,20 +78,36 @@ const PlaceholderContent = styled(Box)({
   width: '100%',
 });
 
+const ExistingAnnotationOverlay = styled(Box)({
+  position: 'absolute',
+  border: '2px dashed #4caf50',
+  backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  boxShadow: '0 0 8px 1px rgba(76, 175, 80, 0.3)',
+  pointerEvents: 'none',
+  zIndex: 5,
+  borderRadius: '2px',
+});
+
 export default function Simple({ 
   imageUrl, 
   annotated, 
   pieceLabel, 
   imageId, 
   onAnnotationSaved, 
-  onMoveToNextImage 
+  onMoveToNextImage,
+  onRefreshImages // ADD: New prop to refresh image data
 }) {
-  // State management like paste 1 & 2
+  // State management
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [saving, setSaving] = useState(false);
+  
+  // NEW: State for existing annotations from backend
+  const [existingAnnotations, setExistingAnnotations] = useState([]);
+  const [loadingExistingAnnotations, setLoadingExistingAnnotations] = useState(false);
+  
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -108,6 +115,69 @@ export default function Simple({
       console.log('Container ref:', containerRef.current);
     }
   }, [containerRef]);
+
+  // FIXED: Load existing annotations when image changes with better error handling
+  useEffect(() => {
+    const fetchExistingAnnotations = async () => {
+      if (!imageId) {
+        setExistingAnnotations([]);
+        return;
+      }
+      
+      try {
+        setLoadingExistingAnnotations(true);
+        
+        // Try multiple possible API endpoints
+        let response;
+        let backendAnnotations = [];
+        
+        try {
+          // First try the original endpoint
+          response = await api.get(`/api/annotation/annotations/image/${imageId}/annotations`);
+          backendAnnotations = response.data.annotations || [];
+        } catch (error) {
+          if (error.response?.status === 404) {
+            // Try alternative endpoint structure
+            try {
+              response = await api.get(`/api/annotation/annotations/${imageId}`);
+              backendAnnotations = response.data || [];
+            } catch (secondError) {
+              // Try another possible endpoint
+              try {
+                response = await api.get(`/api/annotation/annotations/existing/${imageId}`);
+                backendAnnotations = response.data.annotations || [];
+              } catch (thirdError) {
+                console.log('No existing annotations endpoint available, continuing without existing annotations');
+                backendAnnotations = [];
+              }
+            }
+          } else {
+            throw error;
+          }
+        }
+        
+        // Convert backend annotations to the format expected by Rectangle component
+        const formattedAnnotations = backendAnnotations.map((ann, index) => ({
+          id: ann.id || `existing-${index}`,
+          x: ann.x || 0,
+          y: ann.y || 0,
+          width: ann.width || 0,
+          height: ann.height || 0,
+          type: ann.type || 'annotation',
+          isExisting: true
+        }));
+        
+        setExistingAnnotations(formattedAnnotations);
+      } catch (error) {
+        console.log(`Could not fetch existing annotations for image ${imageId}:`, error.message);
+        setExistingAnnotations([]);
+      } finally {
+        setLoadingExistingAnnotations(false);
+      }
+    };
+
+    fetchExistingAnnotations();
+  }, [imageId]);
 
   // Load existing annotations when image changes
   useEffect(() => {
@@ -127,7 +197,7 @@ export default function Simple({
     setAnnotation(newAnnotation);
   };
 
-  // onSubmit functionality - NOW ACTUALLY SENDS TO BACKEND
+  // onSubmit functionality - sends to backend
   const onSubmit = async (newAnnotation) => {
     const { geometry, data } = newAnnotation;
 
@@ -150,7 +220,7 @@ export default function Simple({
     ]);
     setAnnotation({});
 
-    // ADDED: Send annotation to backend virtual storage
+    // Send annotation to backend virtual storage
     if (pieceLabel && imageId) {
       try {
         const annotationData = {
@@ -171,7 +241,7 @@ export default function Simple({
     }
   };
 
-  // Undo functionality from paste 1 & 2
+  // Undo functionality
   const undo = () => {
     if (undoStack.length === 0) return;
 
@@ -181,7 +251,7 @@ export default function Simple({
     setUndoStack((prevUndoStack) => prevUndoStack.slice(0, -1));
   };
 
-  // Redo functionality from paste 1 & 2
+  // Redo functionality
   const redo = () => {
     if (redoStack.length === 0) return;
 
@@ -191,7 +261,7 @@ export default function Simple({
     setRedoStack((prevRedoStack) => prevRedoStack.slice(0, -1));
   };
 
-  // Updated save functionality - NO MORE RELOAD, SMOOTH TRANSITION
+  // FIXED: Updated save functionality - properly notify parent and refresh
   const saveAnnotations = async () => {
     if (!pieceLabel) {
       console.error('No piece label provided');
@@ -213,12 +283,17 @@ export default function Simple({
       if (response.status === 200) {
         console.log("Annotations saved successfully:", response.data);
         
-        // Notify parent component that annotation was saved
+        // FIXED: Notify parent component that annotation was saved for THIS specific image
         if (onAnnotationSaved) {
           onAnnotationSaved(imageUrl, imageId);
         }
 
-        // Move to next image smoothly instead of reloading
+        // FIXED: Refresh image data to update is_annotated status
+        if (onRefreshImages) {
+          await onRefreshImages();
+        }
+
+        // Move to next image smoothly
         if (onMoveToNextImage) {
           onMoveToNextImage();
         }
@@ -304,7 +379,59 @@ export default function Simple({
         }}
       />
       
-      {/* Floating Controls - Always show like paste 1 & 2 */}
+      {/* FIXED: Render existing annotations as simple overlays */}
+      {existingAnnotations.map((existingAnnotation, index) => (
+        <ExistingAnnotationOverlay
+          key={`existing-${existingAnnotation.id || index}`}
+          sx={{
+            left: `${existingAnnotation.x}%`,
+            top: `${existingAnnotation.y}%`,
+            width: `${existingAnnotation.width}%`,
+            height: `${existingAnnotation.height}%`,
+          }}
+        />
+      ))}
+      
+      {/* Loading indicator for existing annotations */}
+      {loadingExistingAnnotations && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 20,
+            right: 20,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            zIndex: 15
+          }}
+        >
+          Loading existing annotations...
+        </Box>
+      )}
+      
+      {/* Show count of existing annotations */}
+      {!loadingExistingAnnotations && existingAnnotations.length > 0 && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 20,
+            right: 20,
+            backgroundColor: 'rgba(76, 175, 80, 0.9)',
+            color: 'white',
+            padding: '4px 8px',
+            borderRadius: '12px',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            zIndex: 15
+          }}
+        >
+          {existingAnnotations.length} existing annotation{existingAnnotations.length !== 1 ? 's' : ''}
+        </Box>
+      )}
+      
+      {/* Floating Controls */}
       <FloatingControls>
         <ActionButton 
           onClick={undo}

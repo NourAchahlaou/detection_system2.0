@@ -17,8 +17,13 @@ const Container = styled('div')(({ active, theme, isOverlay = false }) => ({
   zIndex: isOverlay ? 10 : 1,
 }));
 
-function Rectangle(props) {
-  const { geometry, isOverlay = false, active = false } = props.annotation || props;
+function Rectangle({ 
+  annotation = { geometry: null }, 
+  className = '', 
+  style = {},
+  ...props 
+}) {
+  const { geometry, isOverlay = false, active = false } = annotation || {};
   
   if (!geometry) return null;
 
@@ -33,17 +38,12 @@ function Rectangle(props) {
         top: `${y}%`,
         width: `${width}%`,
         height: `${height}%`,
-        ...props.style
+        ...style
       }}
-      className={props.className}
+      className={className}
+      {...props}
     />
   );
 }
-
-Rectangle.defaultProps = {
-  className: '',
-  style: {},
-  annotation: { geometry: null }
-};
 
 export default Rectangle;
