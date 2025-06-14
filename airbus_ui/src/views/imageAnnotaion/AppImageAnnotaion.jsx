@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
+import { CheckCircle, RadioButtonUnchecked } from "@mui/icons-material";
 import NonAnnotated from "./NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
@@ -87,16 +88,6 @@ export default function AppImageAnnotaion() {
   const [allImages, setAllImages] = useState([]);
   const navigate = useNavigate();
 
-  const handlePieceSelect = (pieceLabel) => {
-    setSelectedPieceLabel(pieceLabel);
-    // Reset all state when piece changes
-    setAnnotatedImages([]);
-    setCurrentImageIndex(0);
-    setSelectedImageUrl('');
-    setSelectedImageId(null);
-    setAllImages([]);
-    setTotalImages(0);
-  };
 
   // FIXED: Handle image selection from sidebar
   const handleImageSelect = (url, imageId, index) => {
@@ -207,6 +198,16 @@ export default function AppImageAnnotaion() {
     }
   };
 
+  // Get annotation statistics from allImages
+  const getAnnotationStats = () => {
+    if (allImages.length === 0) return { annotatedCount: 0, totalCount: 0 };
+    const annotatedCount = allImages.filter(img => img.is_annotated === true).length;
+    const totalCount = allImages.length;
+    return { annotatedCount, totalCount };
+  };
+
+  const { annotatedCount, totalCount } = getAnnotationStats();
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' }, margin: '0 auto' }}>
       {/* Header Section - Keep outside the main grid */}
@@ -214,18 +215,35 @@ export default function AppImageAnnotaion() {
         <HeaderTitle>
           {selectedPieceLabel ? `${selectedPieceLabel} Images` : "Select a Piece"}
         </HeaderTitle>
+        {/* Updated Stats Header */}
         {totalImages > 0 && (
-          <Typography
-            variant="body2"
-            sx={{
-              color: "#666",
-              textAlign: "center",
-              mt: 1,
-              fontSize: "0.8rem",
-            }}
-          >
-            Image {currentImageIndex + 1} of {totalImages} • {annotatedImages.length} annotated
-          </Typography>
+          <Box sx={{ 
+            padding: '8px 16px', 
+            backgroundColor: 'rgba(102, 126, 234, 0.05)',
+            borderTop: '1px solid rgba(102, 126, 234, 0.1)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            mt: 1
+          }}>
+            <Typography variant="caption" sx={{ color: '#666', fontSize: '0.75rem' }}>
+              Image {currentImageIndex + 1} of {totalCount} • {annotatedCount}/{totalCount} annotated
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CheckCircle sx={{ fontSize: 12, color: '#4caf50' }} />
+                <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#4caf50' }}>
+                  {annotatedCount}
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <RadioButtonUnchecked sx={{ fontSize: 12, color: '#ff9800' }} />
+                <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#ff9800' }}>
+                  {totalCount - annotatedCount}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
         )}
       </HeaderBox>
 
@@ -264,7 +282,6 @@ export default function AppImageAnnotaion() {
                 pieceLabel={selectedPieceLabel}
                 onImageSelect={handleImageSelect}
                 onFirstImageLoad={handleFirstImageLoad}
-                annotatedImages={annotatedImages}
                 onImageCountUpdate={handleImageCountUpdate}
                 onImagesLoaded={handleImagesLoaded}
                 currentImageIndex={currentImageIndex}

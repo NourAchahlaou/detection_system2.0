@@ -13,7 +13,9 @@ import {
 import { 
   Photo, 
   KeyboardArrowUp, 
-  KeyboardArrowDown, 
+  KeyboardArrowDown,
+  CheckCircle,
+  RadioButtonUnchecked
 } from "@mui/icons-material";
 import api from "../../../../utils/UseAxios";
 
@@ -52,7 +54,6 @@ export default function SidenavImageDisplay({
   pieceLabel,
   onImageSelect,
   onFirstImageLoad,
-  annotatedImages,
   onImageCountUpdate,
   onImagesLoaded,
   currentImageIndex
@@ -228,8 +229,10 @@ export default function SidenavImageDisplay({
 
   const visibleImages = getVisibleImages();
 
+
   return (
     <MaxCustomaizer>
+
       {/* Content Area with ImageSlider styling */}
       <Box
         sx={{
@@ -326,7 +329,8 @@ export default function SidenavImageDisplay({
                 const isBackTop = image.position === 'back-top';
                 const isBackBottom = image.position === 'back-bottom';
                 const isBack = image.position === 'back';
-                const isAnnotated = annotatedImages.includes(image.url);
+                // Use backend annotation status instead of external array
+                const isAnnotated = image.is_annotated === true;
 
                 // Positioning calculations - matching capture component exactly
                 let translateY = 0;
@@ -462,28 +466,41 @@ export default function SidenavImageDisplay({
                       {image.index + 1}
                     </Box>
 
-                    {/* Annotated Badge */}
-                    {isAnnotated && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          bottom: 12, // Match capture component positioning
-                          left: 12, // Match capture component positioning
-                          backgroundColor: '#4caf50',
-                          color: 'white',
-                          borderRadius: '12px',
-                          padding: '4px 12px', // Slightly larger padding
-                          fontSize: '0.65rem',
-                          fontWeight: '600',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                          boxShadow: '0 2px 8px rgba(76, 175, 80, 0.4)',
-                          zIndex: 399
-                        }}
-                      >
-                        Done
-                      </Box>
-                    )}
+                    {/* Annotation Status Badge - More prominent */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        bottom: 12, // Match capture component positioning
+                        left: 12, // Match capture component positioning
+                        backgroundColor: isAnnotated ? '#4caf50' : '#ff9800',
+                        color: 'white',
+                        borderRadius: '12px',
+                        padding: '4px 12px', // Slightly larger padding
+                        fontSize: '0.65rem',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        boxShadow: isAnnotated 
+                          ? '0 2px 8px rgba(76, 175, 80, 0.4)' 
+                          : '0 2px 8px rgba(255, 152, 0, 0.4)',
+                        zIndex: 399,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      {isAnnotated ? (
+                        <>
+                          <CheckCircle sx={{ fontSize: 12 }} />
+                          Done
+                        </>
+                      ) : (
+                        <>
+                          <RadioButtonUnchecked sx={{ fontSize: 12 }} />
+                          Pending
+                        </>
+                      )}
+                    </Box>
                   </Card>
                 );
               })}

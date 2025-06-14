@@ -15,20 +15,20 @@ from annotation.app.db.models.piece_image import PieceImage
 virtual_storage: Dict[str, Dict] = {}
 
 def get_images_of_piece(piece_label: str, db: Session):
-    """Fetch all images of a piece that are not annotated yet."""
+    """Fetch all images of a piece with their annotation status."""
     db_piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
     
     if db_piece:
+        # Get ALL images for this piece (both annotated and non-annotated)
         db_images = db.query(PieceImage).filter(
-            PieceImage.piece_id == db_piece.id,
-            PieceImage.is_annotated == False
+            PieceImage.piece_id == db_piece.id
         ).all()
-
+        
         if not db_images:
-            print("This piece has no unannotated images registered yet.")
+            print("This piece has no images registered yet.")
             return []
-
-        print("Piece images retrieved.")
+        
+        print(f"Retrieved {len(db_images)} images for piece {piece_label}")
         
         # FIXED: Use artifact_keeper service to serve images
         urlbase = "http://localhost/api/artifact_keeper/images/"
@@ -47,15 +47,17 @@ def get_images_of_piece(piece_label: str, db: Session):
                 
                 result.append({
                     "url": urlbase + clean_path,
-                    "name": image.id
+                    "name": image.id,
+                    "is_annotated": image.is_annotated,  # Include annotation status
+                    "image_path": image.image_path  # Optional: include original path if needed
                 })
             
             return result
-            
+        
         except Exception as e:
             print(f"Error retrieving images: {e}")
             return []
-
+    
     print("Piece doesn't exist.")
     return []
 
