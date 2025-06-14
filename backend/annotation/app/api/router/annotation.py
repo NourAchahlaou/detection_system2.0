@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from annotation.app.db.models.piece_image import PieceImage
 from annotation.app.services.piece_service import get_images_of_piece, get_img_non_annotated, save_annotation_in_memory, save_annotations_to_db
-
+from annotation.app.db.models.annotation import Annotation
+from annotation.app.db.models.piece import Piece
 db_dependency = Annotated[Session, Depends(get_session)]
 
 from pydantic import BaseModel, Field
@@ -110,3 +111,112 @@ def saveAnnotation(piece_label: str, db: db_dependency):
         raise HTTPException(status_code=500, detail="Failed to capture frame from the camera.")
     
     return piece_label, save_folder, result, result1
+
+# Add this endpoint to your annotation router
+
+@annotation_router.get("/image/{image_id}/annotations")
+def get_image_annotations(image_id: int, db: db_dependency):
+    """Get all annotations for a specific image"""
+    try:
+        # Fetch the image to verify it exists
+        piece_image = db.query(PieceImage).filter(PieceImage.id == image_id).first()
+        
+        if not piece_image:
+            raise HTTPException(status_code=404, detail="Image not found")
+        
+        # Fetch all annotations for this image
+        annotations = db.query(Annotation).filter(Annotation.piece_image_id == image_id).all()
+        
+        # Convert annotations to frontend format (percentage-based coordinates)
+        result = []
+        for annotation in annotations:
+            # Convert from YOLO format (normalized) back to percentage coordinates
+            # YOLO format: x_center, y_center, width, height (all normalized 0-1)
+            # Frontend format: x, y, width, height (percentage 0-100)
+            
+            x_center_normalized = annotation.x
+            y_center_normalized = annotation.y
+            width_normalized = annotation.width
+            height_normalized = annotation.height
+            
+            # Convert to top-left corner coordinates in percentage
+            x_percentage = (x_center_normalized - width_normalized / 2) * 100
+            y_percentage = (y_center_normalized - height_normalized / 2) * 100
+            width_percentage = width_normalized * 100
+            height_percentage = height_normalized * 100
+            
+            result.append({
+                "id": annotation.id,
+                "type": annotation.type,
+                "x": x_percentage,
+                "y": y_percentage,
+                "width": width_percentage,
+                "height": height_percentage,
+                "annotationTXT_name": annotation.annotationTXT_name
+            })
+        
+        return {
+            "image_id": image_id,
+            "annotations": result,
+            "count": len(result)
+        }
+        
+    except Exception as e:
+        print(f"Error fetching annotations for image {image_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching annotations: {str(e)}")
+
+@annotation_router.get("/piece/{piece_label}/annotations")
+def get_piece_annotations(piece_label: str, db: db_dependency):
+    """Get all annotations for all images of a piece"""
+    try:
+        # Find the piece
+        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+        if not piece:
+            raise HTTPException(status_code=404, detail="Piece not found")
+        
+        # Get all images for this piece
+        piece_images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+        
+        result = {}
+        for image in piece_images:
+            # Get annotations for each image
+            annotations = db.query(Annotation).filter(Annotation.piece_image_id == image.id).all()
+            
+            image_annotations = []
+            for annotation in annotations:
+                # Convert from YOLO format back to percentage
+                x_center_normalized = annotation.x
+                y_center_normalized = annotation.y
+                width_normalized = annotation.width
+                height_normalized = annotation.height
+                
+                x_percentage = (x_center_normalized - width_normalized / 2) * 100
+                y_percentage = (y_center_normalized - height_normalized / 2) * 100
+                width_percentage = width_normalized * 100
+                height_percentage = height_normalized * 100
+                
+                image_annotations.append({
+                    "id": annotation.id,
+                    "type": annotation.type,
+                    "x": x_percentage,
+                    "y": y_percentage,
+                    "width": width_percentage,
+                    "height": height_percentage,
+                    "annotationTXT_name": annotation.annotationTXT_name
+                })
+            
+            result[str(image.id)] = {
+                "image_path": image.image_path,
+                "file_name": image.file_name,
+                "annotations": image_annotations,
+                "count": len(image_annotations)
+            }
+        
+        return {
+            "piece_label": piece_label,
+            "images": result
+        }
+        
+    except Exception as e:
+        print(f"Error fetching annotations for piece {piece_label}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching annotations: {str(e)}")

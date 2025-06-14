@@ -6,9 +6,7 @@ import {
   Fade, 
   CircularProgress,
   IconButton,
-  Card,
-  CardMedia,
-  Chip
+  Card
 } from "@mui/material";
 import { 
   Photo, 
@@ -18,15 +16,16 @@ import {
   RadioButtonUnchecked
 } from "@mui/icons-material";
 import api from "../../../../utils/UseAxios";
+import ImageWithAnnotations from "./ImageWithAnnotations"; // Adjust path as needed
 
-// Updated styled components to match capture theme exactly
+// Keep all your existing styled components
 const MaxCustomaizer = styled("div")(({ theme }) => ({
   width: "100%",
   height: "100%",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  backgroundColor: "transparent", // Match the capture component background
+  backgroundColor: "transparent",
 }));
 
 const LoadingState = styled(Box)({
@@ -64,9 +63,9 @@ export default function SidenavImageDisplay({
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   
   const mountedRef = useRef(true);
-  const lastPieceLabelRef = useRef(null); // Track last piece label to prevent unnecessary fetches
+  const lastPieceLabelRef = useRef(null);
 
-  // Sync local index with parent's currentImageIndex - FIXED
+  // Keep all your existing useEffect and handler functions exactly the same
   useEffect(() => {
     if (typeof currentImageIndex === 'number' && currentImageIndex !== localCurrentIndex && images.length > 0) {
       setLocalCurrentIndex(currentImageIndex);
@@ -76,7 +75,6 @@ export default function SidenavImageDisplay({
     }
   }, [currentImageIndex, images, localCurrentIndex]);
 
-  // FIXED: Stable fetch function that only depends on pieceLabel
   const fetchImages = useCallback(async () => {
     if (!pieceLabel) {
       setImages([]);
@@ -88,14 +86,13 @@ export default function SidenavImageDisplay({
       return;
     }
 
-    // Prevent duplicate fetches for the same piece
     if (lastPieceLabelRef.current === pieceLabel) {
       return;
     }
 
     try {
       setLoading(true);
-      lastPieceLabelRef.current = pieceLabel; // Mark as fetching/fetched
+      lastPieceLabelRef.current = pieceLabel;
       
       const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${pieceLabel}`);
       const data = response.data;
@@ -109,7 +106,6 @@ export default function SidenavImageDisplay({
           onImageCountUpdate(data.length);
         }
 
-        // Notify parent about loaded images - call once
         if (onImagesLoaded) {
           onImagesLoaded(data);
         }
@@ -118,7 +114,6 @@ export default function SidenavImageDisplay({
           const firstImage = data[0];
           setSelectedImageUrl(firstImage.url);
           
-          // Call parent callbacks
           if (onFirstImageLoad) {
             onFirstImageLoad(firstImage.url, firstImage.name);
           }
@@ -144,24 +139,21 @@ export default function SidenavImageDisplay({
         setLoading(false);
       }
     }
-  }, [pieceLabel]); // ONLY depend on pieceLabel
+  }, [pieceLabel]);
 
-  // FIXED: Effect for fetching images
   useEffect(() => {
     mountedRef.current = true;
     
-    // Reset tracking when piece changes
     if (lastPieceLabelRef.current !== pieceLabel) {
-      lastPieceLabelRef.current = null; // Reset to allow new fetch
+      lastPieceLabelRef.current = null;
       fetchImages();
     }
     
     return () => {
       mountedRef.current = false;
     };
-  }, [pieceLabel]); // ONLY depend on pieceLabel
+  }, [pieceLabel]);
 
-  // FIXED: Image click handler
   const handleImageClick = (imageUrl, imageId, index) => {
     setSelectedImageUrl(imageUrl);
     setLocalCurrentIndex(index);
@@ -170,7 +162,6 @@ export default function SidenavImageDisplay({
     }
   };
 
-  // FIXED: Navigate up in the slider
   const handlePrevious = useCallback(() => {
     if (images.length > 0) {
       const newIndex = localCurrentIndex > 0 ? localCurrentIndex - 1 : images.length - 1;
@@ -185,7 +176,6 @@ export default function SidenavImageDisplay({
     }
   }, [images, localCurrentIndex, onImageSelect]);
 
-  // FIXED: Navigate down in the slider
   const handleNext = useCallback(() => {
     if (images.length > 0) {
       const newIndex = localCurrentIndex < images.length - 1 ? localCurrentIndex + 1 : 0;
@@ -200,7 +190,6 @@ export default function SidenavImageDisplay({
     }
   }, [images, localCurrentIndex, onImageSelect]);
 
-  // Get visible images for the stack effect - matching capture component proportions
   const getVisibleImages = () => {
     if (images.length === 0) return [];
     
@@ -216,7 +205,6 @@ export default function SidenavImageDisplay({
       ];
     }
     
-    // For 3 or more images
     const prevIndex = localCurrentIndex > 0 ? localCurrentIndex - 1 : images.length - 1;
     const nextIndex = localCurrentIndex < images.length - 1 ? localCurrentIndex + 1 : 0;
     
@@ -229,11 +217,8 @@ export default function SidenavImageDisplay({
 
   const visibleImages = getVisibleImages();
 
-
   return (
     <MaxCustomaizer>
-
-      {/* Content Area with ImageSlider styling */}
       <Box
         sx={{
           flex: 1,
@@ -244,7 +229,7 @@ export default function SidenavImageDisplay({
           overflow: 'hidden',
         }}
       >
-        {/* Loading State */}
+        {/* Keep existing loading and empty states */}
         {loading && (
           <Fade in={loading}>
             <LoadingState>
@@ -256,7 +241,6 @@ export default function SidenavImageDisplay({
           </Fade>
         )}
 
-        {/* No Images State */}
         {!loading && images.length === 0 && (
           <EmptyState>
             <Photo sx={{ fontSize: 64, opacity: 0.4, mb: 3 }} />
@@ -269,7 +253,7 @@ export default function SidenavImageDisplay({
           </EmptyState>
         )}
 
-        {/* Image Slider - matching capture component exact proportions */}
+        {/* Updated Image Slider with annotations */}
         {!loading && images.length > 0 && (
           <Box
             sx={{
@@ -285,7 +269,7 @@ export default function SidenavImageDisplay({
               padding: 2
             }}
           >
-            {/* Navigation Arrow - Up */}
+            {/* Keep existing navigation arrows */}
             {images.length > 1 && (
               <IconButton
                 onClick={handlePrevious}
@@ -313,12 +297,12 @@ export default function SidenavImageDisplay({
               </IconButton>
             )}
 
-            {/* Images Stack Container - matching capture component dimensions exactly */}
+            {/* Images Stack Container */}
             <Box
               sx={{
                 position: 'relative',
-                width: '300px', // Match capture component width
-                height: '420px', // Match capture component height
+                width: '300px',
+                height: '420px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
@@ -329,10 +313,9 @@ export default function SidenavImageDisplay({
                 const isBackTop = image.position === 'back-top';
                 const isBackBottom = image.position === 'back-bottom';
                 const isBack = image.position === 'back';
-                // Use backend annotation status instead of external array
                 const isAnnotated = image.is_annotated === true;
 
-                // Positioning calculations - matching capture component exactly
+                // Keep all your existing positioning calculations
                 let translateY = 0;
                 let translateX = 0;
                 let zIndex = 100;
@@ -348,21 +331,21 @@ export default function SidenavImageDisplay({
                   opacity = 1;
                   rotation = 0;
                 } else if (isBackTop) {
-                  translateY = -120; // Match capture component spacing
+                  translateY = -120;
                   translateX = 0;
                   zIndex = 200;
                   scale = 0.88;
                   opacity = 0.5;
                   rotation = 0;
                 } else if (isBackBottom) {
-                  translateY = 120; // Match capture component spacing
+                  translateY = 120;
                   translateX = 0;
                   zIndex = 100;
                   scale = 0.88;
                   opacity = 0.5;
                   rotation = 0;
                 } else if (isBack) {
-                  translateY = 80; // Match capture component spacing
+                  translateY = 80;
                   translateX = 0;
                   zIndex = 200;
                   scale = 0.9;
@@ -375,8 +358,8 @@ export default function SidenavImageDisplay({
                     key={`${image.index}-${image.position}`}
                     sx={{
                       position: 'absolute',
-                      width: '280px', // Match capture component card width
-                      height: '200px', // Match capture component card height
+                      width: '280px',
+                      height: '200px',
                       borderRadius: 3,
                       overflow: 'hidden',
                       cursor: !isCenter && images.length > 1 ? 'pointer' : 'default',
@@ -418,46 +401,37 @@ export default function SidenavImageDisplay({
                       }
                     }}
                   >
-                    <CardMedia
-                      component="img"
-                      image={image.url}
+                    {/* Replace CardMedia with ImageWithAnnotations component */}
+                    <ImageWithAnnotations
+                      imageUrl={image.url}
+                      imageId={image.name} // This should be the image ID
+                      width="100%"
+                      height="100%"
                       alt={`Image ${image.index + 1}`}
                       sx={{
-                        objectFit: 'cover',
-                        width: '100%',
-                        height: '100%',
-                        display: 'block',
-                        margin: 0,
-                        padding: 0,
-                        border: 'none',
-                        outline: 'none',
-                        verticalAlign: 'top',
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         right: 0,
                         bottom: 0
                       }}
-                      onError={(e) => {
-                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
-                      }}
                     />
                     
-                    {/* Image Number Badge - matching capture component exactly */}
+                    {/* Keep existing badges */}
                     <Box
                       sx={{
                         position: 'absolute',
-                        top: 12, // Match capture component positioning
-                        right: 12, // Match capture component positioning
+                        top: 12,
+                        right: 12,
                         backgroundColor: isAnnotated ? "#4caf50" : isCenter ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.7)',
                         color: 'white',
                         borderRadius: '50%',
-                        width: 32, // Match capture component size
-                        height: 32, // Match capture component size
+                        width: 32,
+                        height: 32,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '0.8rem', // Match capture component font size
+                        fontSize: '0.8rem',
                         fontWeight: 'bold',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                         zIndex: 399
@@ -466,16 +440,15 @@ export default function SidenavImageDisplay({
                       {image.index + 1}
                     </Box>
 
-                    {/* Annotation Status Badge - More prominent */}
                     <Box
                       sx={{
                         position: 'absolute',
-                        bottom: 12, // Match capture component positioning
-                        left: 12, // Match capture component positioning
+                        bottom: 12,
+                        right: 12, // Changed from left to right to avoid overlap with annotation count
                         backgroundColor: isAnnotated ? '#4caf50' : '#ff9800',
                         color: 'white',
                         borderRadius: '12px',
-                        padding: '4px 12px', // Slightly larger padding
+                        padding: '4px 12px',
                         fontSize: '0.65rem',
                         fontWeight: '600',
                         textTransform: 'uppercase',
@@ -505,7 +478,6 @@ export default function SidenavImageDisplay({
                 );
               })}
             </Box>
-
             {/* Navigation Arrow - Down */}
             {images.length > 1 && (
               <IconButton

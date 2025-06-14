@@ -47,7 +47,6 @@ const AnnotationCard = styled(Card)(({ theme }) => ({
 // Header styles moved from SidenavImageDisplay
 const HeaderBox = styled(Box)({
   paddingTop: "16px",
-  borderBottom: "2px solid rgba(102, 126, 234, 0.1)",
 });
 
 const HeaderTitle = styled(Typography)({
@@ -220,7 +219,8 @@ export default function AppImageAnnotaion() {
           <Box sx={{ 
             padding: '8px 16px', 
             backgroundColor: 'rgba(102, 126, 234, 0.05)',
-            borderTop: '1px solid rgba(102, 126, 234, 0.1)',
+            border: '1px solid rgba(102, 126, 234, 0.1)',
+            borderRadius: '8px', 
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
