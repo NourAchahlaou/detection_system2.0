@@ -1,4 +1,4 @@
-import React, {  useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
 import NonAnnotated from "./NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
@@ -89,21 +89,25 @@ export default function AppImageAnnotaion() {
 
   const handlePieceSelect = (pieceLabel) => {
     setSelectedPieceLabel(pieceLabel);
-    // Reset annotation tracking when piece changes
+    // Reset all state when piece changes
     setAnnotatedImages([]);
     setCurrentImageIndex(0);
+    setSelectedImageUrl('');
+    setSelectedImageId(null);
+    setAllImages([]);
+    setTotalImages(0);
   };
 
-  // Handle image selection from sidebar
+  // FIXED: Handle image selection from sidebar
   const handleImageSelect = (url, imageId, index) => {
     setSelectedImageUrl(url);
     setSelectedImageId(imageId);
-    if (index !== undefined) {
+    if (typeof index === 'number') {
       setCurrentImageIndex(index);
     }
   };
 
-  // Handle first image load
+  // FIXED: Handle first image load - don't call handleImageSelect to avoid loops
   const handleFirstImageLoad = (url, imageId) => {
     setSelectedImageUrl(url);
     setSelectedImageId(imageId);
@@ -115,12 +119,12 @@ export default function AppImageAnnotaion() {
     setTotalImages(count);
   };
 
-  // NEW: Handle when images are fetched from SidenavImageDisplay
+  // FIXED: Handle when images are fetched from SidenavImageDisplay - only set allImages
   const handleImagesLoaded = (images) => {
     setAllImages(images);
   };
 
-  // NEW: Handle annotation saved - mark image as annotated and move to next
+  // FIXED: Handle annotation saved - mark image as annotated and move to next
   const handleAnnotationSaved = (imageUrl, imageId) => {
     // Mark current image as annotated
     setAnnotatedImages(prev => {
@@ -131,31 +135,13 @@ export default function AppImageAnnotaion() {
     });
   };
 
-  // NEW: Move to next unannotated image
+  // FIXED: Move to next image - simplified logic
   const moveToNextImage = () => {
     if (allImages.length === 0) return;
 
-    // Find next unannotated image
-    let nextIndex = currentImageIndex + 1;
-    let foundNext = false;
-
-    // Look for next unannotated image starting from current position
-    for (let i = 0; i < allImages.length; i++) {
-      const checkIndex = (currentImageIndex + 1 + i) % allImages.length;
-      const checkImage = allImages[checkIndex];
-      
-      if (!annotatedImages.includes(checkImage.url)) {
-        nextIndex = checkIndex;
-        foundNext = true;
-        break;
-      }
-    }
-
-    // If all images are annotated, move to next image in sequence
-    if (!foundNext) {
-      nextIndex = (currentImageIndex + 1) % allImages.length;
-    }
-
+    // Simple logic: just move to the next image in sequence
+    let nextIndex = (currentImageIndex + 1) % allImages.length;
+    
     const nextImage = allImages[nextIndex];
     if (nextImage) {
       setSelectedImageUrl(nextImage.url);
@@ -186,16 +172,21 @@ export default function AppImageAnnotaion() {
     fetchInitialPiece();
   }, [navigate]);
 
-  // Load existing annotations for the piece
+  // FIXED: Load existing annotations for the piece - only when piece changes
   useEffect(() => {
     const loadExistingAnnotations = async () => {
-      if (!selectedPieceLabel) return;
+      if (!selectedPieceLabel) {
+        setAnnotatedImages([]);
+        return;
+      }
 
       try {
         // This should return URLs of images that are already annotated
         const response = await api.get(`/api/annotation/annotations/annotatedImages/${selectedPieceLabel}`);
         if (response.data && Array.isArray(response.data)) {
           setAnnotatedImages(response.data);
+        } else {
+          setAnnotatedImages([]);
         }
       } catch (error) {
         console.error("Error loading existing annotations:", error);
@@ -205,7 +196,7 @@ export default function AppImageAnnotaion() {
     };
 
     loadExistingAnnotations();
-  }, [selectedPieceLabel]);
+  }, [selectedPieceLabel]); // Only depend on selectedPieceLabel
 
   const handleAnnotationSubmit = async () => {
     try {
@@ -233,7 +224,7 @@ export default function AppImageAnnotaion() {
               fontSize: "0.8rem",
             }}
           >
-            {totalImages} image{totalImages !== 1 ? 's' : ''} • {annotatedImages.length} annotated
+            Image {currentImageIndex + 1} of {totalImages} • {annotatedImages.length} annotated
           </Typography>
         )}
       </HeaderBox>

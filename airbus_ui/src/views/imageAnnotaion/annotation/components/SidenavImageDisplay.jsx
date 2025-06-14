@@ -53,42 +53,78 @@ export default function SidenavImageDisplay({
   onImageSelect,
   onFirstImageLoad,
   annotatedImages,
-  onImageCountUpdate
+  onImageCountUpdate,
+  onImagesLoaded,
+  currentImageIndex
 }) {
   const [images, setImages] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [localCurrentIndex, setLocalCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   
   const mountedRef = useRef(true);
+  const lastPieceLabelRef = useRef(null); // Track last piece label to prevent unnecessary fetches
 
+  // Sync local index with parent's currentImageIndex - FIXED
+  useEffect(() => {
+    if (typeof currentImageIndex === 'number' && currentImageIndex !== localCurrentIndex && images.length > 0) {
+      setLocalCurrentIndex(currentImageIndex);
+      if (images[currentImageIndex]) {
+        setSelectedImageUrl(images[currentImageIndex].url);
+      }
+    }
+  }, [currentImageIndex, images, localCurrentIndex]);
+
+  // FIXED: Stable fetch function that only depends on pieceLabel
   const fetchImages = useCallback(async () => {
     if (!pieceLabel) {
       setImages([]);
-      setCurrentIndex(0);
+      setLocalCurrentIndex(0);
+      setSelectedImageUrl('');
       if (onImageCountUpdate) {
         onImageCountUpdate(0);
       }
       return;
     }
 
+    // Prevent duplicate fetches for the same piece
+    if (lastPieceLabelRef.current === pieceLabel) {
+      return;
+    }
+
     try {
       setLoading(true);
+      lastPieceLabelRef.current = pieceLabel; // Mark as fetching/fetched
+      
       const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${pieceLabel}`);
       const data = response.data;
       
       if (mountedRef.current) {
         setImages(data);
-        setCurrentIndex(0);
+        setLocalCurrentIndex(0);
+        setSelectedImageUrl('');
 
         if (onImageCountUpdate) {
           onImageCountUpdate(data.length);
         }
 
-        if (data.length > 0 && onFirstImageLoad) {
+        // Notify parent about loaded images - call once
+        if (onImagesLoaded) {
+          onImagesLoaded(data);
+        }
+
+        if (data.length > 0) {
           const firstImage = data[0];
-          onFirstImageLoad(firstImage.url, firstImage.name); // Pass both URL and ID
           setSelectedImageUrl(firstImage.url);
+          
+          // Call parent callbacks
+          if (onFirstImageLoad) {
+            onFirstImageLoad(firstImage.url, firstImage.name);
+          }
+          
+          if (onImageSelect) {
+            onImageSelect(firstImage.url, firstImage.name, 0);
+          }
         }
       }
   
@@ -96,7 +132,8 @@ export default function SidenavImageDisplay({
       console.error("Error fetching images:", error.response?.data?.detail || error.message);
       if (mountedRef.current) {
         setImages([]);
-        setCurrentIndex(0);
+        setLocalCurrentIndex(0);
+        setSelectedImageUrl('');
         if (onImageCountUpdate) {
           onImageCountUpdate(0);
         }
@@ -106,48 +143,61 @@ export default function SidenavImageDisplay({
         setLoading(false);
       }
     }
-  }, [pieceLabel, onFirstImageLoad, onImageCountUpdate]);
+  }, [pieceLabel]); // ONLY depend on pieceLabel
 
+  // FIXED: Effect for fetching images
   useEffect(() => {
     mountedRef.current = true;
-    fetchImages();
+    
+    // Reset tracking when piece changes
+    if (lastPieceLabelRef.current !== pieceLabel) {
+      lastPieceLabelRef.current = null; // Reset to allow new fetch
+      fetchImages();
+    }
     
     return () => {
       mountedRef.current = false;
     };
-  }, [pieceLabel, fetchImages]);
+  }, [pieceLabel]); // ONLY depend on pieceLabel
 
+  // FIXED: Image click handler
   const handleImageClick = (imageUrl, imageId, index) => {
     setSelectedImageUrl(imageUrl);
-    setCurrentIndex(index);
-    onImageSelect(imageUrl, imageId); // Pass both URL and ID
+    setLocalCurrentIndex(index);
+    if (onImageSelect) {
+      onImageSelect(imageUrl, imageId, index);
+    }
   };
-  // Navigate up in the slider
+
+  // FIXED: Navigate up in the slider
   const handlePrevious = useCallback(() => {
     if (images.length > 0) {
-      const newIndex = currentIndex > 0 ? currentIndex - 1 : images.length - 1;
-      setCurrentIndex(newIndex);
+      const newIndex = localCurrentIndex > 0 ? localCurrentIndex - 1 : images.length - 1;
       const newImage = images[newIndex];
-      const newImageUrl = newImage.url;
-      const newImageId = newImage.name; // Use 'name' as the imageId
-      setSelectedImageUrl(newImageUrl);
-      onImageSelect(newImageUrl, newImageId); // Pass both URL and ID
+      
+      setLocalCurrentIndex(newIndex);
+      setSelectedImageUrl(newImage.url);
+      
+      if (onImageSelect) {
+        onImageSelect(newImage.url, newImage.name, newIndex);
+      }
     }
-  }, [images, currentIndex, onImageSelect]);
+  }, [images, localCurrentIndex, onImageSelect]);
 
-  // Navigate down in the slider
+  // FIXED: Navigate down in the slider
   const handleNext = useCallback(() => {
     if (images.length > 0) {
-      const newIndex = currentIndex < images.length - 1 ? currentIndex + 1 : 0;
-      setCurrentIndex(newIndex);
+      const newIndex = localCurrentIndex < images.length - 1 ? localCurrentIndex + 1 : 0;
       const newImage = images[newIndex];
-      const newImageUrl = newImage.url;
-      const newImageId = newImage.name; // Use 'name' as the imageId
-      setSelectedImageUrl(newImageUrl);
-      onImageSelect(newImageUrl, newImageId); // Pass both URL and ID
+      
+      setLocalCurrentIndex(newIndex);
+      setSelectedImageUrl(newImage.url);
+      
+      if (onImageSelect) {
+        onImageSelect(newImage.url, newImage.name, newIndex);
+      }
     }
-  }, [images, currentIndex, onImageSelect]);
-
+  }, [images, localCurrentIndex, onImageSelect]);
 
   // Get visible images for the stack effect - matching capture component proportions
   const getVisibleImages = () => {
@@ -158,21 +208,21 @@ export default function SidenavImageDisplay({
     }
     
     if (images.length === 2) {
-      const otherIndex = currentIndex === 0 ? 1 : 0;
+      const otherIndex = localCurrentIndex === 0 ? 1 : 0;
       return [
         { ...images[otherIndex], position: 'back', index: otherIndex },
-        { ...images[currentIndex], position: 'center', index: currentIndex }
+        { ...images[localCurrentIndex], position: 'center', index: localCurrentIndex }
       ];
     }
     
     // For 3 or more images
-    const prevIndex = currentIndex > 0 ? currentIndex - 1 : images.length - 1;
-    const nextIndex = currentIndex < images.length - 1 ? currentIndex + 1 : 0;
+    const prevIndex = localCurrentIndex > 0 ? localCurrentIndex - 1 : images.length - 1;
+    const nextIndex = localCurrentIndex < images.length - 1 ? localCurrentIndex + 1 : 0;
     
     return [
       { ...images[prevIndex], position: 'back-top', index: prevIndex },
       { ...images[nextIndex], position: 'back-bottom', index: nextIndex },
-      { ...images[currentIndex], position: 'center', index: currentIndex }
+      { ...images[localCurrentIndex], position: 'center', index: localCurrentIndex }
     ];
   };
 
@@ -353,11 +403,13 @@ export default function SidenavImageDisplay({
                       }
                     }}
                     onClick={() => {
-                      if (images.length > 1 && !isCenter) {
-                        if (isBackTop) handlePrevious();
-                        else if (isBackBottom) handleNext();
-                        else if (isBack) {
-                          handleImageClick(image.url, image.name, image.index); // Pass image.name as imageId
+                      if (images.length > 1) {
+                        if (isBackTop) {
+                          handlePrevious();
+                        } else if (isBackBottom) {
+                          handleNext();
+                        } else if (isBack && !isCenter) {
+                          handleImageClick(image.url, image.name, image.index);
                         }
                       }
                     }}
@@ -466,8 +518,6 @@ export default function SidenavImageDisplay({
             )}
           </Box>
         )}
-
-
       </Box>
     </MaxCustomaizer>
   );
