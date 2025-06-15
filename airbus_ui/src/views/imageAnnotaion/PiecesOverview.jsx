@@ -32,19 +32,7 @@ const HeaderBox = styled(Box)({
   paddingBottom: "24px",
   borderBottom: "1px solid rgba(102, 126, 234, 0.1)",
   marginBottom: "24px",
-});
-
-const HeaderTitle = styled(Typography)({
-  fontSize: "1.8rem",
-  fontWeight: "700",
-  color: "#333",
-  marginBottom: "8px",
-});
-
-const HeaderSubtitle = styled(Typography)({
-  fontSize: "1rem",
-  color: "#666",
-  fontWeight: "400",
+  textAlign: "center", // Center the header content
 });
 
 const StyledTabs = styled(Tabs)({
@@ -67,13 +55,11 @@ const StyledTabs = styled(Tabs)({
 });
 
 const PieceCard = styled(Card)(({ theme }) => ({
-  padding: "24px",
+  padding: "20px",
   cursor: "pointer",
-  minHeight: "200px",
+  height: "100%", // Make all cards same height
   display: "flex",
   flexDirection: "column",
-  justifyContent: "space-between",
-  backgroundColor: "#f8f9ff",
   border: "2px solid rgba(102, 126, 234, 0.1)",
   borderRadius: "16px",
   transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
@@ -84,36 +70,48 @@ const PieceCard = styled(Card)(({ theme }) => ({
     transform: "translateY(-4px)",
     boxShadow: "0 12px 32px rgba(102, 126, 234, 0.2)",
     border: "2px solid #667eea",
-    backgroundColor: "#f0f4ff",
+    backgroundColor: "rgba(78, 105, 221, 0.45)",
   },
 }));
 
+const CardHeader = styled(Box)({
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  marginBottom: "16px",
+  gap: "12px",
+});
+
 const IconContainer = styled(Box)({
-  width: "56px",
-  height: "56px",
-  borderRadius: "16px",
+  width: "48px",
+  height: "48px",
+  borderRadius: "12px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   backgroundColor: "rgba(102, 126, 234, 0.15)",
   color: "#667eea",
-  marginBottom: "16px",
+  marginBottom: "12px",
 });
 
 const PieceTitle = styled(Typography)({
-  fontSize: "1.2rem",
+  fontSize: "1.1rem",
   fontWeight: "700",
   color: "#333",
-  marginBottom: "12px",
+  marginBottom: "8px",
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
+  "&:hover": {
+    color: "#666",
+
+  },
 });
 
 const StatsContainer = styled(Box)({
   display: "flex",
   flexDirection: "column",
-  gap: "12px",
+  gap: "8px",
   marginTop: "auto",
 });
 
@@ -124,17 +122,17 @@ const StatsRow = styled(Box)({
 });
 
 const ImagePreview = styled("img")({
-  width: "48px",
-  height: "48px",
+  width: "40px",
+  height: "40px",
   objectFit: "cover",
-  borderRadius: "8px",
+  borderRadius: "6px",
   border: "2px solid rgba(102, 126, 234, 0.2)",
 });
 
 const StatusChip = styled(Chip)(({ variant }) => ({
   fontSize: "0.75rem",
   fontWeight: "600",
-  height: "28px",
+  height: "24px",
   backgroundColor: variant === 'completed' 
     ? "rgba(76, 175, 80, 0.15)" 
     : variant === 'partial'
@@ -146,14 +144,17 @@ const StatusChip = styled(Chip)(({ variant }) => ({
     ? "#ff9800"
     : "#f44336",
   "& .MuiChip-icon": {
-    fontSize: "16px",
+    fontSize: "14px",
   },
 }));
 
 const ActionButton = styled(Button)(({ variant }) => ({
   textTransform: "none",
   fontWeight: "600",
-  borderRadius: "8px",
+  borderRadius: "6px",
+  fontSize: "0.8rem",
+  padding: "4px 12px",
+  minWidth: "auto",
   backgroundColor: variant === 'primary' ? "#667eea" : "transparent",
   color: variant === 'primary' ? "white" : "#667eea",
   border: variant === 'primary' ? "none" : "1px solid rgba(102, 126, 234, 0.3)",
@@ -193,8 +194,7 @@ function TabPanel({ children, value, index }) {
 
 export default function PiecesOverview() {
   const [tabValue, setTabValue] = useState(0);
-  const [nonAnnotatedPieces, setNonAnnotatedPieces] = useState([]);
-  const [annotatedPieces, setAnnotatedPieces] = useState([]);
+  const [allPieces, setAllPieces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     total: 0,
@@ -213,51 +213,62 @@ export default function PiecesOverview() {
     try {
       setLoading(true);
       
-      // Fetch non-annotated pieces
-      const nonAnnotatedResponse = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
-      const nonAnnotatedData = nonAnnotatedResponse.data;
+      // FIXED: Use the improved get_all_pieces endpoint
+      const response = await api.get("/api/annotation/annotations/get_all_pieces");
+      const piecesData = response.data || [];
       
-      // Fetch all pieces to get annotated ones
-      // This assumes you have an endpoint that returns all pieces
-      // If not, you might need to create one or modify this logic
-      const allPiecesResponse = await api.get("/api/annotation/annotations/get_all_pieces");
-      const allPiecesData = allPiecesResponse.data || [];
+      console.log("Fetched pieces data:", piecesData);
       
-      // Filter annotated pieces (pieces not in non-annotated list)
-      const nonAnnotatedLabels = new Set(nonAnnotatedData.map(piece => piece.piece_label));
-      const annotatedData = allPiecesData.filter(piece => !nonAnnotatedLabels.has(piece.piece_label));
+      setAllPieces(piecesData);
       
-      setNonAnnotatedPieces(nonAnnotatedData);
-      setAnnotatedPieces(annotatedData);
-      
-      // Calculate stats
-      const totalPieces = nonAnnotatedData.length + annotatedData.length;
-      const partiallyAnnotated = nonAnnotatedData.filter(piece => piece.annotated_count > 0).length;
+      // Calculate stats from the fetched data
+      const totalPieces = piecesData.length;
+      const fullyAnnotatedPieces = piecesData.filter(piece => piece.is_fully_annotated).length;
+      const partiallyAnnotatedPieces = piecesData.filter(piece => 
+        piece.annotated_count > 0 && !piece.is_fully_annotated
+      ).length;
+      const notStartedPieces = piecesData.filter(piece => piece.annotated_count === 0).length;
       
       setStats({
         total: totalPieces,
-        annotated: annotatedData.length,
-        nonAnnotated: nonAnnotatedData.length - partiallyAnnotated,
-        partial: partiallyAnnotated
+        annotated: fullyAnnotatedPieces,
+        partial: partiallyAnnotatedPieces,
+        nonAnnotated: notStartedPieces
       });
       
     } catch (error) {
       console.error("Error fetching pieces:", error);
-      // If the all pieces endpoint doesn't exist, just use non-annotated data
-      if (error.response?.status === 404) {
-        const nonAnnotatedResponse = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
-        const nonAnnotatedData = nonAnnotatedResponse.data;
+      
+      // Fallback to the original non-annotated endpoint
+      try {
+        console.log("Trying fallback endpoint...");
+        const fallbackResponse = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
+        const nonAnnotatedData = fallbackResponse.data || [];
         
-        setNonAnnotatedPieces(nonAnnotatedData);
-        setAnnotatedPieces([]);
+        console.log("Fallback data:", nonAnnotatedData);
         
-        const partiallyAnnotated = nonAnnotatedData.filter(piece => piece.annotated_count > 0).length;
+        // Convert non-annotated data to the expected format
+        const convertedData = nonAnnotatedData.map(piece => ({
+          piece_label: piece.piece_label,
+          nbr_img: piece.nbr_img,
+          annotated_count: piece.annotated_count || 0,
+          url: piece.url,
+          is_fully_annotated: false
+        }));
+        
+        setAllPieces(convertedData);
+        
+        const partiallyAnnotated = convertedData.filter(piece => piece.annotated_count > 0).length;
         setStats({
-          total: nonAnnotatedData.length,
+          total: convertedData.length,
           annotated: 0,
-          nonAnnotated: nonAnnotatedData.length - partiallyAnnotated,
-          partial: partiallyAnnotated
+          partial: partiallyAnnotated,
+          nonAnnotated: convertedData.length - partiallyAnnotated
         });
+      } catch (fallbackError) {
+        console.error("Fallback fetch also failed:", fallbackError);
+        setAllPieces([]);
+        setStats({ total: 0, annotated: 0, partial: 0, nonAnnotated: 0 });
       }
     } finally {
       setLoading(false);
@@ -304,54 +315,72 @@ export default function PiecesOverview() {
     return (
       <Grid item xs={12} sm={6} md={4} lg={3} key={piece.piece_label}>
         <PieceCard elevation={0} onClick={() => handlePieceClick(piece.piece_label)}>
-          <Box>
-            <IconContainer>
-              <CropFree fontSize="large" />
-            </IconContainer>
-            
-            <PieceTitle>{piece.piece_label}</PieceTitle>
-            
-            <StatsContainer>
-              <StatsRow>
+          <CardHeader>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+              <IconContainer>
+                <CropFree fontSize="medium" />
+              </IconContainer>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <PieceTitle title={piece.piece_label}>{piece.piece_label}</PieceTitle>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <PhotoLibrary sx={{ fontSize: 16, color: "#667eea" }} />
-                  <Typography variant="body2" sx={{ color: "#666", fontWeight: "500" }}>
+                  <PhotoLibrary sx={{ fontSize: 14, color: "#667eea" }} />
+                  <Typography variant="caption" sx={{ color: "#666", fontWeight: "500" }}>
                     {piece.nbr_img} images
                   </Typography>
                 </Box>
-                
-                {piece.url && (
-                  <ImagePreview
-                    src={piece.url}
-                    alt={piece.piece_label}
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                    }}
-                  />
-                )}
-              </StatsRow>
+              </Box>
+            </Box>
+            
+            {piece.url && (
+              <ImagePreview
+                src={piece.url}
+                alt={piece.piece_label}
+                onError={(e) => {
+                  console.log(`Failed to load image: ${piece.url}`);
+                  e.target.style.display = 'none';
+                }}
+                onLoad={() => {
+                  console.log(`Successfully loaded image: ${piece.url}`);
+                }}
+              />
+            )}
+          </CardHeader>
+          
+          <StatsContainer>
+            <StatsRow>
+              <StatusChip
+                variant={statusInfo.variant}
+                icon={statusInfo.icon}
+                label={statusInfo.label}
+                size="small"
+              />
               
-              <StatsRow>
-                <StatusChip
-                  variant={statusInfo.variant}
-                  icon={statusInfo.icon}
-                  label={statusInfo.label}
-                  size="small"
-                />
-                
-                <ActionButton
-                  variant={statusInfo.variant === 'completed' ? 'secondary' : 'primary'}
-                  size="small"
-                  startIcon={statusInfo.variant === 'completed' ? <Visibility /> : <Edit />}
-                >
-                  {statusInfo.variant === 'completed' ? 'View' : 'Annotate'}
-                </ActionButton>
-              </StatsRow>
-            </StatsContainer>
-          </Box>
+              <ActionButton
+                variant={statusInfo.variant === 'completed' ? 'secondary' : 'primary'}
+                size="small"
+                startIcon={statusInfo.variant === 'completed' ? <Visibility /> : <Edit />}
+              >
+                {statusInfo.variant === 'completed' ? 'View' : 'Annotate'}
+              </ActionButton>
+            </StatsRow>
+          </StatsContainer>
         </PieceCard>
       </Grid>
     );
+  };
+
+  // Filter pieces based on current tab
+  const getFilteredPieces = () => {
+    switch (tabValue) {
+      case 0: // All Pieces
+        return allPieces;
+      case 1: // Need Annotation (not started + partial)
+        return allPieces.filter(piece => !piece.is_fully_annotated);
+      case 2: // Completed
+        return allPieces.filter(piece => piece.is_fully_annotated);
+      default:
+        return allPieces;
+    }
   };
 
   if (loading) {
@@ -367,21 +396,18 @@ export default function PiecesOverview() {
     );
   }
 
+  const filteredPieces = getFilteredPieces();
+
   return (
     <Container>
-      <HeaderBox>
-        <HeaderTitle>Pieces Management</HeaderTitle>
-        <HeaderSubtitle>
-          Manage and track annotation progress across all pieces
-        </HeaderSubtitle>
-        
+      <HeaderBox>       
         {/* Stats Summary */}
         <Box sx={{ 
           display: 'flex', 
           gap: 3, 
           mt: 3, 
           flexWrap: 'wrap',
-          justifyContent: { xs: 'center', sm: 'flex-start' }
+          justifyContent: 'center' // Center the stats
         }}>
           <Box sx={{ textAlign: 'center' }}>
             <Typography variant="h4" sx={{ color: '#667eea', fontWeight: '700' }}>
@@ -426,11 +452,11 @@ export default function PiecesOverview() {
 
       <TabPanel value={tabValue} index={0}>
         {/* All Pieces */}
-        <Grid container spacing={3}>
-          {[...nonAnnotatedPieces, ...annotatedPieces].map(renderPieceCard)}
+        <Grid container spacing={2.5}>
+          {filteredPieces.map(renderPieceCard)}
         </Grid>
         
-        {[...nonAnnotatedPieces, ...annotatedPieces].length === 0 && (
+        {filteredPieces.length === 0 && (
           <EmptyState>
             <CropFree sx={{ fontSize: 64, opacity: 0.4, mb: 2 }} />
             <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
@@ -445,11 +471,11 @@ export default function PiecesOverview() {
 
       <TabPanel value={tabValue} index={1}>
         {/* Need Annotation */}
-        <Grid container spacing={3}>
-          {nonAnnotatedPieces.map(renderPieceCard)}
+        <Grid container spacing={2.5}>
+          {filteredPieces.map(renderPieceCard)}
         </Grid>
         
-        {nonAnnotatedPieces.length === 0 && (
+        {filteredPieces.length === 0 && (
           <EmptyState>
             <CheckCircle sx={{ fontSize: 64, opacity: 0.4, mb: 2, color: '#4caf50' }} />
             <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
@@ -464,11 +490,11 @@ export default function PiecesOverview() {
 
       <TabPanel value={tabValue} index={2}>
         {/* Completed */}
-        <Grid container spacing={3}>
-          {annotatedPieces.map(renderPieceCard)}
+        <Grid container spacing={2.5}>
+          {filteredPieces.map(renderPieceCard)}
         </Grid>
         
-        {annotatedPieces.length === 0 && (
+        {filteredPieces.length === 0 && (
           <EmptyState>
             <RadioButtonUnchecked sx={{ fontSize: 64, opacity: 0.4, mb: 2 }} />
             <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>

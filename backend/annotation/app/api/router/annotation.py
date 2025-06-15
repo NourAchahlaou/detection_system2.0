@@ -244,12 +244,16 @@ def get_virtual_annotations(piece_label: str):
     """Get all annotations currently in virtual storage for a piece"""
     return get_virtual_annotations_service(piece_label, virtual_storage)    
 
+# Add this to your annotation router (paste-2.txt)
+
 @annotation_router.get("/get_all_pieces")
 def get_all_pieces_route(db: db_dependency):
     """Get all pieces in the system with their annotation status"""
     try:
-        # Simplified and corrected query
         pieces = db.query(Piece).all()
+        
+        # FIXED: Use artifact_keeper service to serve images
+        urlbase = "http://localhost/api/artifact_keeper/images/"
         
         result = []
         for piece in pieces:
@@ -262,14 +266,36 @@ def get_all_pieces_route(db: db_dependency):
                 PieceImage.is_annotated == True
             ).count()
             
-            # Get a sample image for preview
-            sample_image = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).first()
+            # Get a sample image for preview (prefer annotated images for completed pieces)
+            sample_image = None
+            if annotated_images > 0:
+                # For pieces with annotations, get an annotated image first
+                sample_image = db.query(PieceImage).filter(
+                    PieceImage.piece_id == piece.id,
+                    PieceImage.is_annotated == True
+                ).first()
+            
+            # If no annotated image found, get any image
+            if not sample_image:
+                sample_image = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).first()
+            
+            # Construct proper image URL
+            image_url = None
+            if sample_image:
+                dataset_base = "/app/shared/dataset"
+                if sample_image.image_path.startswith(dataset_base):
+                    relative_path = sample_image.image_path[len(dataset_base):].lstrip("/")
+                else:
+                    relative_path = sample_image.image_path
+                
+                clean_path = relative_path.replace("\\", "/")
+                image_url = urlbase + clean_path
             
             piece_data = {
                 "piece_label": piece.piece_label,
                 "nbr_img": total_images,
                 "annotated_count": annotated_images,
-                "url": sample_image.image_path if sample_image else None,
+                "url": image_url,
                 "is_fully_annotated": annotated_images >= total_images
             }
             result.append(piece_data)
@@ -279,3 +305,59 @@ def get_all_pieces_route(db: db_dependency):
     except Exception as e:
         print(f"Error fetching all pieces: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching pieces: {str(e)}")
+
+@annotation_router.get("/get_annotated_pieces")
+def get_annotated_pieces_route(db: db_dependency):
+    """Get only fully annotated pieces"""
+    try:
+        # Get all pieces where all images are annotated
+        pieces = db.query(Piece).all()
+        
+        # FIXED: Use artifact_keeper service to serve images
+        urlbase = "http://localhost/api/artifact_keeper/images/"
+        
+        result = []
+        for piece in pieces:
+            # Get total image count
+            total_images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).count()
+            
+            # Get annotated image count
+            annotated_images = db.query(PieceImage).filter(
+                PieceImage.piece_id == piece.id,
+                PieceImage.is_annotated == True
+            ).count()
+            
+            # Only include fully annotated pieces
+            if total_images > 0 and annotated_images >= total_images:
+                # Get a sample annotated image
+                sample_image = db.query(PieceImage).filter(
+                    PieceImage.piece_id == piece.id,
+                    PieceImage.is_annotated == True
+                ).first()
+                
+                # Construct proper image URL
+                image_url = None
+                if sample_image:
+                    dataset_base = "/app/shared/dataset"
+                    if sample_image.image_path.startswith(dataset_base):
+                        relative_path = sample_image.image_path[len(dataset_base):].lstrip("/")
+                    else:
+                        relative_path = sample_image.image_path
+                    
+                    clean_path = relative_path.replace("\\", "/")
+                    image_url = urlbase + clean_path
+                
+                piece_data = {
+                    "piece_label": piece.piece_label,
+                    "nbr_img": total_images,
+                    "annotated_count": annotated_images,
+                    "url": image_url,
+                    "is_fully_annotated": True
+                }
+                result.append(piece_data)
+
+        return result
+
+    except Exception as e:
+        print(f"Error fetching annotated pieces: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching annotated pieces: {str(e)}")
