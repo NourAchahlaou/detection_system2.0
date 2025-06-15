@@ -32,7 +32,7 @@ const HeaderBox = styled(Box)({
   paddingBottom: "24px",
   borderBottom: "1px solid rgba(102, 126, 234, 0.1)",
   marginBottom: "24px",
-  textAlign: "center", // Center the header content
+  textAlign: "center",
 });
 
 const StyledTabs = styled(Tabs)({
@@ -54,10 +54,49 @@ const StyledTabs = styled(Tabs)({
   },
 });
 
+// UPDATED: Custom Grid Container with CSS Grid for precise control
+const CardsGridContainer = styled('div')(({ theme }) => ({
+  display: 'grid',
+  gap: '20px',
+  width: '100%',
+  
+  // Mobile first approach
+  gridTemplateColumns: '1fr',
+  
+  // Small screens (tablets) - 2 cards per row
+  [theme.breakpoints.up('sm')]: {
+    gridTemplateColumns: 'repeat(2, 1fr)',
+  },
+  
+  // Medium screens - 3 cards per row
+  [theme.breakpoints.up('md')]: {
+    gridTemplateColumns: 'repeat(3, 1fr)',
+  },
+  
+  // Large screens - 4 cards per row (this is what you want)
+  [theme.breakpoints.up('lg')]: {
+    gridTemplateColumns: 'repeat(4, 1fr)',
+  },
+  
+  // Extra large screens - 5 cards per row
+  [theme.breakpoints.up('xl')]: {
+    gridTemplateColumns: 'repeat(5, 1fr)',
+  },
+  
+  // Fallback for very large screens using pixel values
+  '@media (min-width: 1200px)': {
+    gridTemplateColumns: 'repeat(4, 1fr)',
+  },
+  
+  '@media (min-width: 1536px)': {
+    gridTemplateColumns: 'repeat(5, 1fr)',
+  },
+}));
+
 const PieceCard = styled(Card)(({ theme }) => ({
   padding: "20px",
   cursor: "pointer",
-  height: "100%", // Make all cards same height
+  height: "100%",
   display: "flex",
   flexDirection: "column",
   border: "2px solid rgba(102, 126, 234, 0.1)",
@@ -66,11 +105,31 @@ const PieceCard = styled(Card)(({ theme }) => ({
   position: "relative",
   overflow: "hidden",
   boxShadow: "0 2px 12px rgba(0, 0, 0, 0.08)",
+  minWidth: "0", // Important for text truncation
   "&:hover": {
     transform: "translateY(-4px)",
     boxShadow: "0 12px 32px rgba(102, 126, 234, 0.2)",
     border: "2px solid #667eea",
     backgroundColor: "rgba(78, 105, 221, 0.45)",
+  },
+}));
+
+// Alternative approach: Custom Grid Item with explicit sizing
+const CustomGridItem = styled('div')(({ theme }) => ({
+  width: '100%',
+  
+  // Use CSS Grid's auto-fit with minmax for responsive behavior
+  '@media (max-width: 599px)': {
+    width: '100%',
+  },
+  '@media (min-width: 600px) and (max-width: 899px)': {
+    width: '100%',
+  },
+  '@media (min-width: 900px) and (max-width: 1199px)': {
+    width: '100%',
+  },
+  '@media (min-width: 1200px)': {
+    width: '100%',
   },
 }));
 
@@ -103,8 +162,7 @@ const PieceTitle = styled(Typography)({
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
   "&:hover": {
-    color: "#666",
-
+    color: "#e2e2e2",
   },
 });
 
@@ -213,7 +271,6 @@ export default function PiecesOverview() {
     try {
       setLoading(true);
       
-      // FIXED: Use the improved get_all_pieces endpoint
       const response = await api.get("/api/annotation/annotations/get_all_pieces");
       const piecesData = response.data || [];
       
@@ -221,7 +278,6 @@ export default function PiecesOverview() {
       
       setAllPieces(piecesData);
       
-      // Calculate stats from the fetched data
       const totalPieces = piecesData.length;
       const fullyAnnotatedPieces = piecesData.filter(piece => piece.is_fully_annotated).length;
       const partiallyAnnotatedPieces = piecesData.filter(piece => 
@@ -239,7 +295,6 @@ export default function PiecesOverview() {
     } catch (error) {
       console.error("Error fetching pieces:", error);
       
-      // Fallback to the original non-annotated endpoint
       try {
         console.log("Trying fallback endpoint...");
         const fallbackResponse = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
@@ -247,7 +302,6 @@ export default function PiecesOverview() {
         
         console.log("Fallback data:", nonAnnotatedData);
         
-        // Convert non-annotated data to the expected format
         const convertedData = nonAnnotatedData.map(piece => ({
           piece_label: piece.piece_label,
           nbr_img: piece.nbr_img,
@@ -280,7 +334,6 @@ export default function PiecesOverview() {
   };
 
   const handlePieceClick = (pieceLabel) => {
-    // Navigate to annotation page with the piece pre-selected
     navigate(`/annotation?piece=${encodeURIComponent(pieceLabel)}`);
   };
 
@@ -309,11 +362,11 @@ export default function PiecesOverview() {
     }
   };
 
-  const renderPieceCard = (piece) => {
+  const renderPieceCard = (piece, index) => {
     const statusInfo = getStatusInfo(piece);
     
     return (
-      <Grid item xs={12} sm={6} md={4} lg={3} key={piece.piece_label}>
+      <CustomGridItem key={piece.piece_label}>
         <PieceCard elevation={0} onClick={() => handlePieceClick(piece.piece_label)}>
           <CardHeader>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
@@ -365,18 +418,17 @@ export default function PiecesOverview() {
             </StatsRow>
           </StatsContainer>
         </PieceCard>
-      </Grid>
+      </CustomGridItem>
     );
   };
 
-  // Filter pieces based on current tab
   const getFilteredPieces = () => {
     switch (tabValue) {
-      case 0: // All Pieces
+      case 0:
         return allPieces;
-      case 1: // Need Annotation (not started + partial)
+      case 1:
         return allPieces.filter(piece => !piece.is_fully_annotated);
-      case 2: // Completed
+      case 2:
         return allPieces.filter(piece => piece.is_fully_annotated);
       default:
         return allPieces;
@@ -401,13 +453,12 @@ export default function PiecesOverview() {
   return (
     <Container>
       <HeaderBox>       
-        {/* Stats Summary */}
         <Box sx={{ 
           display: 'flex', 
           gap: 3, 
           mt: 3, 
           flexWrap: 'wrap',
-          justifyContent: 'center' // Center the stats
+          justifyContent: 'center'
         }}>
           <Box sx={{ textAlign: 'center' }}>
             <Typography variant="h4" sx={{ color: '#667eea', fontWeight: '700' }}>
@@ -451,10 +502,9 @@ export default function PiecesOverview() {
       </StyledTabs>
 
       <TabPanel value={tabValue} index={0}>
-        {/* All Pieces */}
-        <Grid container spacing={2.5}>
+        <CardsGridContainer>
           {filteredPieces.map(renderPieceCard)}
-        </Grid>
+        </CardsGridContainer>
         
         {filteredPieces.length === 0 && (
           <EmptyState>
@@ -470,10 +520,9 @@ export default function PiecesOverview() {
       </TabPanel>
 
       <TabPanel value={tabValue} index={1}>
-        {/* Need Annotation */}
-        <Grid container spacing={2.5}>
+        <CardsGridContainer>
           {filteredPieces.map(renderPieceCard)}
-        </Grid>
+        </CardsGridContainer>
         
         {filteredPieces.length === 0 && (
           <EmptyState>
@@ -489,10 +538,9 @@ export default function PiecesOverview() {
       </TabPanel>
 
       <TabPanel value={tabValue} index={2}>
-        {/* Completed */}
-        <Grid container spacing={2.5}>
+        <CardsGridContainer>
           {filteredPieces.map(renderPieceCard)}
-        </Grid>
+        </CardsGridContainer>
         
         {filteredPieces.length === 0 && (
           <EmptyState>

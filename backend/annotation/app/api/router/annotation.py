@@ -103,24 +103,24 @@ def saveAnnotation(piece_label: str, db: db_dependency):
     match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
     if not match:
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
-    extracted_label = match.group(1)
-
-    # Define save_folder using the extracted_label
-    save_folder = os.path.join("dataset", "Pieces", "Pieces", "labels", "valid", extracted_label, piece_label)
-    os.makedirs(save_folder, exist_ok=True)
     
+    # REMOVED: Don't pass save_folder parameter since it's handled inside the service
     try:
-        result = save_annotations_to_db(db, piece_label, save_folder)
+        result = save_annotations_to_db(db, piece_label, "")  # Empty string for save_folder
         result1 = get_images_of_piece(piece_label, db)
     except SystemError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     if result is None:
-        raise HTTPException(status_code=500, detail="Failed to capture frame from the camera.")
+        raise HTTPException(status_code=500, detail="Failed to save annotations.")
     if result1 is None:
-        raise HTTPException(status_code=500, detail="Failed to capture frame from the camera.")
+        raise HTTPException(status_code=500, detail="Failed to retrieve piece images.")
     
-    return piece_label, save_folder, result, result1
+    return {
+        "piece_label": piece_label,
+        "save_result": result,
+        "images": result1
+    }
 
 @annotation_router.get("/image/{image_id}/annotations")
 def get_image_annotations(image_id: int, db: db_dependency):

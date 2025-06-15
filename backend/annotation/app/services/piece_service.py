@@ -175,6 +175,21 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
     print(f"Annotations found for piece: {virtual_storage[piece_label]['annotations']}")
 
+    # Extract label and create proper annotation save path
+    match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid piece_label format.")
+    extracted_label = match.group(1)
+
+    # FIXED: Use the annotations volume instead of dataset volume
+    # Use the annotations path from environment or default
+    annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
+    save_folder = os.path.join(annotations_base_path, "labels", "valid", extracted_label, piece_label)
+    
+    # Create directory if it doesn't exist
+    os.makedirs(save_folder, exist_ok=True)
+    print(f"Created/verified annotation directory: {save_folder}")
+
     # Collect unique class IDs and labels from annotations
     class_id_to_label = {}
 
@@ -218,17 +233,18 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         # Set the file path for saving the annotation
         file_path = os.path.join(save_folder, annotationTXT_name)
 
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
         # Prepare annotation in YOLO format
         annotationTXT = f"{piece.class_data_id} {x_center_normalized} {y_center_normalized} {width_normalized} {height_normalized}\n"
 
-        # Save the annotation inside a text file
-        with open(file_path, 'w') as file:
-            file.write(annotationTXT)
-
-        print(f"Annotation saved to text file: {file_path}")
+        # FIXED: Add error handling for file writing
+        try:
+            # Save the annotation inside a text file
+            with open(file_path, 'w') as file:
+                file.write(annotationTXT)
+            print(f"Annotation saved to text file: {file_path}")
+        except IOError as e:
+            print(f"Error writing annotation file {file_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to write annotation file: {str(e)}")
 
         # Save the annotation in the database
         annotation = Annotation(
@@ -247,7 +263,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         piece_image.is_annotated = True
         class_id_to_label[piece.class_data_id] = piece.piece_label
 
-    # FIXED: Check if all images related to the piece are annotated
+    # Check if all images related to the piece are annotated
     remaining_unannotated = db.query(PieceImage).filter(
         PieceImage.piece_id == piece.id,
         PieceImage.is_annotated == False
@@ -263,8 +279,8 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         if not update_piece_annotation_status(piece_label, True):
             print("Warning: Failed to update piece annotation status via API")
         
-        # Update data.yaml
-        data_yaml_path = os.path.join("dataset_custom", "data.yaml")
+        # FIXED: Update data.yaml in the annotations volume
+        data_yaml_path = os.path.join(annotations_base_path, "data.yaml")
 
         # Load existing data if it exists
         if os.path.exists(data_yaml_path):
@@ -272,11 +288,12 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                 data_yaml = yaml.safe_load(yaml_file)
                 print(f"Existing data_yaml loaded: {data_yaml}")
         else:
+            # FIXED: Use relative paths for train/val directories
             data_yaml = {
                 'names': {},
                 'nc': 0,
-                'val': os.path.join("C:\\Users\\hp\\Desktop\\Airbus\\detectionSystemAirbus", "backend", "dataset_custom","images","valid"),
-                'train': os.path.join("C:\\Users\\hp\\Desktop\\Airbus\\detectionSystemAirbus", "backend", "dataset_custom", "images", "train")
+                'val': os.path.join(annotations_base_path, "images", "valid"),
+                'train': os.path.join(annotations_base_path, "images", "train")
             }
             print("No existing data_yaml found. Creating new.")
 
@@ -289,10 +306,12 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         os.makedirs(os.path.dirname(data_yaml_path), exist_ok=True)
 
         # Write to data.yaml
-        with open(data_yaml_path, 'w') as yaml_file:
-            yaml.dump(data_yaml, yaml_file, default_flow_style=False)
-
-        print(f"data.yaml file updated at: {data_yaml_path}")
+        try:
+            with open(data_yaml_path, 'w') as yaml_file:
+                yaml.dump(data_yaml, yaml_file, default_flow_style=False)
+            print(f"data.yaml file updated at: {data_yaml_path}")
+        except IOError as e:
+            print(f"Warning: Failed to write data.yaml: {e}")
 
     # Commit changes to annotation service's data only
     db.commit()
@@ -303,19 +322,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     virtual_storage.pop(piece_label, None)
     print("Annotations saved successfully and virtual storage cleared.")
     
-    # # Call the stop camera endpoint
-    # try:
-    #     # FIXED: Use the correct URL for your artifact keeper service
-    #     stop_camera_response = requests.post("ttp://localhost/api/artifact_keeper/cameras/stop", timeout=10)
-
-    #     if stop_camera_response.status_code != 200:
-    #         print(f"Failed to stop camera: {stop_camera_response.json().get('detail')}")
-    #     else:
-    #         print("Camera stopped successfully.")
-    # except Exception as e:
-    #     print(f"Error stopping camera: {str(e)}")
-
-    return {"status": "Annotations saved successfully"}
+    return {"status": "Annotations saved successfully", "save_folder": save_folder}
 
 # http://localhost/api/artifact_keeper/camera/cameras/stop
 def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]:
@@ -376,11 +383,14 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         
         # Delete the corresponding annotation text file if it exists
         try:
-            # Reconstruct the file path
+            # FIXED: Use the correct path structure
             match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
             if match:
                 extracted_label = match.group(1)
-                save_folder = os.path.join("dataset", "Pieces", "Pieces", "labels", "valid", extracted_label, piece_label)
+                
+                # Use the annotations volume path
+                annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
+                save_folder = os.path.join(annotations_base_path, "labels", "valid", extracted_label, piece_label)
                 
                 # Get the annotation file name
                 annotation_file_path = os.path.join(save_folder, annotation_txt_name)

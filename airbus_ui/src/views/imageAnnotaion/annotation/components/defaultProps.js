@@ -9,7 +9,7 @@ import {
   RectangleSelector,
 } from '../selectors';
 
-export default {
+const defaultProps = {
   innerRef: () => {},
   onChange: () => {},
   onSubmit: () => {},
@@ -85,3 +85,5 @@ export default {
     }
   },
 };
+
+export default defaultProps;

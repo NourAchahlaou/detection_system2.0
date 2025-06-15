@@ -1,21 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
 import { CheckCircle, RadioButtonUnchecked } from "@mui/icons-material";
-import NonAnnotated from "./annotation/components/NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
 import api from "../../utils/UseAxios";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 
-// STYLED COMPONENTS - Updated to match capture template exactly
-const Container = styled("div")(({ theme }) => ({
-  margin: "30px",
-  [theme.breakpoints.down("sm")]: { margin: "16px" },
-  "& .breadcrumb": {
-    marginBottom: "30px",
-    [theme.breakpoints.down("sm")]: { marginBottom: "16px" },
-  },
-}));
 
 // Updated to match VideoCard styling exactly
 const AnnotationCard = styled(Card)(({ theme }) => ({
