@@ -6,7 +6,16 @@ from annotation.app.db.session import get_session
 from sqlalchemy.orm import Session
 
 from annotation.app.db.models.piece_image import PieceImage
-from annotation.app.services.piece_service import get_images_of_piece, get_img_non_annotated, save_annotation_in_memory, save_annotations_to_db
+from annotation.app.services.piece_service import (
+    get_images_of_piece,
+    get_img_non_annotated,
+    save_annotation_in_memory,
+    save_annotations_to_db,
+    delete_annotation_service,
+    delete_virtual_annotation_service,
+    get_virtual_annotations_service,
+    virtual_storage
+)
 from annotation.app.db.models.annotation import Annotation
 from annotation.app.db.models.piece import Piece
 db_dependency = Annotated[Session, Depends(get_session)]
@@ -220,3 +229,18 @@ def get_piece_annotations(piece_label: str, db: db_dependency):
     except Exception as e:
         print(f"Error fetching annotations for piece {piece_label}: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching annotations: {str(e)}")
+    
+@annotation_router.delete("/{annotation_id}")
+def delete_annotation(annotation_id: int, db: db_dependency):
+    """Delete a specific annotation from the database"""
+    return delete_annotation_service(annotation_id, db)
+
+@annotation_router.delete("/virtual/{piece_label}/{image_id}/{annotation_id}")
+def delete_virtual_annotation(piece_label: str, image_id: int, annotation_id: str):
+    """Delete a specific annotation from virtual storage"""
+    return delete_virtual_annotation_service(piece_label, image_id, annotation_id, virtual_storage)
+
+@annotation_router.get("/virtual/{piece_label}")
+def get_virtual_annotations(piece_label: str):
+    """Get all annotations currently in virtual storage for a piece"""
+    return get_virtual_annotations_service(piece_label, virtual_storage)    

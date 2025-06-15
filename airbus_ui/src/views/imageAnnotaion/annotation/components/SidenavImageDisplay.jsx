@@ -56,21 +56,62 @@ export default function SidenavImageDisplay({
   onImageCountUpdate,
   onImagesLoaded,
   currentImageIndex,
-  refreshTrigger // FIXED: Added this prop
+  refreshTrigger
 }) {
   const [images, setImages] = useState([]);
   const [localCurrentIndex, setLocalCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
+  // NEW: Store original order mapping
+  const [originalOrderMap, setOriginalOrderMap] = useState(new Map());
   
   const mountedRef = useRef(true);
   const lastPieceLabelRef = useRef(null);
 
-  // FIXED: Add useEffect to handle refreshTrigger changes
+  // Helper function to assign stable display numbers
+  const assignStableNumbers = (newImages, existingOrderMap = new Map()) => {
+    const updatedOrderMap = new Map(existingOrderMap);
+    const numberedImages = [];
+    
+    // First, handle images that already have assigned numbers
+    const usedNumbers = new Set(Array.from(updatedOrderMap.values()));
+    
+    newImages.forEach((image, index) => {
+      const imageKey = image.name || image.id || image.url; // Use a unique identifier
+      
+      if (updatedOrderMap.has(imageKey)) {
+        // Image already has a number assigned
+        numberedImages.push({
+          ...image,
+          originalIndex: index,
+          displayNumber: updatedOrderMap.get(imageKey)
+        });
+      } else {
+        // New image - assign next available number
+        let nextNumber = 1;
+        while (usedNumbers.has(nextNumber)) {
+          nextNumber++;
+        }
+        updatedOrderMap.set(imageKey, nextNumber);
+        usedNumbers.add(nextNumber);
+        
+        numberedImages.push({
+          ...image,
+          originalIndex: index,
+          displayNumber: nextNumber
+        });
+      }
+    });
+    
+    // Sort by display number to maintain consistent ordering in UI
+    numberedImages.sort((a, b) => a.displayNumber - b.displayNumber);
+    
+    return { numberedImages, updatedOrderMap };
+  };
+
   useEffect(() => {
     if (refreshTrigger > 0 && pieceLabel) {
       console.log('SidenavImageDisplay: Refresh trigger activated, refetching images...');
-      // Force a refresh by clearing the last piece label ref
       lastPieceLabelRef.current = null;
       fetchImages();
     }
@@ -90,13 +131,13 @@ export default function SidenavImageDisplay({
       setImages([]);
       setLocalCurrentIndex(0);
       setSelectedImageUrl('');
+      setOriginalOrderMap(new Map()); // Reset order map
       if (onImageCountUpdate) {
         onImageCountUpdate(0);
       }
       return;
     }
 
-    // FIXED: Allow refetch when refreshTrigger changes, even if pieceLabel is the same
     if (lastPieceLabelRef.current === pieceLabel && refreshTrigger === 0) {
       return;
     }
@@ -108,30 +149,37 @@ export default function SidenavImageDisplay({
       console.log('SidenavImageDisplay: Fetching images for piece:', pieceLabel);
       
       const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${pieceLabel}`);
-      const data = response.data;
+      const rawData = response.data;
       
-      console.log('SidenavImageDisplay: Received images data:', data);
+      console.log('SidenavImageDisplay: Received images data:', rawData);
       
       if (mountedRef.current) {
-        setImages(data);
+        // NEW: Assign stable numbers and maintain order
+        const { numberedImages, updatedOrderMap } = assignStableNumbers(
+          rawData, 
+          refreshTrigger > 0 ? originalOrderMap : new Map()
+        );
         
-        // FIXED: Don't reset current index if we're just refreshing
+        setImages(numberedImages);
+        setOriginalOrderMap(updatedOrderMap);
+        
+        // Don't reset current index if we're just refreshing
         if (refreshTrigger === 0) {
           setLocalCurrentIndex(0);
           setSelectedImageUrl('');
         }
 
         if (onImageCountUpdate) {
-          onImageCountUpdate(data.length);
+          onImageCountUpdate(numberedImages.length);
         }
 
         if (onImagesLoaded) {
-          onImagesLoaded(data);
+          onImagesLoaded(numberedImages);
         }
 
-        // FIXED: Only set first image if this is initial load, not a refresh
-        if (data.length > 0 && refreshTrigger === 0) {
-          const firstImage = data[0];
+        // Only set first image if this is initial load, not a refresh
+        if (numberedImages.length > 0 && refreshTrigger === 0) {
+          const firstImage = numberedImages[0];
           setSelectedImageUrl(firstImage.url);
           
           if (onFirstImageLoad) {
@@ -141,9 +189,9 @@ export default function SidenavImageDisplay({
           if (onImageSelect) {
             onImageSelect(firstImage.url, firstImage.name, 0);
           }
-        } else if (data.length > 0 && refreshTrigger > 0) {
-          // FIXED: After refresh, maintain current selection if possible
-          const currentImage = data[localCurrentIndex];
+        } else if (numberedImages.length > 0 && refreshTrigger > 0) {
+          // After refresh, maintain current selection if possible
+          const currentImage = numberedImages[localCurrentIndex];
           if (currentImage) {
             setSelectedImageUrl(currentImage.url);
           }
@@ -156,6 +204,7 @@ export default function SidenavImageDisplay({
         setImages([]);
         setLocalCurrentIndex(0);
         setSelectedImageUrl('');
+        setOriginalOrderMap(new Map());
         if (onImageCountUpdate) {
           onImageCountUpdate(0);
         }
@@ -165,12 +214,11 @@ export default function SidenavImageDisplay({
         setLoading(false);
       }
     }
-  }, [pieceLabel, refreshTrigger, localCurrentIndex, onImageCountUpdate, onImagesLoaded, onFirstImageLoad, onImageSelect]);
+  }, [pieceLabel, refreshTrigger, localCurrentIndex, originalOrderMap, onImageCountUpdate, onImagesLoaded, onFirstImageLoad, onImageSelect]);
 
   useEffect(() => {
     mountedRef.current = true;
     
-    // FIXED: Always fetch if pieceLabel changed or if this is initial mount
     if (lastPieceLabelRef.current !== pieceLabel) {
       lastPieceLabelRef.current = null;
       fetchImages();
@@ -336,7 +384,6 @@ export default function SidenavImageDisplay({
                 const isBackTop = image.position === 'back-top';
                 const isBackBottom = image.position === 'back-bottom';
                 const isBack = image.position === 'back';
-                // FIXED: Use the backend data to determine annotation status
                 const isAnnotated = image.is_annotated === true;
 
                 let translateY = 0;
@@ -378,7 +425,7 @@ export default function SidenavImageDisplay({
 
                 return (
                   <Card
-                    key={`${image.index}-${image.position}-${refreshTrigger}`} // FIXED: Add refreshTrigger to key to force re-render
+                    key={`${image.index}-${image.position}-${refreshTrigger}`}
                     sx={{
                       position: 'absolute',
                       width: '280px',
@@ -429,7 +476,7 @@ export default function SidenavImageDisplay({
                       imageId={image.name}
                       width="100%"
                       height="100%"
-                      alt={`Image ${image.index + 1}`}
+                      alt={`Image ${image.displayNumber}`}
                       sx={{
                         position: 'absolute',
                         top: 0,
@@ -439,6 +486,7 @@ export default function SidenavImageDisplay({
                       }}
                     />
                     
+                    {/* CHANGED: Use displayNumber instead of index + 1 */}
                     <Box
                       sx={{
                         position: 'absolute',
@@ -458,7 +506,7 @@ export default function SidenavImageDisplay({
                         zIndex: 399
                       }}
                     >
-                      {image.index + 1}
+                      {image.displayNumber}
                     </Box>
 
                     <Box

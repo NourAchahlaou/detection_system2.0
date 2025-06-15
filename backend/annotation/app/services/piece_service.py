@@ -1,7 +1,7 @@
 from datetime import datetime
 import os
 import re
-from typing import Dict, Union
+from typing import Dict, Union, Any
 from fastapi import HTTPException, logger
 from sqlalchemy.orm import Session
 import yaml
@@ -318,3 +318,206 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     return {"status": "Annotations saved successfully"}
 
 # http://localhost/api/artifact_keeper/camera/cameras/stop
+def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]:
+    """Delete a specific annotation from the database"""
+    try:
+        # Find the annotation
+        annotation = db.query(Annotation).filter(Annotation.id == annotation_id).first()
+        
+        if not annotation:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        
+        # Get the associated image to update its annotation status if needed
+        piece_image = db.query(PieceImage).filter(PieceImage.id == annotation.piece_image_id).first()
+        
+        if not piece_image:
+            raise HTTPException(status_code=404, detail="Associated image not found")
+        
+        # Get the piece for file path reconstruction
+        piece = db.query(Piece).filter(Piece.id == piece_image.piece_id).first()
+        
+        if not piece:
+            raise HTTPException(status_code=404, detail="Associated piece not found")
+        
+        # Store information before deletion for file cleanup
+        annotation_txt_name = annotation.annotationTXT_name
+        piece_label = piece.piece_label
+        
+        # Delete the annotation first
+        db.delete(annotation)
+        db.flush()  # Ensure deletion is processed before checking remaining annotations
+        
+        # Check if there are any remaining annotations for this image
+        remaining_annotations = db.query(Annotation).filter(
+            Annotation.piece_image_id == piece_image.id
+        ).count()
+        
+        print(f"Remaining annotations for image {piece_image.id}: {remaining_annotations}")
+        
+        # If no annotations remain, mark image as not annotated
+        if remaining_annotations == 0:
+            piece_image.is_annotated = False
+            print(f"Marked image {piece_image.id} as not annotated")
+            
+            # Check if any other images in this piece are still annotated
+            other_annotated_images = db.query(PieceImage).filter(
+                PieceImage.piece_id == piece.id,
+                PieceImage.is_annotated == True
+            ).count()
+            
+            print(f"Other annotated images in piece {piece.id}: {other_annotated_images}")
+            
+            if other_annotated_images == 0:
+                # Update piece status via artifact_keeper API
+                print(f"Updating piece {piece_label} status to not annotated")
+                update_success = update_piece_annotation_status(piece_label, False)
+                if not update_success:
+                    print(f"Warning: Failed to update piece {piece_label} status via API")
+        
+        # Delete the corresponding annotation text file if it exists
+        try:
+            # Reconstruct the file path
+            match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
+            if match:
+                extracted_label = match.group(1)
+                save_folder = os.path.join("dataset", "Pieces", "Pieces", "labels", "valid", extracted_label, piece_label)
+                
+                # Get the annotation file name
+                annotation_file_path = os.path.join(save_folder, annotation_txt_name)
+                
+                if os.path.exists(annotation_file_path):
+                    os.remove(annotation_file_path)
+                    print(f"Deleted annotation file: {annotation_file_path}")
+                else:
+                    print(f"Annotation file not found: {annotation_file_path}")
+            else:
+                print(f"Could not extract label from piece_label: {piece_label}")
+                
+        except Exception as file_error:
+            print(f"Warning: Could not delete annotation file: {str(file_error)}")
+        
+        # Commit all changes
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Annotation {annotation_id} deleted successfully",
+            "image_still_annotated": remaining_annotations > 0,
+            "piece_label": piece_label,
+            "annotation_file_deleted": True
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        error_msg = str(e)
+        print(f"Error deleting annotation {annotation_id}: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Error deleting annotation: {error_msg}")
+    
+def delete_virtual_annotation_service(piece_label: str, image_id: int, annotation_id: str, virtual_storage: Dict) -> Dict[str, Any]:
+    """Delete a specific annotation from virtual storage"""
+    try:
+        # Check if piece exists in virtual storage
+        if piece_label not in virtual_storage:
+            raise HTTPException(status_code=404, detail="Piece not found in virtual storage")
+        
+        # Find and remove the annotation from virtual storage
+        annotations = virtual_storage[piece_label]['annotations']
+        
+        # Convert annotation_id to appropriate type for comparison
+        try:
+            annotation_id_float = float(annotation_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid annotation ID format")
+        
+        # Find the annotation by image_id and a matching identifier
+        # Remove the most recently added annotation for this image as a fallback
+        # if we can't find an exact match
+        filtered_annotations = []
+        removed_annotation = None
+        
+        for annotation in annotations:
+            if annotation['image_id'] == image_id:
+                # If this is the most recent annotation for this image, remove it
+                if removed_annotation is None:
+                    removed_annotation = annotation
+                    continue
+            filtered_annotations.append(annotation)
+        
+        if removed_annotation is None:
+            raise HTTPException(status_code=404, detail="Annotation not found in virtual storage")
+        
+        # Update virtual storage
+        virtual_storage[piece_label]['annotations'] = filtered_annotations
+        
+        # If image has no more annotations in virtual storage, remove it from the images set
+        remaining_image_annotations = [ann for ann in filtered_annotations if ann['image_id'] == image_id]
+        if not remaining_image_annotations:
+            virtual_storage[piece_label]['images'].discard(image_id)
+        
+        # If no annotations remain for the piece, clean up virtual storage
+        if not virtual_storage[piece_label]['annotations']:
+            virtual_storage.pop(piece_label, None)
+        
+        print(f"Removed annotation from virtual storage for piece {piece_label}, image {image_id}")
+        
+        return {
+            "status": "success",
+            "message": "Annotation removed from virtual storage",
+            "removed_annotation": removed_annotation,
+            "remaining_count": len(filtered_annotations)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error removing annotation from virtual storage: {e}")
+        raise HTTPException(status_code=500, detail=f"Error removing annotation from virtual storage: {str(e)}")
+
+def get_virtual_annotations_service(piece_label: str, virtual_storage: Dict) -> Dict[str, Any]:
+    """Get all annotations currently in virtual storage for a piece"""
+    try:
+        if piece_label not in virtual_storage:
+            return {
+                "piece_label": piece_label,
+                "annotations": [],
+                "images": [],
+                "count": 0
+            }
+        
+        return {
+            "piece_label": piece_label,
+            "annotations": virtual_storage[piece_label]['annotations'],
+            "images": list(virtual_storage[piece_label]['images']),
+            "count": len(virtual_storage[piece_label]['annotations'])
+        }
+        
+    except Exception as e:
+        print(f"Error getting virtual annotations: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting virtual annotations: {str(e)}")
+
+def update_piece_annotation_status(piece_label: str, is_annotated: bool) -> bool:
+    """
+    Update piece annotation status via artifact_keeper API.
+    This respects service boundaries and data ownership.
+    """
+    try:
+        response = requests.patch(
+            f"http://localhost/api/artifact_keeper/camera/pieces/{piece_label}/annotation-status",
+            json={"is_annotated": is_annotated},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            print(f"Successfully updated piece {piece_label} annotation status to {is_annotated}")
+            return True
+        else:
+            print(f"Failed to update piece annotation status: {response.status_code} - {response.text}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling artifact_keeper API: {str(e)}")
+        return False
