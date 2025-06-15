@@ -32,38 +32,44 @@ const Container = styled('div')(({ theme }) => ({
   zIndex: 1000,
 }));
 
-function Editor(props) {
-  const { geometry } = props.annotation;
+const Editor = React.forwardRef(({ 
+  annotation, 
+  className = '', 
+  style = {}, 
+  onChange, 
+  onSubmit,
+  ...props 
+}, ref) => {
+  const { geometry } = annotation;
   if (!geometry) return null;
 
   return (
     <Container
-      className={props.className}
+      ref={ref}
+      className={className}
       style={{
         left: `${geometry.x}%`,
         top: `${geometry.y + geometry.height}%`,
         transform: 'translate(-50%, -100%)',
-        ...props.style
+        ...style
       }}
+      {...props}
     >
       <TextEditor
-        onChange={e => props.onChange({
-          ...props.annotation,
+        onChange={e => onChange({
+          ...annotation,
           data: {
-            ...props.annotation.data,
+            ...annotation.data,
             text: e.target.value
           }
         })}
-        onSubmit={props.onSubmit}
-        value={props.annotation.data && props.annotation.data.text}
+        onSubmit={onSubmit}
+        value={annotation.data && annotation.data.text}
       />
     </Container>
   );
-}
+});
 
-Editor.defaultProps = {
-  className: '',
-  style: {}
-};
+Editor.displayName = 'Editor';
 
 export default Editor;

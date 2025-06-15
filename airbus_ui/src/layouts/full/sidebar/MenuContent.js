@@ -33,7 +33,7 @@ const menuSections = [
     title: 'Image Operations',
     items: [
       { text: 'Capture Image', icon: <CameraAltRoundedIcon />, to: '/captureImage' },
-      { text: 'Annotate Images', icon: <LabelRoundedIcon />, to: '/annotation' },
+      { text: 'Pieces Overview', icon: <LabelRoundedIcon />, to: '/piecesOverview' },
       { text: 'Manage Dataset', icon: <FolderRoundedIcon />, to: '/dataset' },
     ],
   },

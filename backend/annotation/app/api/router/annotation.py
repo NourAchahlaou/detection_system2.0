@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from annotation.app.db.session import get_session
 from sqlalchemy.orm import Session
+from sqlalchemy import func, exists, and_, case  # Add these imports
 
 from annotation.app.db.models.piece_image import PieceImage
 from annotation.app.services.piece_service import (
@@ -120,8 +121,6 @@ def saveAnnotation(piece_label: str, db: db_dependency):
         raise HTTPException(status_code=500, detail="Failed to capture frame from the camera.")
     
     return piece_label, save_folder, result, result1
-
-# Add this endpoint to your annotation router
 
 @annotation_router.get("/image/{image_id}/annotations")
 def get_image_annotations(image_id: int, db: db_dependency):
@@ -244,3 +243,39 @@ def delete_virtual_annotation(piece_label: str, image_id: int, annotation_id: st
 def get_virtual_annotations(piece_label: str):
     """Get all annotations currently in virtual storage for a piece"""
     return get_virtual_annotations_service(piece_label, virtual_storage)    
+
+@annotation_router.get("/get_all_pieces")
+def get_all_pieces_route(db: db_dependency):
+    """Get all pieces in the system with their annotation status"""
+    try:
+        # Simplified and corrected query
+        pieces = db.query(Piece).all()
+        
+        result = []
+        for piece in pieces:
+            # Get total image count for this piece
+            total_images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).count()
+            
+            # Get annotated image count for this piece
+            annotated_images = db.query(PieceImage).filter(
+                PieceImage.piece_id == piece.id,
+                PieceImage.is_annotated == True
+            ).count()
+            
+            # Get a sample image for preview
+            sample_image = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).first()
+            
+            piece_data = {
+                "piece_label": piece.piece_label,
+                "nbr_img": total_images,
+                "annotated_count": annotated_images,
+                "url": sample_image.image_path if sample_image else None,
+                "is_fully_annotated": annotated_images >= total_images
+            }
+            result.append(piece_data)
+
+        return result
+
+    except Exception as e:
+        print(f"Error fetching all pieces: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching pieces: {str(e)}")

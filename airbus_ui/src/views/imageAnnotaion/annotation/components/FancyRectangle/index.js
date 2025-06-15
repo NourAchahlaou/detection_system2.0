@@ -2,13 +2,12 @@ import React from 'react';
 import { styled } from '@mui/material/styles';
 
 const Box = styled('div')(({ submitted, active, theme }) => ({
-  position: 'relative',
+  position: 'absolute',
   background: submitted ? 'blue' : 'rgba(0, 0, 0, 0.2)',
   border: `2px solid ${active ? 'yellow' : 'rgba(255, 255, 255, 0.8)'}`,
   boxShadow: active ? '0 0 10px yellow' : '0 0 5px rgba(0, 0, 0, 0.7)',
   transition: 'background 0.3s, border-color 0.3s, box-shadow 0.3s',
   cursor: 'pointer',
-  position: 'absolute',
 }));
 
 const Label = styled('div')(({ theme }) => ({
@@ -24,14 +23,20 @@ const Label = styled('div')(({ theme }) => ({
   whiteSpace: 'nowrap',
 }));
 
-function FancyRectangle(props) {
-  const { geometry, data, active, submitted } = props.annotation;
+const FancyRectangle = React.forwardRef(({ 
+  annotation, 
+  className = '', 
+  style = {},
+  ...props 
+}, ref) => {
+  const { geometry, data, active, submitted } = annotation;
 
   if (!geometry) return null;
 
   return (
     <Box
-      className={props.className}
+      ref={ref}
+      className={className}
       active={active}
       submitted={submitted}
       style={{
@@ -39,7 +44,9 @@ function FancyRectangle(props) {
         width: `${geometry.width}%`,
         top: `${geometry.y}%`,
         left: `${geometry.x}%`,
+        ...style
       }}
+      {...props}
     >
       {data && data.text && (
         <Label>
@@ -48,11 +55,8 @@ function FancyRectangle(props) {
       )}
     </Box>
   );
-}
+});
 
-FancyRectangle.defaultProps = {
-  className: '',
-  style: {}
-};
+FancyRectangle.displayName = 'FancyRectangle';
 
 export default FancyRectangle;

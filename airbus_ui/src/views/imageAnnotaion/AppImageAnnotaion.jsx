@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
 import { CheckCircle, RadioButtonUnchecked } from "@mui/icons-material";
-import NonAnnotated from "./NonAnnotated";
+import NonAnnotated from "./annotation/components/NonAnnotated";
 import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
 import api from "../../utils/UseAxios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 
 // STYLED COMPONENTS - Updated to match capture template exactly
 const Container = styled("div")(({ theme }) => ({
@@ -85,6 +85,8 @@ export default function AppImageAnnotaion() {
   const [totalImages, setTotalImages] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [allImages, setAllImages] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pieceNotFound, setPieceNotFound] = useState(false);
   
   // Force refresh trigger for SidenavImageDisplay
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -97,6 +99,11 @@ export default function AppImageAnnotaion() {
   const [updateImageStatusCallback, setUpdateImageStatusCallback] = useState(null);
   
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  // NEW: Extract piece from URL parameters
+  const urlPiece = searchParams.get('piece');
 
   // UPDATED: Handle image selection from sidebar - now includes statusUpdateCallback
   const handleImageSelect = useCallback((imageUrl, imageId, index, statusUpdateCallback) => {
@@ -219,27 +226,117 @@ export default function AppImageAnnotaion() {
     }
   }, [updateImageStatusCallback]);
 
-  // Load initial piece
+  // NEW: Function to validate if a piece exists and has images
+  const validatePiece = async (pieceLabel) => {
+    try {
+      console.log('Validating piece:', pieceLabel);
+      
+      // Try to get images for this piece
+      const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${pieceLabel}`);
+      
+      if (response.data && response.data.length > 0) {
+        return true;
+      } else {
+        console.warn('Piece exists but has no images:', pieceLabel);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error validating piece:', error);
+      if (error.response?.status === 404) {
+        console.warn('Piece not found:', pieceLabel);
+        return false;
+      }
+      // For other errors, assume piece might exist
+      return true;
+    }
+  };
+
+  // NEW: Updated initial load effect to handle URL parameters
   useEffect(() => {
     async function fetchInitialPiece() {
+      setIsLoading(true);
+      setPieceNotFound(false);
+      
       try {
+        // If there's a piece in URL parameters, try to use it first
+        if (urlPiece) {
+          console.log('URL piece parameter found:', urlPiece);
+          
+          const decodedPiece = decodeURIComponent(urlPiece);
+          const isValid = await validatePiece(decodedPiece);
+          
+          if (isValid) {
+            console.log('URL piece is valid, using:', decodedPiece);
+            setSelectedPieceLabel(decodedPiece);
+            setInitialPiece(decodedPiece);
+            setIsLoading(false);
+            return;
+          } else {
+            console.log('URL piece is invalid, falling back to default');
+            setPieceNotFound(true);
+            // Don't return here, fall through to default behavior
+          }
+        }
+
+        // Default behavior: get first non-annotated piece
         const response = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
         const pieces = response.data;
+        
         if (pieces.length > 0) {
           const firstPiece = pieces[0];
+          console.log('Using first available piece:', firstPiece.piece_label);
           setInitialPiece(firstPiece.piece_label);
           setSelectedPieceLabel(firstPiece.piece_label);
+          
+          // If we came from URL with invalid piece, update URL to reflect actual piece
+          if (urlPiece && pieceNotFound) {
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('piece', encodeURIComponent(firstPiece.piece_label));
+            window.history.replaceState({}, '', newUrl);
+          }
         } else {
+          console.log('No pieces available, redirecting to 204');
           navigate("/204");
         }
       } catch (error) {
         console.error("Error fetching initial piece:", error.response?.data?.detail || error.message);
         navigate("/204");
+      } finally {
+        setIsLoading(false);
       }
     }
 
     fetchInitialPiece();
-  }, [navigate]);
+  }, [navigate, urlPiece]); // Include urlPiece in dependencies
+
+  // NEW: Effect to handle URL parameter changes during runtime
+  useEffect(() => {
+    if (!urlPiece || !selectedPieceLabel || isLoading) return;
+    
+    const decodedUrlPiece = decodeURIComponent(urlPiece);
+    
+    // If URL piece is different from current piece, switch to it
+    if (decodedUrlPiece !== selectedPieceLabel) {
+      console.log('URL piece changed, switching from', selectedPieceLabel, 'to', decodedUrlPiece);
+      
+      validatePiece(decodedUrlPiece).then(isValid => {
+        if (isValid) {
+          setSelectedPieceLabel(decodedUrlPiece);
+          // Reset image selection state
+          setSelectedImageUrl('');
+          setSelectedImageId(null);
+          setCurrentImageIndex(0);
+          setAllImages([]);
+          setAnnotatedImages([]);
+          // Force sidebar refresh
+          setRefreshTrigger(prev => prev + 1);
+        } else {
+          console.warn('Invalid piece in URL, ignoring:', decodedUrlPiece);
+          setPieceNotFound(true);
+        }
+      });
+    }
+  }, [urlPiece, selectedPieceLabel, isLoading]);
 
   // Load existing annotations for the piece - only when piece changes
   useEffect(() => {
@@ -287,12 +384,45 @@ export default function AppImageAnnotaion() {
 
   const { annotatedCount, totalCount } = getAnnotationStats();
 
+  // NEW: Show loading state
+  if (isLoading) {
+    return (
+      <Box sx={{ 
+        width: '100%', 
+        maxWidth: { sm: '100%', md: '1700px' }, 
+        margin: '0 auto',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '400px'
+      }}>
+        <Typography variant="h6" sx={{ color: '#666' }}>
+          Loading piece data...
+        </Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' }, margin: '0 auto' }}>
       {/* Header Section - Keep outside the main grid */}
       <HeaderBox>
         <HeaderTitle>
           {selectedPieceLabel ? `${selectedPieceLabel} Images` : "Select a Piece"}
+          {/* NEW: Show warning if piece from URL was not found */}
+          {pieceNotFound && urlPiece && (
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                display: 'block', 
+                color: '#ff9800', 
+                fontSize: '0.75rem', 
+                mt: 0.5 
+              }}
+            >
+              Note: Piece "{decodeURIComponent(urlPiece)}" not found, showing default piece
+            </Typography>
+          )}
         </HeaderTitle>
         {/* Updated Stats Header to use backend data */}
         {totalImages > 0 && (

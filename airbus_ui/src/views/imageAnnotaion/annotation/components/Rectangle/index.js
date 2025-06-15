@@ -13,16 +13,16 @@ const Container = styled('div')(({ active, theme, isOverlay = false }) => ({
   position: 'absolute',
   cursor: active ? 'pointer' : 'default',
   transition: 'box-shadow 0.3s ease, border 0.3s ease',
-  pointerEvents: isOverlay ? 'none' : 'auto', // Make overlay rectangles non-interactive
+  pointerEvents: isOverlay ? 'none' : 'auto',
   zIndex: isOverlay ? 10 : 1,
 }));
 
-function Rectangle({ 
+const Rectangle = React.forwardRef(({ 
   annotation = { geometry: null }, 
   className = '', 
   style = {},
   ...props 
-}) {
+}, ref) => {
   const { geometry, isOverlay = false, active = false } = annotation || {};
   
   if (!geometry) return null;
@@ -31,6 +31,7 @@ function Rectangle({
 
   return (
     <Container
+      ref={ref}
       active={active}
       isOverlay={isOverlay}
       style={{
@@ -44,6 +45,8 @@ function Rectangle({
       {...props}
     />
   );
-}
+});
+
+Rectangle.displayName = 'Rectangle';
 
 export default Rectangle;

@@ -13,7 +13,7 @@ import {
   Chip,
   CircularProgress
 } from "@mui/material";
-import api from "../../utils/UseAxios";
+import api from "../../../../utils/UseAxios";
 
 // STYLED COMPONENTS - Updated to match capture theme
 const ContentBox = styled("div")(() => ({
