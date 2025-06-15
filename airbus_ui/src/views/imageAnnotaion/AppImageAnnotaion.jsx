@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
 import { CheckCircle, RadioButtonUnchecked } from "@mui/icons-material";
 import NonAnnotated from "./NonAnnotated";
@@ -86,40 +86,51 @@ export default function AppImageAnnotaion() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [allImages, setAllImages] = useState([]);
   
-  // ADDED: Force refresh trigger for SidenavImageDisplay
+  // Force refresh trigger for SidenavImageDisplay
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const sidenavRef = useRef(null);
   
+  // NEW: State to track image status updates
+  const [imageStatusUpdates, setImageStatusUpdates] = useState({});
+  
+  // NEW: Reference to the status update function from SidenavImageDisplay
+  const [updateImageStatusCallback, setUpdateImageStatusCallback] = useState(null);
+  
   const navigate = useNavigate();
 
-  // FIXED: Handle image selection from sidebar
-  const handleImageSelect = (url, imageId, index) => {
-    setSelectedImageUrl(url);
+  // UPDATED: Handle image selection from sidebar - now includes statusUpdateCallback
+  const handleImageSelect = useCallback((imageUrl, imageId, index, statusUpdateCallback) => {
+    setSelectedImageUrl(imageUrl);
     setSelectedImageId(imageId);
     if (typeof index === 'number') {
       setCurrentImageIndex(index);
     }
-  };
+    
+    // NEW: Store the status update callback for use in Simple component
+    setUpdateImageStatusCallback(() => statusUpdateCallback);
+  }, []);
 
-  // FIXED: Handle first image load - don't call handleImageSelect to avoid loops
-  const handleFirstImageLoad = (url, imageId) => {
+  // Handle first image load - don't call handleImageSelect to avoid loops
+  const handleFirstImageLoad = useCallback((url, imageId) => {
     setSelectedImageUrl(url);
     setSelectedImageId(imageId);
     setCurrentImageIndex(0);
-  };
+  }, []);
 
   // Handle image count updates
-  const handleImageCountUpdate = (count) => {
+  const handleImageCountUpdate = useCallback((count) => {
     setTotalImages(count);
-  };
+  }, []);
 
-  // FIXED: Handle when images are fetched from SidenavImageDisplay - only set allImages
-  const handleImagesLoaded = (images) => {
+  // Handle when images are fetched from SidenavImageDisplay - only set allImages
+  const handleImagesLoaded = useCallback((images) => {
     setAllImages(images);
-  };
+  }, []);
 
-  // FIXED: Handle annotation saved - mark image as annotated and trigger refresh
-  const handleAnnotationSaved = async (imageUrl, imageId) => {
+  // UPDATED: Handle annotation saved - now uses the new status change system
+  const handleAnnotationSaved = useCallback(async (imageUrl, imageId) => {
+    console.log('Annotation saved for image:', imageId);
+    
     // Mark current image as annotated locally first for immediate UI update
     setAnnotatedImages(prev => {
       if (!prev.includes(imageUrl)) {
@@ -128,15 +139,15 @@ export default function AppImageAnnotaion() {
       return prev;
     });
 
-    // ADDED: Force SidenavImageDisplay to refresh its data
+    // Force SidenavImageDisplay to refresh its data
     await refreshImageData();
     
     // Trigger a refresh of the sidebar component
     setRefreshTrigger(prev => prev + 1);
-  };
+  }, []);
 
-  // FIXED: Move to next image - simplified logic
-  const moveToNextImage = () => {
+  // Move to next image - simplified logic
+  const moveToNextImage = useCallback(() => {
     if (allImages.length === 0) return;
 
     // Simple logic: just move to the next image in sequence
@@ -148,9 +159,9 @@ export default function AppImageAnnotaion() {
       setSelectedImageId(nextImage.name);
       setCurrentImageIndex(nextIndex);
     }
-  };
+  }, [allImages, currentImageIndex]);
 
-  // FIXED: Enhanced function to refresh image data from backend
+  // Enhanced function to refresh image data from backend
   const refreshImageData = async () => {
     if (!selectedPieceLabel) return;
     
@@ -182,10 +193,31 @@ export default function AppImageAnnotaion() {
     }
   };
 
-  // ADDED: Function to force sidebar refresh
-  const forceSidebarRefresh = () => {
+  // Function to force sidebar refresh
+  const forceSidebarRefresh = useCallback(() => {
     setRefreshTrigger(prev => prev + 1);
-  };
+  }, []);
+
+  // Handle refreshing images
+  const handleRefreshImages = useCallback(() => {
+    setRefreshTrigger(prev => prev + 1);
+  }, []);
+
+  // NEW: Handle image status changes from Simple component
+  const handleImageStatusChange = useCallback((imageId, hasAnnotations) => {
+    console.log(`Parent: Image ${imageId} status changed to ${hasAnnotations ? 'annotated' : 'not annotated'}`);
+    
+    // Update local status tracking
+    setImageStatusUpdates(prev => ({
+      ...prev,
+      [imageId]: hasAnnotations
+    }));
+    
+    // Also call the SidenavImageDisplay status update function if available
+    if (updateImageStatusCallback) {
+      updateImageStatusCallback(imageId, hasAnnotations);
+    }
+  }, [updateImageStatusCallback]);
 
   // Load initial piece
   useEffect(() => {
@@ -209,7 +241,7 @@ export default function AppImageAnnotaion() {
     fetchInitialPiece();
   }, [navigate]);
 
-  // FIXED: Load existing annotations for the piece - only when piece changes
+  // Load existing annotations for the piece - only when piece changes
   useEffect(() => {
     const loadExistingAnnotations = async () => {
       if (!selectedPieceLabel) {
@@ -262,7 +294,7 @@ export default function AppImageAnnotaion() {
         <HeaderTitle>
           {selectedPieceLabel ? `${selectedPieceLabel} Images` : "Select a Piece"}
         </HeaderTitle>
-        {/* FIXED: Updated Stats Header to use backend data */}
+        {/* Updated Stats Header to use backend data */}
         {totalImages > 0 && (
           <Box sx={{ 
             padding: '8px 16px', 
@@ -317,7 +349,9 @@ export default function AppImageAnnotaion() {
                 imageId={selectedImageId}
                 onAnnotationSaved={handleAnnotationSaved}
                 onMoveToNextImage={moveToNextImage}
-                onRefreshImages={refreshImageData} // FIXED: Pass refresh function
+                onRefreshImages={handleRefreshImages}
+                // NEW: Pass the status change callback
+                onImageStatusChange={handleImageStatusChange}
               />
             </AnnotationCard>
           </CenteredContainer>
@@ -335,7 +369,12 @@ export default function AppImageAnnotaion() {
                 onImageCountUpdate={handleImageCountUpdate}
                 onImagesLoaded={handleImagesLoaded}
                 currentImageIndex={currentImageIndex}
-                refreshTrigger={refreshTrigger} // ADDED: Pass refresh trigger
+                refreshTrigger={refreshTrigger}
+                // NEW: Pass image status updates
+                imageStatusUpdates={imageStatusUpdates}
+                onImageStatusUpdate={(imageId, hasAnnotations) => {
+                  console.log(`SidenavImageDisplay notified parent: Image ${imageId} -> ${hasAnnotations}`);
+                }}
               />
             </Box>
           </SidebarContainer>

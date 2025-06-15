@@ -95,7 +95,8 @@ export default function Simple({
   imageId, 
   onAnnotationSaved, 
   onMoveToNextImage,
-  onRefreshImages // Function to refresh image data
+  onRefreshImages, // Function to refresh image data
+  onImageStatusChange // NEW: Function to notify when image annotation status changes
 }) {
   // State management
   const [annotations, setAnnotations] = useState([]);
@@ -119,6 +120,13 @@ export default function Simple({
       console.log('Container ref:', containerRef.current);
     }
   }, [containerRef]);
+
+  // NEW: Helper function to notify parent about image status changes
+  const notifyImageStatusChange = (imageId, hasAnnotations) => {
+    if (onImageStatusChange) {
+      onImageStatusChange(imageId, hasAnnotations);
+    }
+  };
 
   // FIXED: Load existing annotations when image changes with better error handling
   useEffect(() => {
@@ -289,7 +297,7 @@ export default function Simple({
     }
   };
 
-  // FIXED: Enhanced undo functionality with proper UI state management
+  // ENHANCED: Undo functionality with immediate UI status updates
   const undo = async () => {
     // Priority 1: Use undo stack if available (most recent actions)
     if (undoStack.length > 0) {
@@ -322,10 +330,14 @@ export default function Simple({
               // Remove from saved annotations tracking
               setSavedAnnotations(prev => prev.filter(id => id !== annotationId));
               
-              // FIXED: Refresh existing annotations immediately after deletion
+              // ENHANCED: Refresh existing annotations immediately after deletion
               await refreshExistingAnnotations();
               
-              // FIXED: Notify parent to refresh image data and update status
+              // ENHANCED: Check if image still has annotations and notify parent
+              const remainingAnnotations = await checkImageAnnotationStatus();
+              notifyImageStatusChange(imageId, remainingAnnotations > 0);
+              
+              // ENHANCED: Notify parent to refresh image data and update status
               if (onRefreshImages) {
                 await onRefreshImages();
               }
@@ -402,10 +414,14 @@ export default function Simple({
         await api.delete(`/api/annotation/annotations/${lastSavedId}`);
         setSavedAnnotations(prev => prev.filter(id => id !== lastSavedId));
         
-        // FIXED: Refresh existing annotations immediately after deletion
+        // ENHANCED: Refresh existing annotations immediately after deletion
         await refreshExistingAnnotations();
         
-        // FIXED: Notify parent to refresh image data and update status
+        // ENHANCED: Check if image still has annotations and notify parent
+        const remainingAnnotations = await checkImageAnnotationStatus();
+        notifyImageStatusChange(imageId, remainingAnnotations > 0);
+        
+        // ENHANCED: Notify parent to refresh image data and update status
         if (onRefreshImages) {
           await onRefreshImages();
         }
@@ -424,16 +440,20 @@ export default function Simple({
         try {
           await api.delete(`/api/annotation/annotations/${lastExisting.dbId}`);
           
-          // FIXED: Remove from existing annotations immediately
+          // ENHANCED: Remove from existing annotations immediately
           setExistingAnnotations(prev => prev.filter(ann => ann.dbId !== lastExisting.dbId));
           
           // Also remove from saved annotations tracking if it exists there
           setSavedAnnotations(prev => prev.filter(id => id !== lastExisting.dbId));
           
-          // FIXED: Refresh existing annotations to ensure consistency
+          // ENHANCED: Refresh existing annotations to ensure consistency
           await refreshExistingAnnotations();
           
-          // FIXED: Notify parent to refresh image data and update status
+          // ENHANCED: Check if image still has annotations and notify parent
+          const remainingAnnotations = await checkImageAnnotationStatus();
+          notifyImageStatusChange(imageId, remainingAnnotations > 0);
+          
+          // ENHANCED: Notify parent to refresh image data and update status
           if (onRefreshImages) {
             await onRefreshImages();
           }
@@ -449,7 +469,44 @@ export default function Simple({
     console.log('No annotations to undo');
   };
 
-  // FIXED: Helper function to refresh existing annotations
+  // NEW: Helper function to check current annotation status of image
+  const checkImageAnnotationStatus = async () => {
+    if (!imageId) return 0;
+    
+    try {
+      let response;
+      let backendAnnotations = [];
+      
+      try {
+        response = await api.get(`/api/annotation/annotations/image/${imageId}/annotations`);
+        backendAnnotations = response.data.annotations || [];
+      } catch (error) {
+        if (error.response?.status === 404) {
+          try {
+            response = await api.get(`/api/annotation/annotations/${imageId}`);
+            backendAnnotations = response.data || [];
+          } catch (secondError) {
+            try {
+              response = await api.get(`/api/annotation/annotations/existing/${imageId}`);
+              backendAnnotations = response.data.annotations || [];
+            } catch (thirdError) {
+              backendAnnotations = [];
+            }
+          }
+        } else {
+          throw error;
+        }
+      }
+      
+      return backendAnnotations.length;
+      
+    } catch (error) {
+      console.log('Error checking image annotation status:', error.message);
+      return 0;
+    }
+  };
+
+  // ENHANCED: Helper function to refresh existing annotations
   const refreshExistingAnnotations = async () => {
     if (!imageId) return;
     
@@ -499,7 +556,7 @@ export default function Simple({
     }
   };
 
-  // ENHANCED: Save functionality - properly track saved annotations
+  // ENHANCED: Save functionality - properly track saved annotations with immediate status update
   const saveAnnotations = async () => {
     if (!pieceLabel) {
       console.error('No piece label provided');
@@ -526,12 +583,15 @@ export default function Simple({
         setSavedAnnotations(prev => [...prev, ...currentAnnotationIds]);
         setVirtualAnnotations([]); // Clear virtual storage tracking since everything is now saved
         
-        // FIXED: Notify parent component that annotation was saved for THIS specific image
+        // ENHANCED: Notify parent immediately that this image now has annotations
+        notifyImageStatusChange(imageId, true);
+        
+        // ENHANCED: Notify parent component that annotation was saved for THIS specific image
         if (onAnnotationSaved) {
           onAnnotationSaved(imageUrl, imageId);
         }
 
-        // FIXED: Refresh image data to update is_annotated status
+        // ENHANCED: Refresh image data to update is_annotated status
         if (onRefreshImages) {
           await onRefreshImages();
         }

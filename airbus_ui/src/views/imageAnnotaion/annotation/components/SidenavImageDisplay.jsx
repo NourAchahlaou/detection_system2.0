@@ -56,7 +56,10 @@ export default function SidenavImageDisplay({
   onImageCountUpdate,
   onImagesLoaded,
   currentImageIndex,
-  refreshTrigger
+  refreshTrigger,
+  // NEW: Add these props to handle image status updates
+  onImageStatusUpdate, // Callback to notify parent when image status changes
+  imageStatusUpdates = {} // Object with imageId -> hasAnnotations mapping
 }) {
   const [images, setImages] = useState([]);
   const [localCurrentIndex, setLocalCurrentIndex] = useState(0);
@@ -67,6 +70,26 @@ export default function SidenavImageDisplay({
   
   const mountedRef = useRef(true);
   const lastPieceLabelRef = useRef(null);
+
+  // NEW: Effect to handle real-time image status updates
+  useEffect(() => {
+    if (Object.keys(imageStatusUpdates).length > 0) {
+      setImages(prevImages => 
+        prevImages.map(image => {
+          const imageId = image.name || image.id;
+          if (imageId in imageStatusUpdates) {
+            const hasAnnotations = imageStatusUpdates[imageId];
+            console.log(`SidenavImageDisplay: Updating status for image ${imageId}: ${hasAnnotations ? 'annotated' : 'not annotated'}`);
+            return {
+              ...image,
+              is_annotated: hasAnnotations
+            };
+          }
+          return image;
+        })
+      );
+    }
+  }, [imageStatusUpdates]);
 
   // Helper function to assign stable display numbers
   const assignStableNumbers = (newImages, existingOrderMap = new Map()) => {
@@ -108,6 +131,29 @@ export default function SidenavImageDisplay({
     
     return { numberedImages, updatedOrderMap };
   };
+
+  // NEW: Function to update individual image annotation status
+  const updateImageAnnotationStatus = useCallback(async (imageId, hasAnnotations) => {
+    console.log(`SidenavImageDisplay: Received status update for image ${imageId}: ${hasAnnotations}`);
+    
+    setImages(prevImages => 
+      prevImages.map(image => {
+        if ((image.name || image.id) === imageId) {
+          console.log(`SidenavImageDisplay: Updating image ${imageId} status from ${image.is_annotated} to ${hasAnnotations}`);
+          return {
+            ...image,
+            is_annotated: hasAnnotations
+          };
+        }
+        return image;
+      })
+    );
+
+    // Notify parent component if callback is provided
+    if (onImageStatusUpdate) {
+      onImageStatusUpdate(imageId, hasAnnotations);
+    }
+  }, [onImageStatusUpdate]);
 
   useEffect(() => {
     if (refreshTrigger > 0 && pieceLabel) {
@@ -187,7 +233,7 @@ export default function SidenavImageDisplay({
           }
           
           if (onImageSelect) {
-            onImageSelect(firstImage.url, firstImage.name, 0);
+            onImageSelect(firstImage.url, firstImage.name, 0, updateImageAnnotationStatus);
           }
         } else if (numberedImages.length > 0 && refreshTrigger > 0) {
           // After refresh, maintain current selection if possible
@@ -214,7 +260,7 @@ export default function SidenavImageDisplay({
         setLoading(false);
       }
     }
-  }, [pieceLabel, refreshTrigger, localCurrentIndex, originalOrderMap, onImageCountUpdate, onImagesLoaded, onFirstImageLoad, onImageSelect]);
+  }, [pieceLabel, refreshTrigger, localCurrentIndex, originalOrderMap, onImageCountUpdate, onImagesLoaded, onFirstImageLoad, onImageSelect, updateImageAnnotationStatus]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -233,7 +279,8 @@ export default function SidenavImageDisplay({
     setSelectedImageUrl(imageUrl);
     setLocalCurrentIndex(index);
     if (onImageSelect) {
-      onImageSelect(imageUrl, imageId, index);
+      // UPDATED: Pass the updateImageAnnotationStatus callback
+      onImageSelect(imageUrl, imageId, index, updateImageAnnotationStatus);
     }
   };
 
@@ -246,10 +293,11 @@ export default function SidenavImageDisplay({
       setSelectedImageUrl(newImage.url);
       
       if (onImageSelect) {
-        onImageSelect(newImage.url, newImage.name, newIndex);
+        // UPDATED: Pass the updateImageAnnotationStatus callback
+        onImageSelect(newImage.url, newImage.name, newIndex, updateImageAnnotationStatus);
       }
     }
-  }, [images, localCurrentIndex, onImageSelect]);
+  }, [images, localCurrentIndex, onImageSelect, updateImageAnnotationStatus]);
 
   const handleNext = useCallback(() => {
     if (images.length > 0) {
@@ -260,10 +308,11 @@ export default function SidenavImageDisplay({
       setSelectedImageUrl(newImage.url);
       
       if (onImageSelect) {
-        onImageSelect(newImage.url, newImage.name, newIndex);
+        // UPDATED: Pass the updateImageAnnotationStatus callback
+        onImageSelect(newImage.url, newImage.name, newIndex, updateImageAnnotationStatus);
       }
     }
-  }, [images, localCurrentIndex, onImageSelect]);
+  }, [images, localCurrentIndex, onImageSelect, updateImageAnnotationStatus]);
 
   const getVisibleImages = () => {
     if (images.length === 0) return [];
@@ -425,7 +474,7 @@ export default function SidenavImageDisplay({
 
                 return (
                   <Card
-                    key={`${image.index}-${image.position}-${refreshTrigger}`}
+                    key={`${image.index}-${image.position}-${refreshTrigger}-${image.is_annotated ? 'annotated' : 'pending'}`}
                     sx={{
                       position: 'absolute',
                       width: '280px',
