@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, Grid, Box, styled, Stack, Typography } from "@mui/material";
 import { CheckCircle, RadioButtonUnchecked } from "@mui/icons-material";
 import NonAnnotated from "./NonAnnotated";
@@ -85,6 +85,11 @@ export default function AppImageAnnotaion() {
   const [totalImages, setTotalImages] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [allImages, setAllImages] = useState([]);
+  
+  // ADDED: Force refresh trigger for SidenavImageDisplay
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const sidenavRef = useRef(null);
+  
   const navigate = useNavigate();
 
   // FIXED: Handle image selection from sidebar
@@ -113,15 +118,21 @@ export default function AppImageAnnotaion() {
     setAllImages(images);
   };
 
-  // FIXED: Handle annotation saved - mark image as annotated and move to next
-  const handleAnnotationSaved = (imageUrl, imageId) => {
-    // Mark current image as annotated
+  // FIXED: Handle annotation saved - mark image as annotated and trigger refresh
+  const handleAnnotationSaved = async (imageUrl, imageId) => {
+    // Mark current image as annotated locally first for immediate UI update
     setAnnotatedImages(prev => {
       if (!prev.includes(imageUrl)) {
         return [...prev, imageUrl];
       }
       return prev;
     });
+
+    // ADDED: Force SidenavImageDisplay to refresh its data
+    await refreshImageData();
+    
+    // Trigger a refresh of the sidebar component
+    setRefreshTrigger(prev => prev + 1);
   };
 
   // FIXED: Move to next image - simplified logic
@@ -139,13 +150,18 @@ export default function AppImageAnnotaion() {
     }
   };
 
-  // FIXED: New function to refresh image data from backend
+  // FIXED: Enhanced function to refresh image data from backend
   const refreshImageData = async () => {
     if (!selectedPieceLabel) return;
     
     try {
+      console.log('Refreshing image data for piece:', selectedPieceLabel);
+      
       const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${selectedPieceLabel}`);
       const updatedImages = response.data;
+      
+      console.log('Updated images from backend:', updatedImages);
+      
       setAllImages(updatedImages);
       
       // Update the is_annotated status for current image
@@ -158,9 +174,17 @@ export default function AppImageAnnotaion() {
           return prev;
         });
       }
+      
+      return updatedImages; // Return the updated data
     } catch (error) {
       console.error("Error refreshing image data:", error);
+      return null;
     }
+  };
+
+  // ADDED: Function to force sidebar refresh
+  const forceSidebarRefresh = () => {
+    setRefreshTrigger(prev => prev + 1);
   };
 
   // Load initial piece
@@ -304,12 +328,14 @@ export default function AppImageAnnotaion() {
           <SidebarContainer>
             <Box sx={{ width: "100%", height: "480px" }}> {/* Match annotation card height */}
               <SidenavImageDisplay
+                ref={sidenavRef}
                 pieceLabel={selectedPieceLabel}
                 onImageSelect={handleImageSelect}
                 onFirstImageLoad={handleFirstImageLoad}
                 onImageCountUpdate={handleImageCountUpdate}
                 onImagesLoaded={handleImagesLoaded}
                 currentImageIndex={currentImageIndex}
+                refreshTrigger={refreshTrigger} // ADDED: Pass refresh trigger
               />
             </Box>
           </SidebarContainer>

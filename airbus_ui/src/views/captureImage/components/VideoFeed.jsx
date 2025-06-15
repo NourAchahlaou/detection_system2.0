@@ -128,7 +128,7 @@ const VideoFeed = ({
       }
       
       await onStopCamera();
-      window.location.reload();
+
     }
     setDialogOpen(false);
   };

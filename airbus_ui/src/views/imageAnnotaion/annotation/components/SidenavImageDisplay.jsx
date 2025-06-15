@@ -16,7 +16,7 @@ import {
   RadioButtonUnchecked
 } from "@mui/icons-material";
 import api from "../../../../utils/UseAxios";
-import ImageWithAnnotations from "./ImageWithAnnotations"; // Adjust path as needed
+import ImageWithAnnotations from "./ImageWithAnnotations";
 
 // Keep all your existing styled components
 const MaxCustomaizer = styled("div")(({ theme }) => ({
@@ -55,7 +55,8 @@ export default function SidenavImageDisplay({
   onFirstImageLoad,
   onImageCountUpdate,
   onImagesLoaded,
-  currentImageIndex
+  currentImageIndex,
+  refreshTrigger // FIXED: Added this prop
 }) {
   const [images, setImages] = useState([]);
   const [localCurrentIndex, setLocalCurrentIndex] = useState(0);
@@ -65,7 +66,16 @@ export default function SidenavImageDisplay({
   const mountedRef = useRef(true);
   const lastPieceLabelRef = useRef(null);
 
-  // Keep all your existing useEffect and handler functions exactly the same
+  // FIXED: Add useEffect to handle refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger > 0 && pieceLabel) {
+      console.log('SidenavImageDisplay: Refresh trigger activated, refetching images...');
+      // Force a refresh by clearing the last piece label ref
+      lastPieceLabelRef.current = null;
+      fetchImages();
+    }
+  }, [refreshTrigger, pieceLabel]);
+
   useEffect(() => {
     if (typeof currentImageIndex === 'number' && currentImageIndex !== localCurrentIndex && images.length > 0) {
       setLocalCurrentIndex(currentImageIndex);
@@ -86,7 +96,8 @@ export default function SidenavImageDisplay({
       return;
     }
 
-    if (lastPieceLabelRef.current === pieceLabel) {
+    // FIXED: Allow refetch when refreshTrigger changes, even if pieceLabel is the same
+    if (lastPieceLabelRef.current === pieceLabel && refreshTrigger === 0) {
       return;
     }
 
@@ -94,13 +105,21 @@ export default function SidenavImageDisplay({
       setLoading(true);
       lastPieceLabelRef.current = pieceLabel;
       
+      console.log('SidenavImageDisplay: Fetching images for piece:', pieceLabel);
+      
       const response = await api.get(`/api/annotation/annotations/get_images_of_piece/${pieceLabel}`);
       const data = response.data;
       
+      console.log('SidenavImageDisplay: Received images data:', data);
+      
       if (mountedRef.current) {
         setImages(data);
-        setLocalCurrentIndex(0);
-        setSelectedImageUrl('');
+        
+        // FIXED: Don't reset current index if we're just refreshing
+        if (refreshTrigger === 0) {
+          setLocalCurrentIndex(0);
+          setSelectedImageUrl('');
+        }
 
         if (onImageCountUpdate) {
           onImageCountUpdate(data.length);
@@ -110,7 +129,8 @@ export default function SidenavImageDisplay({
           onImagesLoaded(data);
         }
 
-        if (data.length > 0) {
+        // FIXED: Only set first image if this is initial load, not a refresh
+        if (data.length > 0 && refreshTrigger === 0) {
           const firstImage = data[0];
           setSelectedImageUrl(firstImage.url);
           
@@ -120,6 +140,12 @@ export default function SidenavImageDisplay({
           
           if (onImageSelect) {
             onImageSelect(firstImage.url, firstImage.name, 0);
+          }
+        } else if (data.length > 0 && refreshTrigger > 0) {
+          // FIXED: After refresh, maintain current selection if possible
+          const currentImage = data[localCurrentIndex];
+          if (currentImage) {
+            setSelectedImageUrl(currentImage.url);
           }
         }
       }
@@ -139,11 +165,12 @@ export default function SidenavImageDisplay({
         setLoading(false);
       }
     }
-  }, [pieceLabel]);
+  }, [pieceLabel, refreshTrigger, localCurrentIndex, onImageCountUpdate, onImagesLoaded, onFirstImageLoad, onImageSelect]);
 
   useEffect(() => {
     mountedRef.current = true;
     
+    // FIXED: Always fetch if pieceLabel changed or if this is initial mount
     if (lastPieceLabelRef.current !== pieceLabel) {
       lastPieceLabelRef.current = null;
       fetchImages();
@@ -152,7 +179,7 @@ export default function SidenavImageDisplay({
     return () => {
       mountedRef.current = false;
     };
-  }, [pieceLabel]);
+  }, [pieceLabel, fetchImages]);
 
   const handleImageClick = (imageUrl, imageId, index) => {
     setSelectedImageUrl(imageUrl);
@@ -229,7 +256,6 @@ export default function SidenavImageDisplay({
           overflow: 'hidden',
         }}
       >
-        {/* Keep existing loading and empty states */}
         {loading && (
           <Fade in={loading}>
             <LoadingState>
@@ -253,7 +279,6 @@ export default function SidenavImageDisplay({
           </EmptyState>
         )}
 
-        {/* Updated Image Slider with annotations */}
         {!loading && images.length > 0 && (
           <Box
             sx={{
@@ -269,7 +294,6 @@ export default function SidenavImageDisplay({
               padding: 2
             }}
           >
-            {/* Keep existing navigation arrows */}
             {images.length > 1 && (
               <IconButton
                 onClick={handlePrevious}
@@ -297,7 +321,6 @@ export default function SidenavImageDisplay({
               </IconButton>
             )}
 
-            {/* Images Stack Container */}
             <Box
               sx={{
                 position: 'relative',
@@ -313,9 +336,9 @@ export default function SidenavImageDisplay({
                 const isBackTop = image.position === 'back-top';
                 const isBackBottom = image.position === 'back-bottom';
                 const isBack = image.position === 'back';
+                // FIXED: Use the backend data to determine annotation status
                 const isAnnotated = image.is_annotated === true;
 
-                // Keep all your existing positioning calculations
                 let translateY = 0;
                 let translateX = 0;
                 let zIndex = 100;
@@ -355,7 +378,7 @@ export default function SidenavImageDisplay({
 
                 return (
                   <Card
-                    key={`${image.index}-${image.position}`}
+                    key={`${image.index}-${image.position}-${refreshTrigger}`} // FIXED: Add refreshTrigger to key to force re-render
                     sx={{
                       position: 'absolute',
                       width: '280px',
@@ -401,10 +424,9 @@ export default function SidenavImageDisplay({
                       }
                     }}
                   >
-                    {/* Replace CardMedia with ImageWithAnnotations component */}
                     <ImageWithAnnotations
                       imageUrl={image.url}
-                      imageId={image.name} // This should be the image ID
+                      imageId={image.name}
                       width="100%"
                       height="100%"
                       alt={`Image ${image.index + 1}`}
@@ -417,7 +439,6 @@ export default function SidenavImageDisplay({
                       }}
                     />
                     
-                    {/* Keep existing badges */}
                     <Box
                       sx={{
                         position: 'absolute',
@@ -444,7 +465,7 @@ export default function SidenavImageDisplay({
                       sx={{
                         position: 'absolute',
                         bottom: 12,
-                        right: 12, // Changed from left to right to avoid overlap with annotation count
+                        right: 12,
                         backgroundColor: isAnnotated ? '#4caf50' : '#ff9800',
                         color: 'white',
                         borderRadius: '12px',
@@ -478,7 +499,7 @@ export default function SidenavImageDisplay({
                 );
               })}
             </Box>
-            {/* Navigation Arrow - Down */}
+            
             {images.length > 1 && (
               <IconButton
                 onClick={handleNext}
