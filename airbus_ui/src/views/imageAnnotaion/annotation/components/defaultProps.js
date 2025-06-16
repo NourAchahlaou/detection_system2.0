@@ -28,7 +28,7 @@ const defaultProps = {
         return (
           <FancyRectangle
             annotation={annotation}
-            submitted={annotation.submitted} // Pass submitted state
+            submitted={annotation.submitted}
           />
         );
 
@@ -36,22 +36,45 @@ const defaultProps = {
         return null;
     }
   },
-  renderEditor: ({ annotation, onChange, onSubmit }) => (
+  renderEditor: ({ annotation, onChange, onSubmit, pieceLabel }) => (
     <Editor
       annotation={annotation}
-      onChange={onChange}
-      onSubmit={onSubmit}
+      pieceLabel={pieceLabel}
+      onChange={(data) => {
+        const updatedAnnotation = {
+          ...annotation,
+          data: {
+            // FIXED: Safely handle undefined annotation.data
+            ...(annotation.data || {}),
+            ...data,
+            text: pieceLabel || data.text,
+            label: pieceLabel || data.label
+          }
+        };
+        onChange(updatedAnnotation);
+      }}
+      onSubmit={() => {
+        const finalAnnotation = {
+          ...annotation,
+          data: {
+            // FIXED: Safely handle undefined annotation.data
+            ...(annotation.data || {}),
+            text: pieceLabel,
+            label: pieceLabel,
+            id: (annotation.data && annotation.data.id) || Math.random()
+          }
+        };
+        onSubmit(finalAnnotation);
+      }}
       style={{
         position: 'absolute',
         left: `${annotation.geometry.x}%`,
         top: `${annotation.geometry.y + annotation.geometry.height}%`,
-        transform: 'translate(-50%, -100%)', // Center above the bounding box
-        zIndex: 1000, 
-        transition: 'left 0.5s cubic-bezier(0.4, 0, 0.2, 1), top 0.5s cubic-bezier(0.4, 0, 0.2, 1), transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)', // Smoother transition effect
+        transform: 'translate(-50%, -100%)',
+        zIndex: 1000,
+        transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     />
-
-
   ),
   renderHighlight: ({ key, annotation, active }) => {
     switch (annotation.geometry.type) {

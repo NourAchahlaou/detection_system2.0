@@ -73,7 +73,7 @@ class CameraService:
 
     def _get_piece_images_path(self, piece_label: str) -> str:
         """Get the images directory path for a piece."""
-        return os.path.join(self.dataset_piece_path, piece_label, "images")
+        return os.path.join(self.dataset_piece_path, piece_label, "images","valid")
 
     def _count_existing_images(self, piece_label: str) -> int:
         """Count existing images in the piece's dataset directory."""

@@ -43,6 +43,7 @@ export default compose(
     onMouseMove: T.func,
     onClick: T.func,
     children: T.node,
+    pieceLabel: T.string, // Add pieceLabel prop
 
     annotations: T.arrayOf(
       T.shape({
@@ -90,25 +91,6 @@ export default compose(
 
   targetRef = React.createRef();
 
-  // handleSaveAllAnnotations = () =>{
-    
-  // }
-  handleSaveCoordinates = () => {
-    const { coordinates } = this.props.value.geometry || {};
-    if (!coordinates) return;
-    const { type, x, y, width, height } = coordinates;
-    const content = `Type: ${type}\nX: ${x}\nY: ${y}\nWidth: ${width}\nHeight: ${height}`;
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'coordinates.txt';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-  
   componentDidMount() {
     if (this.props.allowTouch && this.targetRef.current) {
       this.addTargetTouchEventListeners();
@@ -227,7 +209,17 @@ export default compose(
 
   onSubmit = () => {
     if (this.props.onSubmit) {
-      this.props.onSubmit(this.props.value);
+      const annotationWithLabel = {
+        ...this.props.value,
+        data: {
+          // FIXED: Safely handle undefined this.props.value.data
+          ...(this.props.value.data || {}),
+          text: this.props.pieceLabel,
+          label: this.props.pieceLabel,
+          id: (this.props.value.data && this.props.value.data.id) || Math.random()
+        }
+      };
+      this.props.onSubmit(annotationWithLabel);
     }
   };
 
@@ -278,7 +270,8 @@ export default compose(
       renderSelector,
       renderEditor,
       renderOverlay,
-      allowTouch
+      allowTouch,
+      pieceLabel
     } = props;
 
     const topAnnotationAtMouse = this.getTopAnnotationAt(
@@ -315,7 +308,8 @@ export default compose(
             && props.value.geometry
             && (
               renderSelector({
-                annotation: props.value
+                annotation: props.value,
+                pieceLabel: pieceLabel
               })
             )
           }
@@ -331,7 +325,8 @@ export default compose(
         {!props.disableOverlay && (
           renderOverlay({
             type: props.type,
-            annotation: props.value
+            annotation: props.value,
+            pieceLabel: pieceLabel
           })
         )}
         {props.annotations.map(annotation => (
@@ -339,7 +334,8 @@ export default compose(
           && (
             renderContent({
               key: annotation.data.id,
-              annotation: annotation
+              annotation: annotation,
+              pieceLabel: pieceLabel
             })
           )
         ))}
@@ -351,7 +347,8 @@ export default compose(
             renderEditor({
               annotation: props.value,
               onChange: props.onChange,
-              onSubmit: this.onSubmit
+              onSubmit: this.onSubmit,
+              pieceLabel: pieceLabel // Pass piece label to editor
             })
           )
         }

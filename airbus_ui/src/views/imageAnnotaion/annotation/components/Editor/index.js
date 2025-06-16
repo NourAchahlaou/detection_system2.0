@@ -1,75 +1,65 @@
-import React from 'react';
-import { styled, keyframes } from '@mui/material/styles';
+import React, { useState, useEffect } from 'react';
 import TextEditor from '../TextEditor';
 
-// Keyframes for fading in and scaling the component
-const fadeInScale = keyframes`
-  from {
-    opacity: 0;
-    transform: scale(0);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-`;
+const Editor = ({ annotation, onChange, onSubmit, pieceLabel, style }) => {
+  const [isEditing, setIsEditing] = useState(true);
 
-// Styled Container component with animation and transition
-const Container = styled('div')(({ theme }) => ({
-  background: 'white',
-  borderRadius: '2px',
-  boxShadow: `
-    0px 1px 5px 0px rgba(0, 0, 0, 0.2),
-    0px 2px 2px 0px rgba(0, 0, 0, 0.14),
-    0px 3px 1px -2px rgba(0, 0, 0, 0.12)
-  `,
-  marginTop: '16px',
-  transformOrigin: 'top left',
-  animation: `${fadeInScale} 0.31s cubic-bezier(0.175, 0.885, 0.32, 1.275)`,
-  overflow: 'hidden',
-  position: 'absolute',
-  transition: 'left 0.5s cubic-bezier(0.4, 0, 0.2, 1), top 0.5s cubic-bezier(0.4, 0, 0.2, 1), transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
-  zIndex: 1000,
-}));
+  useEffect(() => {
+    if (pieceLabel && annotation && annotation.geometry) {
+      const autoAnnotationData = {
+        text: pieceLabel,
+        label: pieceLabel,
+        id: Math.random()
+      };
+      
+      const updatedAnnotation = {
+        ...annotation,
+        data: {
+          // FIXED: Safely handle undefined annotation.data
+          ...(annotation.data || {}),
+          ...autoAnnotationData
+        }
+      };
+      
+      const timer = setTimeout(() => {
+        onChange(updatedAnnotation);
+        onSubmit(updatedAnnotation);
+        setIsEditing(false);
+      }, 800);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [pieceLabel, annotation, onChange, onSubmit]);
 
-const Editor = React.forwardRef(({ 
-  annotation, 
-  className = '', 
-  style = {}, 
-  onChange, 
-  onSubmit,
-  ...props 
-}, ref) => {
-  const { geometry } = annotation;
-  if (!geometry) return null;
+  const handleTextEditorSubmit = (data) => {
+    if (annotation && onChange && onSubmit) {
+      const updatedAnnotation = {
+        ...annotation,
+        data: {
+          // FIXED: Safely handle undefined annotation.data
+          ...(annotation.data || {}),
+          ...data
+        }
+      };
+      
+      onChange(updatedAnnotation);
+      onSubmit(updatedAnnotation);
+      setIsEditing(false);
+    }
+  };
+  if (!isEditing || !annotation) {
+    return null;
+  }
 
   return (
-    <Container
-      ref={ref}
-      className={className}
-      style={{
-        left: `${geometry.x}%`,
-        top: `${geometry.y + geometry.height}%`,
-        transform: 'translate(-50%, -100%)',
-        ...style
-      }}
-      {...props}
-    >
+    <div style={style}>
       <TextEditor
-        onChange={e => onChange({
-          ...annotation,
-          data: {
-            ...annotation.data,
-            text: e.target.value
-          }
-        })}
-        onSubmit={onSubmit}
-        value={annotation.data && annotation.data.text}
+        pieceLabel={pieceLabel}
+        onSubmit={handleTextEditorSubmit}
+        value={annotation.data?.text || ''}
       />
-    </Container>
+    </div>
   );
-});
-
-Editor.displayName = 'Editor';
+};
 
 export default Editor;

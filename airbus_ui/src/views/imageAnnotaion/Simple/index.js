@@ -14,6 +14,49 @@ const AnnotationContainer = styled(Box)({
   overflow: 'hidden',
 });
 
+// NEW: Guide lines for precise annotation
+const GuideLineVertical = styled('div')({
+  position: 'absolute',
+  width: '1px',
+  height: '100%',
+  backgroundColor: '#ff4444',
+  opacity: 0.7,
+  pointerEvents: 'none',
+  zIndex: 20,
+  transition: 'opacity 0.2s ease',
+  boxShadow: '0 0 2px rgba(255, 68, 68, 0.5)',
+});
+
+const GuideLineHorizontal = styled('div')({
+  position: 'absolute',
+  height: '1px',
+  width: '100%',
+  backgroundColor: '#ff4444',
+  opacity: 0.7,
+  pointerEvents: 'none',
+  zIndex: 20,
+  transition: 'opacity 0.2s ease',
+  boxShadow: '0 0 2px rgba(255, 68, 68, 0.5)',
+});
+
+// Grid overlay for additional precision
+const GridOverlay = styled('div')({
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
+  zIndex: 15,
+  opacity: 0.3,
+  backgroundImage: `
+    linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px)
+  `,
+  backgroundSize: '20px 20px',
+  transition: 'opacity 0.3s ease',
+});
+
 // Floating controls matching VideoFeed style
 const FloatingControls = styled(Box)(({ theme }) => ({
   position: 'absolute',
@@ -88,21 +131,35 @@ const ExistingAnnotationOverlay = styled(Box)({
   borderRadius: '2px',
 });
 
+// Piece label display component
+const PieceLabelDisplay = styled(Box)({
+  position: 'absolute',
+  top: 20,
+  left: 20,
+  backgroundColor: 'rgba(102, 126, 234, 0.9)',
+  color: 'white',
+  padding: '8px 12px',
+  borderRadius: '12px',
+  fontSize: '12px',
+  fontWeight: 'bold',
+  zIndex: 15,
+  border: '2px solid #667eea',
+});
+
 export default function Simple({ 
   imageUrl, 
   annotated, 
-  pieceLabel, 
+  pieceLabel, // This is the known piece label for the current image
   imageId, 
   onAnnotationSaved, 
   onMoveToNextImage,
   onRefreshImages, // Function to refresh image data
-  onImageStatusChange // NEW: Function to notify when image annotation status changes
+  onImageStatusChange // Function to notify when image annotation status changes
 }) {
   // State management
   const [annotations, setAnnotations] = useState([]);
   const [annotation, setAnnotation] = useState({});
   const [undoStack, setUndoStack] = useState([]);
-
   const [saving, setSaving] = useState(false);
   
   // State for existing annotations from backend
@@ -113,6 +170,12 @@ export default function Simple({
   const [savedAnnotations, setSavedAnnotations] = useState([]);
   const [virtualAnnotations, setVirtualAnnotations] = useState([]);
   
+  // NEW: Guide line state
+  const [showGuides, setShowGuides] = useState(true);
+  const [showGrid, setShowGrid] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [isAnnotating, setIsAnnotating] = useState(false);
+  
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -121,14 +184,47 @@ export default function Simple({
     }
   }, [containerRef]);
 
-  // NEW: Helper function to notify parent about image status changes
+  // NEW: Mouse tracking for guide lines
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (containerRef.current && showGuides) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        setMousePosition({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
+      }
+    };
+
+    const handleMouseEnter = () => {
+      setIsAnnotating(true);
+    };
+
+    const handleMouseLeave = () => {
+      setIsAnnotating(false);
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('mousemove', handleMouseMove);
+      container.addEventListener('mouseenter', handleMouseEnter);
+      container.addEventListener('mouseleave', handleMouseLeave);
+      
+      return () => {
+        container.removeEventListener('mousemove', handleMouseMove);
+        container.removeEventListener('mouseenter', handleMouseEnter);
+        container.removeEventListener('mouseleave', handleMouseLeave);
+      };
+    }
+  }, [showGuides]);
+
+  // Helper function to notify parent about image status changes
   const notifyImageStatusChange = (imageId, hasAnnotations) => {
     if (onImageStatusChange) {
       onImageStatusChange(imageId, hasAnnotations);
     }
   };
 
-  // FIXED: Load existing annotations when image changes with better error handling
+  // Load existing annotations when image changes with better error handling
   useEffect(() => {
     const fetchExistingAnnotations = async () => {
       if (!imageId) {
@@ -176,7 +272,7 @@ export default function Simple({
           y: ann.y || 0,
           width: ann.width || 0,
           height: ann.height || 0,
-          type: ann.type || 'annotation',
+          type: ann.type || pieceLabel || 'annotation', // Use pieceLabel as fallback type
           isExisting: true,
           dbId: ann.id // Store the database ID for deletion
         }));
@@ -195,7 +291,7 @@ export default function Simple({
     };
 
     fetchExistingAnnotations();
-  }, [imageId]);
+  }, [imageId, pieceLabel]);
 
   // Load existing annotations when image changes
   useEffect(() => {
@@ -207,7 +303,6 @@ export default function Simple({
     }
     // Clear undo/redo stacks when switching images
     setUndoStack([]);
-
     setAnnotation({});
     setVirtualAnnotations([]);
   }, [imageUrl, imageId]);
@@ -216,9 +311,8 @@ export default function Simple({
     setAnnotation(newAnnotation);
   };
 
-  // onSubmit functionality - sends to backend
   const onSubmit = async (newAnnotation) => {
-    const { geometry, data } = newAnnotation;
+    const { geometry } = newAnnotation;
 
     // Save current state to undo stack
     setUndoStack((prevUndoStack) => [...prevUndoStack, {
@@ -228,13 +322,16 @@ export default function Simple({
       action: 'add_annotation'
     }]);
 
-    // Add new annotation to local state
-    const annotationId = Math.random(); // Use a unique identifier for each annotation
+    // FIXED: Automatically assign the piece label as the annotation data
+    const annotationId = Math.random();
     const newAnnotationWithId = {
       geometry,
       data: {
-        ...data,
+        // FIXED: Safely handle undefined newAnnotation.data
+        ...(newAnnotation.data || {}),
         id: annotationId,
+        text: pieceLabel,
+        label: pieceLabel,
       },
     };
 
@@ -249,22 +346,21 @@ export default function Simple({
       try {
         const annotationData = {
           image_id: parseInt(imageId),
-          type: data.text || 'object', // Use text as type, or default to 'object'
+          type: pieceLabel,
           x: geometry.x,
           y: geometry.y,
           width: geometry.width,
-          height: geometry.height
+          height: geometry.height,
+          label: pieceLabel
         };
 
         await api.post(`/api/annotation/annotations/${pieceLabel}`, annotationData);
-        console.log('Annotation sent to backend virtual storage:', annotationData);
+        console.log('Annotation automatically saved with piece label:', annotationData);
         
-        // Track this annotation as being in virtual storage (not yet saved to DB)
         setVirtualAnnotations(prev => [...prev, annotationId]);
         
       } catch (error) {
         console.error('Failed to send annotation to backend:', error);
-        // Note: We don't revert the local state here, as the user can still save later
       }
     }
   };
@@ -297,7 +393,7 @@ export default function Simple({
     }
   };
 
-  // ENHANCED: Undo functionality with immediate UI status updates
+  // Undo functionality with immediate UI status updates
   const undo = async () => {
     // Priority 1: Use undo stack if available (most recent actions)
     if (undoStack.length > 0) {
@@ -330,14 +426,14 @@ export default function Simple({
               // Remove from saved annotations tracking
               setSavedAnnotations(prev => prev.filter(id => id !== annotationId));
               
-              // ENHANCED: Refresh existing annotations immediately after deletion
+              // Refresh existing annotations immediately after deletion
               await refreshExistingAnnotations();
               
-              // ENHANCED: Check if image still has annotations and notify parent
+              // Check if image still has annotations and notify parent
               const remainingAnnotations = await checkImageAnnotationStatus();
               notifyImageStatusChange(imageId, remainingAnnotations > 0);
               
-              // ENHANCED: Notify parent to refresh image data and update status
+              // Notify parent to refresh image data and update status
               if (onRefreshImages) {
                 await onRefreshImages();
               }
@@ -414,14 +510,14 @@ export default function Simple({
         await api.delete(`/api/annotation/annotations/${lastSavedId}`);
         setSavedAnnotations(prev => prev.filter(id => id !== lastSavedId));
         
-        // ENHANCED: Refresh existing annotations immediately after deletion
+        // Refresh existing annotations immediately after deletion
         await refreshExistingAnnotations();
         
-        // ENHANCED: Check if image still has annotations and notify parent
+        // Check if image still has annotations and notify parent
         const remainingAnnotations = await checkImageAnnotationStatus();
         notifyImageStatusChange(imageId, remainingAnnotations > 0);
         
-        // ENHANCED: Notify parent to refresh image data and update status
+        // Notify parent to refresh image data and update status
         if (onRefreshImages) {
           await onRefreshImages();
         }
@@ -440,20 +536,20 @@ export default function Simple({
         try {
           await api.delete(`/api/annotation/annotations/${lastExisting.dbId}`);
           
-          // ENHANCED: Remove from existing annotations immediately
+          // Remove from existing annotations immediately
           setExistingAnnotations(prev => prev.filter(ann => ann.dbId !== lastExisting.dbId));
           
           // Also remove from saved annotations tracking if it exists there
           setSavedAnnotations(prev => prev.filter(id => id !== lastExisting.dbId));
           
-          // ENHANCED: Refresh existing annotations to ensure consistency
+          // Refresh existing annotations to ensure consistency
           await refreshExistingAnnotations();
           
-          // ENHANCED: Check if image still has annotations and notify parent
+          // Check if image still has annotations and notify parent
           const remainingAnnotations = await checkImageAnnotationStatus();
           notifyImageStatusChange(imageId, remainingAnnotations > 0);
           
-          // ENHANCED: Notify parent to refresh image data and update status
+          // Notify parent to refresh image data and update status
           if (onRefreshImages) {
             await onRefreshImages();
           }
@@ -469,7 +565,7 @@ export default function Simple({
     console.log('No annotations to undo');
   };
 
-  // NEW: Helper function to check current annotation status of image
+  // Helper function to check current annotation status of image
   const checkImageAnnotationStatus = async () => {
     if (!imageId) return 0;
     
@@ -506,7 +602,7 @@ export default function Simple({
     }
   };
 
-  // ENHANCED: Helper function to refresh existing annotations
+  // Helper function to refresh existing annotations
   const refreshExistingAnnotations = async () => {
     if (!imageId) return;
     
@@ -542,7 +638,7 @@ export default function Simple({
         y: ann.y || 0,
         width: ann.width || 0,
         height: ann.height || 0,
-        type: ann.type || 'annotation',
+        type: ann.type || pieceLabel || 'annotation',
         isExisting: true,
         dbId: ann.id
       }));
@@ -556,7 +652,7 @@ export default function Simple({
     }
   };
 
-  // ENHANCED: Save functionality - properly track saved annotations with immediate status update
+  // Save functionality - properly track saved annotations with immediate status update
   const saveAnnotations = async () => {
     if (!pieceLabel) {
       console.error('No piece label provided');
@@ -583,15 +679,15 @@ export default function Simple({
         setSavedAnnotations(prev => [...prev, ...currentAnnotationIds]);
         setVirtualAnnotations([]); // Clear virtual storage tracking since everything is now saved
         
-        // ENHANCED: Notify parent immediately that this image now has annotations
+        // Notify parent immediately that this image now has annotations
         notifyImageStatusChange(imageId, true);
         
-        // ENHANCED: Notify parent component that annotation was saved for THIS specific image
+        // Notify parent component that annotation was saved for THIS specific image
         if (onAnnotationSaved) {
           onAnnotationSaved(imageUrl, imageId);
         }
 
-        // ENHANCED: Refresh image data to update is_annotated status
+        // Refresh image data to update is_annotated status
         if (onRefreshImages) {
           await onRefreshImages();
         }
@@ -666,14 +762,15 @@ export default function Simple({
             left: `${annotation.geometry.x}px`,
             top: `${annotation.geometry.y}px`,
             color: 'white',
-            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+            backgroundColor: 'rgba(102, 126, 234, 0.9)',
             padding: '4px 8px',
             borderRadius: '4px',
             fontSize: '12px',
             fontWeight: '500',
             pointerEvents: 'none',
+            border: '1px solid #667eea',
           }}>
-            {annotation.data.text}
+            {annotation.data.text || annotation.data.label || pieceLabel}
           </div>
         )}
         style={{
@@ -683,7 +780,30 @@ export default function Simple({
         }}
       />
       
-      {/* Render existing annotations as simple overlays */}
+      {/* NEW: Guide lines - only show when annotating and guides are enabled */}
+      {showGuides && isAnnotating && imageUrl && (
+        <>
+          <GuideLineVertical
+            style={{
+              left: `${mousePosition.x}%`,
+              opacity: isAnnotating ? 0.7 : 0,
+            }}
+          />
+          <GuideLineHorizontal
+            style={{
+              top: `${mousePosition.y}%`,
+              opacity: isAnnotating ? 0.7 : 0,
+            }}
+          />
+        </>
+      )}
+      
+      {/* Display the current piece label */}
+      {pieceLabel && (
+        <PieceLabelDisplay>
+          Current Label: {pieceLabel}
+        </PieceLabelDisplay>
+      )}
       {existingAnnotations.map((existingAnnotation, index) => (
         <ExistingAnnotationOverlay
           key={`existing-${existingAnnotation.id || index}`}
@@ -720,7 +840,7 @@ export default function Simple({
         <Box
           sx={{
             position: 'absolute',
-            top: 20,
+            top: 60,
             right: 20,
             backgroundColor: 'rgba(76, 175, 80, 0.9)',
             color: 'white',
@@ -740,7 +860,7 @@ export default function Simple({
         <Box
           sx={{
             position: 'absolute',
-            top: 50,
+            top: 90,
             right: 20,
             backgroundColor: 'rgba(0, 0, 0, 0.8)',
             color: 'white',

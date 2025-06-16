@@ -1,65 +1,86 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { styled } from '@mui/material/styles';
 
 const Inner = styled('div')(({ theme }) => ({
   padding: '8px 16px',
-  '& textarea': {
-    border: 0,
-    fontSize: '14px',
-    margin: '6px 0',
-    minHeight: '30px',
-    outline: 0,
-    width: '100%',
-    zIndex: 999,
-  }
+  backgroundColor: 'rgba(102, 126, 234, 0.9)',
+  borderRadius: '8px',
+  border: '2px solid #667eea',
+  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+}));
+
+const LabelDisplay = styled('div')(({ theme }) => ({
+  color: 'white',
+  fontSize: '14px',
+  fontWeight: 'bold',
+  textAlign: 'center',
+  padding: '4px 0',
+  margin: '2px 0',
 }));
 
 const Button = styled('div')(({ theme }) => ({
-  background: 'whitesmoke',
+  background: '#667eea',
   border: 0,
   boxSizing: 'border-box',
-  color: '#363636',
+  color: 'white',
   cursor: 'pointer',
-  fontSize: '1rem',
-  margin: 0,
-  zIndex: 999,
+  fontSize: '12px',
+  fontWeight: '600',
+  margin: '4px 0 0 0',
   outline: 0,
-  padding: '8px 16px',
+  padding: '6px 12px',
   textAlign: 'center',
-  textShadow: '0 1px 0 rgba(0, 0, 0, 0.1)',
   width: '100%',
+  borderRadius: '4px',
   transition: 'background 0.21s ease-in-out',
   '&:focus, &:hover': {
-    background: '#eeeeee',
+    background: '#5a6fd8',
   }
 }));
 
-function TextEditor(props) {
+function TextEditor({ pieceLabel, onSubmit, onFocus, onBlur }) {
   const [isVisible, setIsVisible] = useState(true);
+  
+  // Auto-submit when component mounts since we have the piece label
+  useEffect(() => {
+    if (pieceLabel && isVisible) {
+      // Small delay to show the label briefly before auto-submitting
+      const timer = setTimeout(() => {
+        handleSubmit();
+      }, 800);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [pieceLabel, isVisible]);
 
   const handleSubmit = () => {
     setIsVisible(false);
-    props.onSubmit();
+    // Pass the piece label data to the parent
+    if (onSubmit) {
+      onSubmit({
+        text: pieceLabel,
+        label: pieceLabel,
+        id: Math.random() // Generate unique ID
+      });
+    }
+  };
+
+  const handleManualSubmit = () => {
+    handleSubmit();
   };
 
   return (
     <React.Fragment>
-      {isVisible && (
+      {isVisible && pieceLabel && (
         <React.Fragment>
           <Inner>
-            <textarea
-              placeholder="Write description"
-              onFocus={props.onFocus}
-              onBlur={props.onBlur}
-              onChange={props.onChange}
-              value={props.value}
-            />
-          </Inner>
-          {props.value && (
-            <Button onClick={handleSubmit}>
-              Submit
+            <LabelDisplay>
+              {pieceLabel}
+            </LabelDisplay>
+            <Button onClick={handleManualSubmit}>
+              Confirm Label
             </Button>
-          )}
+          </Inner>
         </React.Fragment>
       )}
     </React.Fragment>

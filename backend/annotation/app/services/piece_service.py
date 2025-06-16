@@ -159,8 +159,44 @@ def update_piece_annotation_status(piece_label: str, is_annotated: bool):
         print(f"Error calling artifact_keeper API: {str(e)}")
         return False
 
+def create_yolo_directory_structure(base_path: str, piece_label: str):
+    """Create YOLO directory structure for a piece"""
+    piece_path = os.path.join(base_path, piece_label)
+    
+    # Create the main directories
+    directories = [
+        os.path.join(piece_path, "images", "valid"),
+        os.path.join(piece_path, "images", "train"),
+        os.path.join(piece_path, "labels", "valid"),
+        os.path.join(piece_path, "labels", "train")
+    ]
+    
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+        print(f"Created directory: {directory}")
+    
+    return piece_path
+
+def copy_image_to_yolo_structure(source_image_path: str, piece_label: str, image_filename: str, annotations_base_path: str):
+    """Copy image from dataset to YOLO structure"""
+    try:
+        # Create destination path in YOLO structure
+        dest_image_path = os.path.join(annotations_base_path, piece_label, "images", "valid", image_filename)
+        
+        # Copy the image file
+        if os.path.exists(source_image_path):
+            shutil.copy2(source_image_path, dest_image_path)
+            print(f"Copied image from {source_image_path} to {dest_image_path}")
+            return True
+        else:
+            print(f"Source image not found: {source_image_path}")
+            return False
+    except Exception as e:
+        print(f"Error copying image: {e}")
+        return False
+
 def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
-    """Save all annotations from virtual storage to the database."""
+    """Save all annotations from virtual storage to the database and create YOLO structure."""
 
     # Ensure the piece exists in the database
     piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
@@ -181,17 +217,21 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
     extracted_label = match.group(1)
 
-    # FIXED: Use the annotations volume instead of dataset volume
-    # Use the annotations path from environment or default
+    # Use the annotations volume path
     annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
-    save_folder = os.path.join(annotations_base_path, "labels", "valid", extracted_label, piece_label)
     
-    # Create directory if it doesn't exist
-    os.makedirs(save_folder, exist_ok=True)
-    print(f"Created/verified annotation directory: {save_folder}")
+    # Create YOLO directory structure
+    piece_path = create_yolo_directory_structure(annotations_base_path, piece_label)
+    
+    # Set save folder for labels
+    labels_save_folder = os.path.join(piece_path, "labels", "valid")
+    
+    print(f"Created YOLO structure at: {piece_path}")
+    print(f"Labels will be saved to: {labels_save_folder}")
 
     # Collect unique class IDs and labels from annotations
     class_id_to_label = {}
+    processed_images = set()
 
     # Save each annotation from virtual storage to the database
     for annotation_data in virtual_storage[piece_label]['annotations']:
@@ -220,6 +260,17 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
 
         print(f"Piece image found: {piece_image}")
 
+        # Copy image to YOLO structure if not already done
+        if annotation_data['image_id'] not in processed_images:
+            copy_success = copy_image_to_yolo_structure(
+                piece_image.image_path, 
+                piece_label, 
+                piece_image.file_name, 
+                annotations_base_path
+            )
+            if copy_success:
+                processed_images.add(annotation_data['image_id'])
+
         # Convert from percentage to YOLO format
         width_normalized = annotation_data['width'] / 100
         height_normalized = annotation_data['height'] / 100
@@ -230,16 +281,17 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         image_name_without_extension = os.path.splitext(piece_image.file_name)[0]
         annotationTXT_name = f"{image_name_without_extension}.txt"
 
-        # Set the file path for saving the annotation
-        file_path = os.path.join(save_folder, annotationTXT_name)
+        # Set the file path for saving the annotation in YOLO structure
+        file_path = os.path.join(labels_save_folder, annotationTXT_name)
 
         # Prepare annotation in YOLO format
         annotationTXT = f"{piece.class_data_id} {x_center_normalized} {y_center_normalized} {width_normalized} {height_normalized}\n"
 
-        # FIXED: Add error handling for file writing
+        # Save the annotation inside a text file
         try:
-            # Save the annotation inside a text file
-            with open(file_path, 'w') as file:
+            # If file exists, append to it (for multiple annotations per image)
+            mode = 'a' if os.path.exists(file_path) else 'w'
+            with open(file_path, mode) as file:
                 file.write(annotationTXT)
             print(f"Annotation saved to text file: {file_path}")
         except IOError as e:
@@ -279,7 +331,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         if not update_piece_annotation_status(piece_label, True):
             print("Warning: Failed to update piece annotation status via API")
         
-        # FIXED: Update data.yaml in the annotations volume
+        # Update data.yaml in the annotations volume
         data_yaml_path = os.path.join(annotations_base_path, "data.yaml")
 
         # Load existing data if it exists
@@ -288,12 +340,13 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                 data_yaml = yaml.safe_load(yaml_file)
                 print(f"Existing data_yaml loaded: {data_yaml}")
         else:
-            # FIXED: Use relative paths for train/val directories
+            # Create new data.yaml with relative paths for YOLO training
             data_yaml = {
                 'names': {},
                 'nc': 0,
-                'val': os.path.join(annotations_base_path, "images", "valid"),
-                'train': os.path.join(annotations_base_path, "images", "train")
+                'path': annotations_base_path,  # Base path for the dataset
+                'train': 'images/train',  # Relative path to training images
+                'val': 'images/valid'     # Relative path to validation images
             }
             print("No existing data_yaml found. Creating new.")
 
@@ -322,9 +375,8 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     virtual_storage.pop(piece_label, None)
     print("Annotations saved successfully and virtual storage cleared.")
     
-    return {"status": "Annotations saved successfully", "save_folder": save_folder}
+    return {"status": "Annotations saved successfully", "save_folder": labels_save_folder, "yolo_structure": piece_path}
 
-# http://localhost/api/artifact_keeper/camera/cameras/stop
 def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]:
     """Delete a specific annotation from the database"""
     try:
@@ -383,25 +435,18 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         
         # Delete the corresponding annotation text file if it exists
         try:
-            # FIXED: Use the correct path structure
-            match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
-            if match:
-                extracted_label = match.group(1)
-                
-                # Use the annotations volume path
-                annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
-                save_folder = os.path.join(annotations_base_path, "labels", "valid", extracted_label, piece_label)
-                
-                # Get the annotation file name
-                annotation_file_path = os.path.join(save_folder, annotation_txt_name)
-                
-                if os.path.exists(annotation_file_path):
-                    os.remove(annotation_file_path)
-                    print(f"Deleted annotation file: {annotation_file_path}")
-                else:
-                    print(f"Annotation file not found: {annotation_file_path}")
+            # Use the annotations volume path for YOLO structure
+            annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
+            labels_folder = os.path.join(annotations_base_path, piece_label, "labels", "valid")
+            
+            # Get the annotation file name
+            annotation_file_path = os.path.join(labels_folder, annotation_txt_name)
+            
+            if os.path.exists(annotation_file_path):
+                os.remove(annotation_file_path)
+                print(f"Deleted annotation file: {annotation_file_path}")
             else:
-                print(f"Could not extract label from piece_label: {piece_label}")
+                print(f"Annotation file not found: {annotation_file_path}")
                 
         except Exception as file_error:
             print(f"Warning: Could not delete annotation file: {str(file_error)}")
@@ -426,7 +471,7 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         error_msg = str(e)
         print(f"Error deleting annotation {annotation_id}: {error_msg}")
         raise HTTPException(status_code=500, detail=f"Error deleting annotation: {error_msg}")
-    
+
 def delete_virtual_annotation_service(piece_label: str, image_id: int, annotation_id: str, virtual_storage: Dict) -> Dict[str, Any]:
     """Delete a specific annotation from virtual storage"""
     try:
@@ -508,26 +553,3 @@ def get_virtual_annotations_service(piece_label: str, virtual_storage: Dict) -> 
     except Exception as e:
         print(f"Error getting virtual annotations: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting virtual annotations: {str(e)}")
-
-def update_piece_annotation_status(piece_label: str, is_annotated: bool) -> bool:
-    """
-    Update piece annotation status via artifact_keeper API.
-    This respects service boundaries and data ownership.
-    """
-    try:
-        response = requests.patch(
-            f"http://localhost/api/artifact_keeper/camera/pieces/{piece_label}/annotation-status",
-            json={"is_annotated": is_annotated},
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            print(f"Successfully updated piece {piece_label} annotation status to {is_annotated}")
-            return True
-        else:
-            print(f"Failed to update piece annotation status: {response.status_code} - {response.text}")
-            return False
-            
-    except requests.exceptions.RequestException as e:
-        print(f"Error calling artifact_keeper API: {str(e)}")
-        return False

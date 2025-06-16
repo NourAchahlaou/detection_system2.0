@@ -36,7 +36,7 @@ services:
     volumes:
       - ./backend/artifact_keeper:/usr/srv/artifact_keeper
       - ./.env:/usr/srv/.env
-      # Shared dataset volume with consistent path
+      # Shared dataset volume with read-write access
       - dataset:/app/shared/dataset
       # Optional: Add backup volume for critical data
       - dataset_backup:/app/shared/backup
@@ -65,15 +65,14 @@ services:
     volumes:
       - ./backend/annotation:/usr/srv/annotation
       - ./.env:/usr/srv/.env
-      # Same shared dataset volume - READ ONLY for safety
-      - dataset:/app/shared/dataset:ro
-      # Separate volume for annotation outputs
+      # FIXED: Remove :ro (read-only) flag to allow writing
+      - dataset:/app/shared/dataset
+      # Add separate annotations volume for YOLO structure
       - annotations:/app/shared/annotations
     user: "1001:1001"
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
       - ANNOTATIONS_PATH=/app/shared/annotations
-
 
   databasePostgres:
     image: postgres:15
@@ -120,7 +119,8 @@ services:
       - "80:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - dataset:/app/shared/dataset:ro  
+      - dataset:/app/shared/dataset:ro
+      - annotations:/app/shared/annotations:ro
     depends_on:
       - user_management
       - artifact_keeper
@@ -138,7 +138,7 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ./shared_data/dataset  # Optional: bind to host directory for easier backup
+      device: ./shared_data/dataset
   annotations:
     driver: local
     driver_opts:
