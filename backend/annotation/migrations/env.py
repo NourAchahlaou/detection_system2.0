@@ -13,6 +13,7 @@ from annotation.app.core.settings import get_settings
 from annotation.app.db.models.annotation import Annotation
 from annotation.app.db.models.piece import Piece  # Read-only
 from annotation.app.db.models.piece_image import PieceImage  # Read-only
+
 # Add parent directory to path so we can import our app modules
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
