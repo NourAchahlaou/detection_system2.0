@@ -1,19 +1,13 @@
-from datetime import datetime
 import os
-import re
-import tempfile
+
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from fastapi import HTTPException
 import logging
 import json
-import shutil
-from pathlib import Path
 from artifact_keeper.app.services.hardwareServiceClient import CameraClient
 from artifact_keeper.app.db.models.camera_settings import CameraSettings
-from artifact_keeper.app.db.models.piece import Piece
-from artifact_keeper.app.db.models.piece_image import PieceImage
+
 from artifact_keeper.app.db.models.camera import Camera
 
 logger = logging.getLogger(__name__)
@@ -24,72 +18,9 @@ class CameraService:
     the database and the hardware service.
     """   
         
-    def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003", 
-                dataset_base_path: str = "/app/shared/dataset"):
+    def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
-        self.temp_photos = []
         
-        # Updated dataset structure: shared_data/dataset/piece/piece/{piece_label}/
-        self.dataset_base_path = dataset_base_path
-        self.dataset_piece_path = os.path.join(self.dataset_base_path, "piece", "piece")
-        
-        # Create the base dataset structure if it doesn't exist with error handling
-        try:
-            os.makedirs(self.dataset_piece_path, exist_ok=True)
-            logger.info(f"Successfully created/verified dataset directory: {self.dataset_piece_path}")
-        except PermissionError as e:
-            logger.error(f"Permission denied creating dataset directory {self.dataset_piece_path}: {str(e)}")
-            logger.error("Please check directory permissions and user ownership")
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Cannot create dataset directory due to permission error. Please check directory permissions for {self.dataset_piece_path}"
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error creating dataset directory: {str(e)}")
-            raise
-        
-        # Create a temp directory for storing images before moving to dataset
-        try:
-            self.temp_dir = tempfile.mkdtemp(prefix="camera_images_")
-            logger.info(f"Initialized temp directory: {self.temp_dir}")
-        except Exception as e:
-            logger.error(f"Failed to create temp directory: {str(e)}")
-            raise
-        
-        logger.info(f"Dataset base path: {self.dataset_base_path}")
-        logger.info(f"Dataset piece path: {self.dataset_piece_path}")
-
-    def _create_piece_directory(self, piece_label: str) -> tuple[str, str]:
-        """Create directory structure for a piece if it doesn't exist."""
-        piece_dir = os.path.join(self.dataset_piece_path, piece_label)
-        images_dir = os.path.join(piece_dir, "images", "valid")
-        labels_dir = os.path.join(piece_dir, "labels", "valid")
-        
-        # Create the directory structure: shared_data/dataset/piece/piece/{piece_label}/images/valid
-        # and shared_data/dataset/piece/piece/{piece_label}/labels/valid
-        os.makedirs(images_dir, exist_ok=True)
-        os.makedirs(labels_dir, exist_ok=True)
-        
-        logger.info(f"Created/verified directory structure: {images_dir} and {labels_dir}")
-        return images_dir, labels_dir
-
-    def _get_piece_images_path(self, piece_label: str) -> str:
-        """Get the images directory path for a piece."""
-        return os.path.join(self.dataset_piece_path, piece_label, "images", "valid")
-
-    def _get_piece_labels_path(self, piece_label: str) -> str:
-        """Get the labels directory path for a piece."""
-        return os.path.join(self.dataset_piece_path, piece_label, "labels", "valid")
-
-    def _count_existing_images(self, piece_label: str) -> int:
-        """Count existing images in the piece's dataset directory."""
-        images_dir = self._get_piece_images_path(piece_label)
-        if not os.path.exists(images_dir):
-            return 0
-        
-        # Count .jpg files in the directory
-        jpg_files = [f for f in os.listdir(images_dir) if f.lower().endswith('.jpg')]
-        return len(jpg_files)
 
     def detect_and_save_cameras(self, db: Session) -> List[Dict[str, Any]]:
         try:

@@ -1,10 +1,14 @@
+import sys
+from pathlib import Path
+
+# CRITICAL: Add parent directory to path BEFORE any app imports
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, text
 from sqlalchemy import pool
 from alembic import context
 
-import sys
-from pathlib import Path
 # Import your models and database configuration
 from annotation.app.db.session import Base
 from annotation.app.core.settings import get_settings
@@ -13,11 +17,6 @@ from annotation.app.core.settings import get_settings
 from annotation.app.db.models.annotation import Annotation
 from annotation.app.db.models.piece import Piece  # Read-only
 from annotation.app.db.models.piece_image import PieceImage  # Read-only
-
-# Add parent directory to path so we can import our app modules
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
-
 
 version_table = "alembic_version_annotation"
 

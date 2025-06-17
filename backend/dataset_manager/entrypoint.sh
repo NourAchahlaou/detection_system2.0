@@ -85,7 +85,8 @@ VERIFICATION_RESULT=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAM
     WHERE table_schema = 'dataset_mng' 
 ")
 
-EXPECTED_TABLES=4
+EXPECTED_TABLES=1
+
 ACTUAL_TABLES=$(echo $VERIFICATION_RESULT | tr -d ' ')
 
 if [ "$ACTUAL_TABLES" -eq "$EXPECTED_TABLES" ]; then

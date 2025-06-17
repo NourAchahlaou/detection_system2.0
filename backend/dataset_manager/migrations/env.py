@@ -1,11 +1,15 @@
+import sys
+from pathlib import Path
+
+# CRITICAL: Add parent directory to path BEFORE any app imports
+sys.path.append(str(Path(__file__).parent.parent.parent))
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, text
 from sqlalchemy import pool
 
 from alembic import context
-import sys
-from pathlib import Path
+
 from dataset_manager.app.db.session import Base
 from dataset_manager.app.core.settings import get_settings
 # Import ALL models for relationship resolution, but only migrate owned ones
@@ -13,7 +17,6 @@ from dataset_manager.app.db.models.piece import  Piece  # Read-onlyp
 from dataset_manager.app.db.models.piece_image import PieceImage  # Read-only
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
-sys.path.append(str(Path(__file__).parent.parent.parent))
 version_table = "alembic_version_dataset_manager"
 config = context.config
 setting = get_settings()
