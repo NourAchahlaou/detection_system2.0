@@ -127,38 +127,6 @@ def process_revision_directives(context, revision, directives):
             
             directive.upgrade_ops.ops = filtered_ops
 
-def create_cross_schema_foreign_keys(connection):
-    """
-    Create foreign key constraints that reference other schemas
-    This runs AFTER the main migration to ensure referenced tables exist
-    """
-    print("Creating cross-schema foreign key constraints...")
-    
-    try:
-        # Check if FK constraint already exists
-        result = connection.execute(text("""
-            SELECT COUNT(*) FROM information_schema.table_constraints 
-            WHERE constraint_name = 'fk_annotation_piece_image_id' 
-            AND table_schema = 'annotation'
-        """))
-        
-        if result.scalar() == 0:
-            # Create FK constraint for annotation.piece_image_id -> artifact_keeper.piece_image.id
-            connection.execute(text("""
-                ALTER TABLE annotation.annotation 
-                ADD CONSTRAINT fk_annotation_piece_image_id 
-                FOREIGN KEY (piece_image_id) 
-                REFERENCES artifact_keeper.piece_image(id) 
-                ON DELETE CASCADE
-            """))
-            print("✓ Created FK constraint: annotation.piece_image_id -> artifact_keeper.piece_image.id")
-        else:
-            print("✓ FK constraint already exists: annotation.piece_image_id -> artifact_keeper.piece_image.id")
-        
-    except Exception as e:
-        print(f"⚠️  Warning: Could not create cross-schema FK constraint: {e}")
-        print("This is expected if the referenced table doesn't exist yet.")
-        print("Run artifact_keeper migrations first, then re-run annotation migrations.")
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
@@ -200,7 +168,6 @@ def run_migrations_online() -> None:
         with context.begin_transaction():
             context.run_migrations()
             
-        create_cross_schema_foreign_keys(connection)
 
 if context.is_offline_mode():
     run_migrations_offline()

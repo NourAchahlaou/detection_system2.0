@@ -1,4 +1,4 @@
-from dataset.app.core.settings import get_settings
+from dataset_manager.app.core.settings import get_settings
 from sqlalchemy.orm import sessionmaker, declarative_base
 from typing import Generator
 from sqlalchemy import create_engine

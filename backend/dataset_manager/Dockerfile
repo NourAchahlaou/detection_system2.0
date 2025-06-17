@@ -18,6 +18,8 @@ RUN mkdir -p /usr/srv/dataset_manager/migrations
 COPY ./requirements.txt /usr/srv/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
+# Copy application code
+COPY . /usr/srv/dataset_manager 
 
 RUN chmod +x /usr/srv/dataset_manager/entrypoint.sh
 

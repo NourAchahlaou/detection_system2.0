@@ -67,7 +67,7 @@ echo "Schemas created successfully!"
 
 # Run Alembic migrations
 echo "Running Alembic migrations..."
-cd dataset
+cd dataset_manager
 alembic upgrade head
 if [ $? -eq 0 ]; then
     echo "Alembic migrations completed successfully!"
@@ -83,7 +83,6 @@ VERIFICATION_RESULT=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAM
     SELECT COUNT(*) 
     FROM information_schema.tables 
     WHERE table_schema = 'dataset_mng' 
-    AND table_name IN ('piece', 'piece_image');
 ")
 
 EXPECTED_TABLES=4

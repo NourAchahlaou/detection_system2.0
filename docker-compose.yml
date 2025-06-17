@@ -70,7 +70,30 @@ services:
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
 
-  
+  dataset_manager:
+    container_name: datasetManagerMicroservice
+    build:
+      context: ./backend/dataset_manager
+    env_file:
+      - ./.env
+    ports:
+      - "8005:8000"
+    depends_on:
+      databasePostgres:
+        condition: service_healthy
+      artifact_keeper:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - airvision-net
+    volumes:
+      - ./backend/dataset_manager:/usr/srv/dataset_manager
+      - ./.env:/usr/srv/.env
+      - dataset:/app/shared/dataset
+    user: "1001:1001"
+    environment:
+      - DATASET_BASE_PATH=/app/shared/dataset
   databasePostgres:
     image: postgres:15
     container_name: postgres

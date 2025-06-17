@@ -143,7 +143,7 @@ def update_piece_annotation_status(piece_label: str, is_annotated: bool):
     """
     try:
         response = requests.patch(
-            f"http://localhost/api/artifact_keeper/camera/pieces/{piece_label}/annotation-status",
+            f"http://localhost/api/artifact_keeper/captureImage/pieces/{piece_label}/annotation-status",
             json={"is_annotated": is_annotated},
             timeout=10
         )

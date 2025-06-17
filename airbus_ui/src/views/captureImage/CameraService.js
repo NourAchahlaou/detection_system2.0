@@ -25,7 +25,7 @@ export const cameraService = {
   // Stop camera and cleanup
   stopCamera: async () => {
     try {
-      await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
+      await api.post("/api/artifact_keeper/captureImage/cleanup-temp-photos");
       const response = await api.post("/api/artifact_keeper/camera/stop");
       
       console.log("Camera stopped and temporary photos cleaned up.");
@@ -39,7 +39,7 @@ export const cameraService = {
   // Capture images for a piece
   captureImages: async (pieceLabel) => {
     try {
-      const response = await api.get(`/api/artifact_keeper/camera/capture_images/${pieceLabel}`, {
+      const response = await api.get(`/api/artifact_keeper/captureImage/capture_images/${pieceLabel}`, {
         responseType: 'blob'
       });
       
@@ -59,7 +59,7 @@ export const cameraService = {
   // Get temporary images for a piece
   getTempImages: async (pieceLabel) => {
     try {
-      const response = await api.get(`/api/artifact_keeper/camera/temp-photos/${pieceLabel}`);
+      const response = await api.get(`/api/artifact_keeper/captureImage/temp-photos/${pieceLabel}`);
       return response.data || [];
     } catch (error) {
       console.error("Error fetching temp images:", error.response?.data?.detail || error.message);
@@ -70,7 +70,7 @@ export const cameraService = {
   // Get temporary image blob by name
   getTempImageBlob: async (imageName) => {
     try {
-      const response = await api.get(`/api/artifact_keeper/camera/temp-image/${imageName}`, {
+      const response = await api.get(`/api/artifact_keeper/captureImage/temp-image/${imageName}`, {
         responseType: 'blob'
       });
       
@@ -87,7 +87,7 @@ export const cameraService = {
   // Delete temporary image - NEW FUNCTION
   deleteTempImage: async (pieceLabel, imageName) => {
     try {
-      const response = await api.delete(`/api/artifact_keeper/camera/temp-image/${pieceLabel}/${imageName}`);
+      const response = await api.delete(`/api/artifact_keeper/captureImage/temp-image/${pieceLabel}/${imageName}`);
       
       if (response.status === 200) {
         console.log(`Successfully deleted temp image: ${imageName}`);
@@ -132,7 +132,7 @@ export const cameraService = {
   // Save captured images to database
   saveImagesToDatabase: async (pieceLabel) => {
     try {
-      const response = await api.post("/api/artifact_keeper/camera/save-images", {
+      const response = await api.post("/api/artifact_keeper/captureImage/save-images", {
         piece_label: pieceLabel
       });
 
@@ -160,7 +160,7 @@ export const cameraService = {
   // Cleanup temporary photos
   cleanupTempPhotos: async () => {
     try {
-      await api.post("/api/artifact_keeper/camera/cleanup-temp-photos");
+      await api.post("/api/artifact_keeper/captureImage/cleanup-temp-photos");
       return true;
     } catch (error) {
       console.error("Error during cleanup:", error);
