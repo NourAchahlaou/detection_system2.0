@@ -36,7 +36,7 @@ services:
     volumes:
       - ./backend/artifact_keeper:/usr/srv/artifact_keeper
       - ./.env:/usr/srv/.env
-      # Shared dataset volume with read-write access
+      # UPDATED: Single unified dataset volume with read-write access
       - dataset:/app/shared/dataset
       # Optional: Add backup volume for critical data
       - dataset_backup:/app/shared/backup
@@ -65,14 +65,12 @@ services:
     volumes:
       - ./backend/annotation:/usr/srv/annotation
       - ./.env:/usr/srv/.env
-      # FIXED: Remove :ro (read-only) flag to allow writing
+      # UPDATED: Single unified dataset volume with read-write access
       - dataset:/app/shared/dataset
-      # Add separate annotations volume for YOLO structure
-      - annotations:/app/shared/annotations
     user: "1001:1001"
     environment:
+      # UPDATED: Both services use the same unified dataset path
       - DATASET_BASE_PATH=/app/shared/dataset
-      - ANNOTATIONS_PATH=/app/shared/annotations
 
   databasePostgres:
     image: postgres:15
@@ -119,8 +117,8 @@ services:
       - "80:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      # UPDATED: Single unified dataset volume for serving images
       - dataset:/app/shared/dataset:ro
-      - annotations:/app/shared/annotations:ro
     depends_on:
       - user_management
       - artifact_keeper
@@ -133,18 +131,18 @@ networks:
 
 volumes:
   user_postgres_data:
+  
+  # UPDATED: Single unified dataset volume
   dataset:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: ./shared_data/dataset
-  annotations:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./shared_data/annotations
+  
+  # REMOVED: annotations volume (now part of unified dataset)
+  
+  # Optional backup volume
   dataset_backup:
     driver: local
     driver_opts:

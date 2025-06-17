@@ -29,7 +29,7 @@ class CameraService:
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         self.temp_photos = []
         
-        # Dataset structure: dataset/piece/piece/{piece_name}/images/
+        # Updated dataset structure: shared_data/dataset/piece/piece/{piece_label}/
         self.dataset_base_path = dataset_base_path
         self.dataset_piece_path = os.path.join(self.dataset_base_path, "piece", "piece")
         
@@ -40,7 +40,6 @@ class CameraService:
         except PermissionError as e:
             logger.error(f"Permission denied creating dataset directory {self.dataset_piece_path}: {str(e)}")
             logger.error("Please check directory permissions and user ownership")
-            # You can either raise the exception or handle it gracefully
             raise HTTPException(
                 status_code=500, 
                 detail=f"Cannot create dataset directory due to permission error. Please check directory permissions for {self.dataset_piece_path}"
@@ -60,20 +59,27 @@ class CameraService:
         logger.info(f"Dataset base path: {self.dataset_base_path}")
         logger.info(f"Dataset piece path: {self.dataset_piece_path}")
 
-    def _create_piece_directory(self, piece_label: str) -> str:
+    def _create_piece_directory(self, piece_label: str) -> tuple[str, str]:
         """Create directory structure for a piece if it doesn't exist."""
         piece_dir = os.path.join(self.dataset_piece_path, piece_label)
-        images_dir = os.path.join(piece_dir, "images")
+        images_dir = os.path.join(piece_dir, "images", "valid")
+        labels_dir = os.path.join(piece_dir, "labels", "valid")
         
-        # Create the directory structure: dataset/piece/piece/{piece_name}/images/
+        # Create the directory structure: shared_data/dataset/piece/piece/{piece_label}/images/valid
+        # and shared_data/dataset/piece/piece/{piece_label}/labels/valid
         os.makedirs(images_dir, exist_ok=True)
+        os.makedirs(labels_dir, exist_ok=True)
         
-        logger.info(f"Created/verified directory structure: {images_dir}")
-        return images_dir
+        logger.info(f"Created/verified directory structure: {images_dir} and {labels_dir}")
+        return images_dir, labels_dir
 
     def _get_piece_images_path(self, piece_label: str) -> str:
         """Get the images directory path for a piece."""
-        return os.path.join(self.dataset_piece_path, piece_label, "images","valid")
+        return os.path.join(self.dataset_piece_path, piece_label, "images", "valid")
+
+    def _get_piece_labels_path(self, piece_label: str) -> str:
+        """Get the labels directory path for a piece."""
+        return os.path.join(self.dataset_piece_path, piece_label, "labels", "valid")
 
     def _count_existing_images(self, piece_label: str) -> int:
         """Count existing images in the piece's dataset directory."""
@@ -509,7 +515,7 @@ class CameraService:
                 )
             
             # Create the piece directory structure
-            images_dir = self._create_piece_directory(piece_label)
+            images_dir, labels_dir = self._create_piece_directory(piece_label)
             
             saved_images = []
             
@@ -530,10 +536,14 @@ class CameraService:
                     logger.info(f"Moved image from {temp_file_path} to {final_file_path}")
                     
                     # Create PieceImage record with dataset path
+                    # Update the URL to reflect the new structure
+                    relative_path = os.path.join("piece", "piece", piece_label, "images", "valid", photo_data['image_name'])
+                    
                     piece_image = PieceImage(
                         piece_id=piece.id,
                         file_name=photo_data['image_name'],
                         image_path=final_file_path,  # Store the actual dataset path
+                        url=relative_path,  # Store relative path for URL serving
                         upload_date=photo_data['timestamp'],
                         is_deleted=False
                     )
@@ -563,6 +573,7 @@ class CameraService:
                 "images_saved": saved_images,
                 "total_images": piece.nbre_img,
                 "dataset_path": images_dir,
+                "labels_path": labels_dir,
                 "cleanup_status": {"message": "Temp files moved to dataset"}
             }
             
@@ -574,11 +585,13 @@ class CameraService:
     def get_piece_dataset_info(self, piece_label: str) -> Dict[str, Any]:
         """Get information about a piece's dataset directory."""
         images_dir = self._get_piece_images_path(piece_label)
+        labels_dir = self._get_piece_labels_path(piece_label)
         
         if not os.path.exists(images_dir):
             return {
                 "piece_label": piece_label,
-                "dataset_path": images_dir,
+                "images_path": images_dir,
+                "labels_path": labels_dir,
                 "exists": False,
                 "image_count": 0,
                 "images": []
@@ -588,12 +601,20 @@ class CameraService:
         image_files = [f for f in os.listdir(images_dir) if f.lower().endswith('.jpg')]
         image_files.sort()  # Sort for consistent ordering
         
+        # Get list of label files
+        label_files = []
+        if os.path.exists(labels_dir):
+            label_files = [f for f in os.listdir(labels_dir) if f.lower().endswith('.txt')]
+            label_files.sort()
+        
         return {
             "piece_label": piece_label,
-            "dataset_path": images_dir,
+            "images_path": images_dir,
+            "labels_path": labels_dir,
             "exists": True,
             "image_count": len(image_files),
-            "images": image_files
+            "images": image_files,
+            "labels": label_files
         }
 
     def __del__(self):
@@ -604,6 +625,7 @@ class CameraService:
                 logger.info(f"Cleaned up temp directory: {self.temp_dir}")
         except Exception as e:
             logger.warning(f"Failed to cleanup temp directory: {str(e)}")
+
     def get_temp_images_for_piece(self, piece_label: str) -> List[Dict[str, Any]]:
         """Get temporary images for a specific piece with file URLs."""
         try:
@@ -647,8 +669,7 @@ class CameraService:
         except Exception as e:
             logger.error(f"Error serving temp image {image_name}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to serve temp image: {str(e)}")  
-
-
+        
     def delete_temp_image(self, piece_label: str, image_name: str) -> bool:
         """Delete a specific temporary image."""
         try:

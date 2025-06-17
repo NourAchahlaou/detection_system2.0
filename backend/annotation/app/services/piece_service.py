@@ -30,7 +30,7 @@ def get_images_of_piece(piece_label: str, db: Session):
         
         print(f"Retrieved {len(db_images)} images for piece {piece_label}")
         
-        # FIXED: Use artifact_keeper service to serve images
+        # UPDATED: Use unified dataset structure for serving images
         urlbase = "http://localhost/api/artifact_keeper/images/"
         
         try:
@@ -48,8 +48,8 @@ def get_images_of_piece(piece_label: str, db: Session):
                 result.append({
                     "url": urlbase + clean_path,
                     "name": image.id,
-                    "is_annotated": image.is_annotated,  # Include annotation status
-                    "image_path": image.image_path  # Optional: include original path if needed
+                    "is_annotated": image.is_annotated,
+                    "image_path": image.image_path
                 })
             
             return result
@@ -69,7 +69,7 @@ def get_img_non_annotated(db: Session):
         print("No non-annotated pieces found.")
         return result
 
-    # FIXED: Use artifact_keeper service to serve images
+    # UPDATED: Use unified dataset structure for serving images
     urlbase = "http://localhost/api/artifact_keeper/images/"
 
     for piece in db_pieces:
@@ -160,10 +160,11 @@ def update_piece_annotation_status(piece_label: str, is_annotated: bool):
         return False
 
 def create_yolo_directory_structure(base_path: str, piece_label: str):
-    """Create YOLO directory structure for a piece"""
-    piece_path = os.path.join(base_path, piece_label)
+    """Create YOLO directory structure for a piece in the unified dataset folder"""
+    # UPDATED: New unified structure - shared_data/dataset/piece/{piece_label}/
+    piece_path = os.path.join(base_path, "piece", piece_label)
     
-    # Create the main directories
+    # Create the YOLO directories
     directories = [
         os.path.join(piece_path, "images", "valid"),
         os.path.join(piece_path, "images", "train"),
@@ -177,11 +178,11 @@ def create_yolo_directory_structure(base_path: str, piece_label: str):
     
     return piece_path
 
-def copy_image_to_yolo_structure(source_image_path: str, piece_label: str, image_filename: str, annotations_base_path: str):
-    """Copy image from dataset to YOLO structure"""
+def copy_image_to_yolo_structure(source_image_path: str, piece_label: str, image_filename: str, dataset_base_path: str):
+    """Copy image from captured location to YOLO structure within the same dataset folder"""
     try:
-        # Create destination path in YOLO structure
-        dest_image_path = os.path.join(annotations_base_path, piece_label, "images", "valid", image_filename)
+        # UPDATED: Destination is now in the unified structure
+        dest_image_path = os.path.join(dataset_base_path, "piece", piece_label, "images", "valid", image_filename)
         
         # Copy the image file
         if os.path.exists(source_image_path):
@@ -217,13 +218,13 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
     extracted_label = match.group(1)
 
-    # Use the annotations volume path
-    annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
+    # UPDATED: Use the unified dataset path instead of separate annotations path
+    dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
     
-    # Create YOLO directory structure
-    piece_path = create_yolo_directory_structure(annotations_base_path, piece_label)
+    # Create YOLO directory structure in the unified dataset folder
+    piece_path = create_yolo_directory_structure(dataset_base_path, piece_label)
     
-    # Set save folder for labels
+    # Set save folder for labels within the unified structure
     labels_save_folder = os.path.join(piece_path, "labels", "valid")
     
     print(f"Created YOLO structure at: {piece_path}")
@@ -266,7 +267,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                 piece_image.image_path, 
                 piece_label, 
                 piece_image.file_name, 
-                annotations_base_path
+                dataset_base_path
             )
             if copy_success:
                 processed_images.add(annotation_data['image_id'])
@@ -331,8 +332,8 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         if not update_piece_annotation_status(piece_label, True):
             print("Warning: Failed to update piece annotation status via API")
         
-        # Update data.yaml in the annotations volume
-        data_yaml_path = os.path.join(annotations_base_path, "data.yaml")
+        # UPDATED: Update data.yaml in the unified dataset folder
+        data_yaml_path = os.path.join(dataset_base_path, "data.yaml")
 
         # Load existing data if it exists
         if os.path.exists(data_yaml_path):
@@ -344,9 +345,9 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
             data_yaml = {
                 'names': {},
                 'nc': 0,
-                'path': annotations_base_path,  # Base path for the dataset
-                'train': 'images/train',  # Relative path to training images
-                'val': 'images/valid'     # Relative path to validation images
+                'path': dataset_base_path,  # Base path for the dataset
+                'train': 'piece/*/images/train',  # Pattern for all training images
+                'val': 'piece/*/images/valid'     # Pattern for all validation images
             }
             print("No existing data_yaml found. Creating new.")
 
@@ -435,9 +436,9 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         
         # Delete the corresponding annotation text file if it exists
         try:
-            # Use the annotations volume path for YOLO structure
-            annotations_base_path = os.getenv('ANNOTATIONS_PATH', '/app/shared/annotations')
-            labels_folder = os.path.join(annotations_base_path, piece_label, "labels", "valid")
+            # UPDATED: Use the unified dataset path for YOLO structure
+            dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
+            labels_folder = os.path.join(dataset_base_path, "piece", piece_label, "labels", "valid")
             
             # Get the annotation file name
             annotation_file_path = os.path.join(labels_folder, annotation_txt_name)
