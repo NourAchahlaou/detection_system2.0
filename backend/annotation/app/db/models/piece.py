@@ -18,5 +18,4 @@ class Piece(Base):
     nbre_img = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
  
-    # Relationship to piece images (read-only)
     piece_img = relationship("PieceImage", back_populates="piece", viewonly=True)

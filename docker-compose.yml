@@ -65,13 +65,12 @@ services:
     volumes:
       - ./backend/annotation:/usr/srv/annotation
       - ./.env:/usr/srv/.env
-      # UPDATED: Single unified dataset volume with read-write access
       - dataset:/app/shared/dataset
     user: "1001:1001"
     environment:
-      # UPDATED: Both services use the same unified dataset path
       - DATASET_BASE_PATH=/app/shared/dataset
 
+  
   databasePostgres:
     image: postgres:15
     container_name: postgres
@@ -132,7 +131,6 @@ networks:
 volumes:
   user_postgres_data:
   
-  # UPDATED: Single unified dataset volume
   dataset:
     driver: local
     driver_opts:
@@ -140,9 +138,7 @@ volumes:
       o: bind
       device: ./shared_data/dataset
   
-  # REMOVED: annotations volume (now part of unified dataset)
   
-  # Optional backup volume
   dataset_backup:
     driver: local
     driver_opts:

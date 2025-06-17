@@ -1,49 +1,44 @@
 from logging.config import fileConfig
+
 from sqlalchemy import engine_from_config, text
 from sqlalchemy import pool
-from alembic import context
 
+from alembic import context
 import sys
 from pathlib import Path
-# Import your models and database configuration
-from annotation.app.db.session import Base
-from annotation.app.core.settings import get_settings
-
+from dataset_manager.app.db.session import Base
+from dataset_manager.app.core.settings import get_settings
 # Import ALL models for relationship resolution, but only migrate owned ones
-from annotation.app.db.models.annotation import Annotation
-from annotation.app.db.models.piece import Piece  # Read-only
-from annotation.app.db.models.piece_image import PieceImage  # Read-only
-# Add parent directory to path so we can import our app modules
+from dataset_manager.app.db.models.piece import  Piece  # Read-onlyp    
+from dataset_manager.app.db.models.piece_image import PieceImage  # Read-only
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
 sys.path.append(str(Path(__file__).parent.parent.parent))
-
-
-
-version_table = "alembic_version_annotation"
-
+version_table = "alembic_version_dataset_manager"
 config = context.config
-settings = get_settings()
+setting = get_settings()
 
-print(f"Annotation service DATABASE_URI: {settings.DATABASE_URI}")
-config.set_main_option('sqlalchemy.url', settings.DATABASE_URI.replace('%', '%%'))
-
+config.set_main_option('sqlalchemy.url', setting.DATABASE_URI.replace('%', '%%'))
+# Interpret the config file for Python logging.
+# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# add your model's MetaData object here
+# for 'autogenerate' support
+# from myapp import mymodel
+# target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
-
-SCHEMA_NAME = "annotation"
-
-# Tables this service owns and should manage migrations for
-OWNED_TABLES = {
-    'annotation',  # This service owns annotations
-}
-
-# Tables from other services that we reference but don't own
+SCHEMA_NAME = "dataset_mng"
+# other values from the config, defined by the needs of env.py,
+# can be acquired:
+# my_important_option = config.get_main_option("my_important_option")
+# ... etc.
+OWNED_TABLES = {}
 REFERENCED_TABLES = {
     'piece',        # Owned by artifact_keeper
-    'piece_image'   # Owned by artifact_keeper
-}
-
+    'piece_image'   # Owned by artifact_keeper  
+    }
 def include_object(object, name, type_, reflected, compare_to):
     """
     Enhanced filtering logic for shared models across schemas
