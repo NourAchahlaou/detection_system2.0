@@ -17,6 +17,7 @@ const CaptureImage = Loadable(lazy(() => import('../views/captureImage/CameraCap
 const SignInSide = Loadable(lazy(() => import('../views/auth/sign-in-side/SignInSide')));
 const Annotation = Loadable(lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion')));
 const PiecesOverview = Loadable(lazy(() => import('../views/imageAnnotaion/PiecesOverview')));
+const Dataset = Loadable(lazy(() => import('../views/dataset/dataset')));
 
 const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
 const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
@@ -58,8 +59,13 @@ const router = createBrowserRouter([
       {
         path: 'piecesOverview',
         element: <PiecesOverview />,    
-      }
+      },
+      {
+        path: 'dataset',
+        element: <Dataset />, 
+      },  
     ],
+
   },
 
   // Public login route
