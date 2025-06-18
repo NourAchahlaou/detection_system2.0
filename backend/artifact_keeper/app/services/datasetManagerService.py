@@ -4,9 +4,9 @@ import os
 import re
 import shutil
 from sqlalchemy.orm import Session
-from annotation.app.db.models.annotation import Annotation
-from annotation.app.db.models.piece import Piece
-from annotation.app.db.models.piece_image import PieceImage
+from artifact_keeper.app.db.models.piece import Piece
+from artifact_keeper.app.db.models.piece_image import PieceImage
+from artifact_keeper.app.db.models.annotation import Annotation
 
 
 def get_all_datasets(db: Session):
@@ -35,7 +35,8 @@ def get_all_datasets(db: Session):
         for image in images:
             image_data = {
                 "id": image.id,
-                "url": f"http://localhost:8000/images/{image.url.replace('\\', '/')}",
+                "file_name": image.file_name,
+                "image_path": image.image_path,
                 "is_annotated": image.is_annotated,
                 "annotations": []
             }
@@ -59,6 +60,7 @@ def get_all_datasets(db: Session):
         datasets[piece.piece_label] = piece_data
 
     return datasets
+
 # training microservice
 def get_piece_labels_by_group(group_label: str, db: Session):
     try:

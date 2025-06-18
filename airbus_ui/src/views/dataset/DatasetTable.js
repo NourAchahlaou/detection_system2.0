@@ -18,12 +18,11 @@ import {
   DialogTitle,
   Typography,
   Chip,
-
   Checkbox
 } from "@mui/material";
 
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { datasetService } from "./datasetService";
 import TrainingProgressModal from "./ProgressBar";
 
 // STYLED COMPONENTS - Following the modern theme
@@ -236,43 +235,50 @@ export default function DataTable() {
   const [selectAll, setSelectAll] = useState(false);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [actionType, setActionType] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    axios.get("http://localhost:8000/piece/datasets")
-      .then((response) => {
-        setDatasets(Object.values(response.data));
-      })
-      .catch((error) => {
-        console.error("Error fetching datasets:", error);
-      });
+    fetchDatasets();
   }, []);
 
-  const handleTrain = (pieceLabel) => {
+  const fetchDatasets = async () => {
+    setLoading(true);
+    try {
+      const response = await datasetService.getAllDatasets();
+      setDatasets(Object.values(response));
+    } catch (error) {
+      console.error("Error fetching datasets:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTrain = async (pieceLabel) => {
     setTrainingInProgress(pieceLabel);
     setCurrentPieceLabel(pieceLabel);
     setModalOpen(true);
 
-    axios.post(`http://localhost:8000/detection/train/${pieceLabel}`)
-      .then((response) => {
-        const interval = setInterval(() => {
-          setProgress((prevProgress) => {
-            if (prevProgress === 100) {
-              clearInterval(interval);
-              setTrainingInProgress(null);
-              setProgress(0);
-              setModalOpen(false);
-              return 100;
-            }
-            return Math.min(prevProgress + 10, 100);
-          });
-        }, 1000);
-      })
-      .catch((error) => {
-        console.error("Error starting training:", error);
-        setTrainingInProgress(null);
-        setProgress(0);
-        setModalOpen(false);
-      });
+    try {
+      await datasetService.trainModel(pieceLabel);
+      
+      const interval = setInterval(() => {
+        setProgress((prevProgress) => {
+          if (prevProgress === 100) {
+            clearInterval(interval);
+            setTrainingInProgress(null);
+            setProgress(0);
+            setModalOpen(false);
+            return 100;
+          }
+          return Math.min(prevProgress + 10, 100);
+        });
+      }, 1000);
+    } catch (error) {
+      console.error("Error starting training:", error);
+      setTrainingInProgress(null);
+      setProgress(0);
+      setModalOpen(false);
+    }
   };
 
   const handleSelectAll = () => {
@@ -297,41 +303,42 @@ export default function DataTable() {
     console.log("handleView", label);
   };
 
-  const handleDelete = (label) => {
-    axios.delete(`http://localhost:8000/piece/delete_piece/${label}`)
-      .then(() => {
-        setDatasets(prevDatasets => prevDatasets.filter(dataset => dataset.label !== label));
-        setSelectedDatasets(prevSelected => prevSelected.filter(item => item !== label));
-        window.location.reload();
-      })
-      .catch((error) => {
-        console.error("Error deleting piece:", error);
-      });
+  const handleDelete = async (label) => {
+    try {
+      await datasetService.deletePieceByLabel(label);
+      setDatasets(prevDatasets => prevDatasets.filter(dataset => dataset.label !== label));
+      setSelectedDatasets(prevSelected => prevSelected.filter(item => item !== label));
+      // Refresh the data instead of full page reload
+      await fetchDatasets();
+    } catch (error) {
+      console.error("Error deleting piece:", error);
+    }
   };
   
-  const handleConfirmationClose = (confirm) => {
+  const handleConfirmationClose = async (confirm) => {
     setConfirmationOpen(false);
     if (confirm) {
       if (actionType === "delete") {
         if (selectAll) {
-          handleDeleteAll();
+          await handleDeleteAll();
         } else {
-          selectedDatasets.forEach(label => handleDelete(label));
+          // Delete selected pieces in parallel
+          await Promise.all(selectedDatasets.map(label => handleDelete(label)));
         }
       }
       setSelectAll(false);
+      setSelectedDatasets([]);
     }
   };
   
-  const handleDeleteAll = () => {
-    axios.delete("http://localhost:8000/piece/delete_all_pieces")
-      .then(() => {
-        setDatasets([]);
-        setSelectedDatasets([]);
-      })
-      .catch((error) => {
-        console.error("Error deleting all pieces:", error);
-      });
+  const handleDeleteAll = async () => {
+    try {
+      await datasetService.deleteAllPieces();
+      setDatasets([]);
+      setSelectedDatasets([]);
+    } catch (error) {
+      console.error("Error deleting all pieces:", error);
+    }
   };
 
   const handleBulkDelete = () => {

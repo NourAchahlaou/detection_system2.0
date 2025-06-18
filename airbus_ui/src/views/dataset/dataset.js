@@ -2,7 +2,7 @@ import { Box, styled, Typography, CircularProgress } from "@mui/material";
 import DataTable from "./DatasetTable";
 import NoData from "../sessions/NoData";
 import { useState, useEffect } from "react";
-import axios from "axios";
+import { datasetService } from "./datasetService";
 import { useNavigate } from "react-router-dom";
 
 const Container = styled("div")(({ theme }) => ({
@@ -75,9 +75,10 @@ export default function AppDatabasesetup() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
+      setError(null);
+      
       try {
-        const response = await axios.get("http://localhost:8000/piece/datasets");
-        const pieces = response.data;
+        const pieces = await datasetService.getAllDatasets();
         setData(pieces);
 
         // Handle cases where pieces are empty
@@ -86,7 +87,7 @@ export default function AppDatabasesetup() {
         }
       } catch (error) {
         console.error("Error fetching data:", error);
-        setError("Failed to fetch data");
+        setError(error.response?.data?.detail || "Failed to fetch data");
         // Comment out navigation to see error state
         // navigate("/204");
       } finally {
@@ -100,7 +101,6 @@ export default function AppDatabasesetup() {
   if (loading) {
     return (
       <Container>
-
         <LoadingContainer>
           <CircularProgress sx={{ color: '#667eea' }} size={48} />
           <Typography variant="h6" sx={{ opacity: 0.8, mt: 2, fontWeight: "600" }}>
@@ -117,8 +117,6 @@ export default function AppDatabasesetup() {
   if (error) {
     return (
       <Container>
-
-        
         <ErrorContainer>
           <Typography variant="h5" sx={{ fontWeight: "600", mb: 1 }}>
             Unable to Load Database
@@ -136,8 +134,6 @@ export default function AppDatabasesetup() {
 
   return (
     <Container>
-
-
       {data && Object.keys(data).length > 0 ? (
         <DataTable data={data} />
       ) : (
