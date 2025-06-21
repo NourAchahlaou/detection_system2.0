@@ -1,4 +1,9 @@
-import {  Delete, Visibility, PhotoLibrary, CheckCircle, RadioButtonUnchecked } from "@mui/icons-material";
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Delete, Visibility, PhotoLibrary, CheckCircle, RadioButtonUnchecked,
+  Search, FilterList, Sort, CalendarToday, Image as ImageIcon,
+  Refresh, Download, Clear
+} from "@mui/icons-material";
 import {
   Box,
   Card,
@@ -18,14 +23,28 @@ import {
   DialogTitle,
   Typography,
   Chip,
-  Checkbox
+  Checkbox,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Grid,
+  Paper,
+  TablePagination,
+  Collapse,
+  InputAdornment,
+  Divider,
+  CircularProgress,
+  Backdrop,
+  Alert,
+  Snackbar
 } from "@mui/material";
 
-import { useEffect, useState } from "react";
-import { datasetService } from "./datasetService";
-import TrainingProgressModal from "./ProgressBar";
+// Import your real service
+import { datasetService } from './datasetService';
 
-// STYLED COMPONENTS - Following the modern theme
+// STYLED COMPONENTS (keeping the same styled components from your original code)
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
@@ -38,6 +57,8 @@ const HeaderBox = styled(Box)({
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
+  flexWrap: "wrap",
+  gap: "16px",
 });
 
 const Title = styled(Typography)({
@@ -46,6 +67,14 @@ const Title = styled(Typography)({
   color: "#333",
   textTransform: "none",
 });
+
+const FilterCard = styled(Card)(({ theme }) => ({
+  marginBottom: "24px",
+  border: "1px solid rgba(102, 126, 234, 0.1)",
+  borderRadius: "12px",
+  overflow: "hidden",
+  backgroundColor: "#fff",
+}));
 
 const ModernCard = styled(Card)(({ theme }) => ({
   marginBottom: "24px",
@@ -61,29 +90,11 @@ const ModernCard = styled(Card)(({ theme }) => ({
   },
 }));
 
-const GroupHeader = styled(Box)(({ theme }) => ({
-  padding: "20px 24px",
-  backgroundColor: "rgba(102, 126, 234, 0.04)",
-  borderBottom: "1px solid rgba(102, 126, 234, 0.1)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-}));
-
-const GroupTitle = styled(Typography)({
-  fontSize: "1.2rem",
-  fontWeight: "600",
-  color: "#667eea",
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-});
-
 const ProductTable = styled(Table)(() => ({
-  minWidth: 400,
+  minWidth: 900,
   "& .MuiTableCell-root": {
     borderBottom: "1px solid rgba(102, 126, 234, 0.08)",
-    padding: "16px 24px",
+    padding: "16px 12px",
     fontSize: "0.875rem",
   },
   "& .MuiTableHead-root .MuiTableCell-root": {
@@ -119,16 +130,13 @@ const StatusChip = styled(Chip)(({ variant }) => ({
     : variant === 'trained'
     ? "rgba(102, 126, 234, 0.3)"
     : "rgba(244, 67, 54, 0.3)"}`,
-  "& .MuiChip-icon": {
-    fontSize: "14px",
-  },
 }));
 
-const ActionButton = styled(IconButton)(({ variant, theme }) => ({
-  width: "36px",
-  height: "36px",
-  margin: "0 4px",
-  borderRadius: "8px",
+const ActionButton = styled(IconButton)(({ variant }) => ({
+  width: "32px",
+  height: "32px",
+  margin: "0 2px",
+  borderRadius: "6px",
   border: "1px solid rgba(102, 126, 234, 0.2)",
   backgroundColor: "transparent",
   color: variant === 'delete' ? "#f44336" : variant === 'train' ? "#667eea" : "#666",
@@ -140,76 +148,27 @@ const ActionButton = styled(IconButton)(({ variant, theme }) => ({
       ? "rgba(102, 126, 234, 0.08)"
       : "rgba(0, 0, 0, 0.04)",
     borderColor: variant === 'delete' ? "#f44336" : variant === 'train' ? "#667eea" : "#999",
-    transform: "translateY(-1px)",
   },
-  "&:disabled": {
-    backgroundColor: "rgba(0, 0, 0, 0.04)",
-    color: "rgba(0, 0, 0, 0.26)",
-    border: "1px solid rgba(0, 0, 0, 0.12)",
-  },
-}));
-
-const TrainButton = styled(Button)(({ theme, training }) => ({
-  textTransform: "none",
-  fontSize: "0.875rem",
-  fontWeight: "600",
-  padding: "8px 16px",
-  borderRadius: "8px",
-  minWidth: "100px",
-  backgroundColor: training ? "rgba(102, 126, 234, 0.08)" : "#667eea",
-  color: training ? "#667eea" : "white",
-  border: training ? "1px solid rgba(102, 126, 234, 0.3)" : "none",
-  "&:hover": {
-    backgroundColor: training ? "rgba(102, 126, 234, 0.12)" : "#5a67d8",
-    transform: training ? "none" : "translateY(-1px)",
-    boxShadow: training ? "none" : "0 4px 12px rgba(102, 126, 234, 0.3)",
-  },
-  "&:disabled": {
-    backgroundColor: "rgba(0, 0, 0, 0.04)",
-    color: "rgba(0, 0, 0, 0.26)",
-  },
-}));
-
-const SelectAllButton = styled(Button)(({ theme, selected }) => ({
-  textTransform: "none",
-  fontSize: "0.875rem",
-  fontWeight: "600",
-  padding: "8px 16px",
-  borderRadius: "8px",
-  backgroundColor: selected ? "rgba(244, 67, 54, 0.08)" : "rgba(102, 126, 234, 0.08)",
-  color: selected ? "#f44336" : "#667eea",
-  border: `1px solid ${selected ? "rgba(244, 67, 54, 0.3)" : "rgba(102, 126, 234, 0.3)"}`,
-  "&:hover": {
-    backgroundColor: selected ? "rgba(244, 67, 54, 0.12)" : "rgba(102, 126, 234, 0.12)",
-  },
-}));
-
-const ImageAvatar = styled(Avatar)(({ theme }) => ({
-  width: "48px",
-  height: "48px",
-  borderRadius: "12px",
-  border: "2px solid rgba(102, 126, 234, 0.2)",
-  marginRight: "16px",
 }));
 
 const StatsContainer = styled(Box)({
   display: "flex",
-  gap: "24px",
+  gap: "16px",
   marginBottom: "24px",
   flexWrap: "wrap",
 });
 
-const StatCard = styled(Card)(({ theme }) => ({
-  padding: "20px",
+const StatCard = styled(Card)({
+  padding: "16px",
   minWidth: "140px",
   textAlign: "center",
   border: "1px solid rgba(102, 126, 234, 0.1)",
   borderRadius: "12px",
   backgroundColor: "rgba(102, 126, 234, 0.02)",
-}));
+});
 
 const StatValue = styled(Typography)({
-  fontSize: "2rem",
+  fontSize: "1.8rem",
   fontWeight: "700",
   color: "#667eea",
   lineHeight: 1,
@@ -223,156 +182,271 @@ const StatLabel = styled(Typography)({
   marginTop: "4px",
 });
 
-export default function DataTable() {
+export default function EnhancedDataTable() {
   const { palette } = useTheme();
   
+  // State management
   const [datasets, setDatasets] = useState([]);
-  const [trainingInProgress, setTrainingInProgress] = useState(null);
-  const [progress, setProgress] = useState(0);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [currentPieceLabel, setCurrentPieceLabel] = useState("");
+  const [statistics, setStatistics] = useState(null);
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [error, setError] = useState(null);
+  
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+  
+  // Filter state
+  const [filters, setFilters] = useState({
+    search: '',
+    status_filter: '',
+    training_filter: '',
+    group_filter: '',
+    sort_by: 'created_at',
+    sort_order: 'desc',
+    date_from: '',
+    date_to: '',
+    min_images: '',
+    max_images: ''
+  });
+  
+  // Selection state
   const [selectedDatasets, setSelectedDatasets] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
+  
+  // Dialog state
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [actionType, setActionType] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [actionTarget, setActionTarget] = useState(null);
 
-  useEffect(() => {
-    fetchDatasets();
-  }, []);
+  // Notification state
+  const [notification, setNotification] = useState({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
 
-  const fetchDatasets = async () => {
+  // Fetch data
+  const fetchData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const response = await datasetService.getAllDatasets();
-      setDatasets(Object.values(response));
+      const params = {
+        page: page + 1, // API expects 1-based pagination
+        page_size: pageSize,
+        ...Object.fromEntries(
+          Object.entries(filters).filter(([_, value]) => value !== '')
+        )
+      };
+      
+      const promises = [
+        datasetService.getAllDatasetsWithFilters(params)
+      ];
+      
+      // Only fetch statistics and groups on initial load
+      if (page === 0) {
+        promises.push(datasetService.getDatasetStatistics());
+        if (availableGroups.length === 0) {
+          promises.push(datasetService.getAvailableGroups());
+        }
+      }
+      
+      const results = await Promise.all(promises);
+      const datasetsResponse = results[0];
+      
+      setDatasets(datasetsResponse.data || []);
+      setTotalCount(datasetsResponse.pagination?.total_count || 0);
+      
+      if (results[1]) setStatistics(results[1].overview || results[1]);
+      if (results[2]) setAvailableGroups(results[2] || []);
+      
     } catch (error) {
-      console.error("Error fetching datasets:", error);
+      console.error("Error fetching data:", error);
+      setError("Failed to fetch data. Please try again.");
+      showNotification("Failed to fetch data", "error");
     } finally {
       setLoading(false);
     }
+  }, [page, pageSize, filters, availableGroups.length]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Notification handler
+  const showNotification = (message, severity = 'success') => {
+    setNotification({
+      open: true,
+      message,
+      severity
+    });
   };
 
-  const handleTrain = async (pieceLabel) => {
-    setTrainingInProgress(pieceLabel);
-    setCurrentPieceLabel(pieceLabel);
-    setModalOpen(true);
-
-    try {
-      await datasetService.trainModel(pieceLabel);
-      
-      const interval = setInterval(() => {
-        setProgress((prevProgress) => {
-          if (prevProgress === 100) {
-            clearInterval(interval);
-            setTrainingInProgress(null);
-            setProgress(0);
-            setModalOpen(false);
-            return 100;
-          }
-          return Math.min(prevProgress + 10, 100);
-        });
-      }, 1000);
-    } catch (error) {
-      console.error("Error starting training:", error);
-      setTrainingInProgress(null);
-      setProgress(0);
-      setModalOpen(false);
-    }
+  const handleCloseNotification = () => {
+    setNotification(prev => ({ ...prev, open: false }));
   };
 
+  // Filter handlers
+  const handleFilterChange = (field, value) => {
+    setFilters(prev => ({ ...prev, [field]: value }));
+    setPage(0); // Reset to first page when filters change
+  };
+
+  const handleClearFilters = () => {
+    setFilters({
+      search: '',
+      status_filter: '',
+      training_filter: '',
+      group_filter: '',
+      sort_by: 'created_at',
+      sort_order: 'desc',
+      date_from: '',
+      date_to: '',
+      min_images: '',
+      max_images: ''
+    });
+    setPage(0);
+  };
+
+  // Pagination handlers
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setPageSize(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  // Selection handlers
   const handleSelectAll = () => {
     if (selectAll) {
       setSelectedDatasets([]);
       setSelectAll(false);
     } else {
-      setSelectedDatasets(datasets.map(dataset => dataset.label));
+      setSelectedDatasets(datasets.map(dataset => dataset.id));
       setSelectAll(true);
     }
   };
 
-  const handleSelect = (label) => {
-    setSelectedDatasets(prevSelected => 
-      prevSelected.includes(label) 
-        ? prevSelected.filter(item => item !== label) 
-        : [...prevSelected, label]
-    );
+  const handleSelect = (id) => {
+    setSelectedDatasets(prevSelected => {
+      const newSelected = prevSelected.includes(id) 
+        ? prevSelected.filter(item => item !== id) 
+        : [...prevSelected, id];
+      
+      // Update selectAll state
+      setSelectAll(newSelected.length === datasets.length);
+      return newSelected;
+    });
   };
 
-  const handleView = (label) => {
-    console.log("handleView", label);
+  // Action handlers
+  const handleView = (piece) => {
+    console.log("Viewing:", piece);
+    // Navigate to detail view or open modal
+    showNotification(`Viewing details for ${piece.label}`, "info");
   };
 
-  const handleDelete = async (label) => {
-    try {
-      await datasetService.deletePieceByLabel(label);
-      setDatasets(prevDatasets => prevDatasets.filter(dataset => dataset.label !== label));
-      setSelectedDatasets(prevSelected => prevSelected.filter(item => item !== label));
-      // Refresh the data instead of full page reload
-      await fetchDatasets();
-    } catch (error) {
-      console.error("Error deleting piece:", error);
-    }
+  const handleDelete = (piece) => {
+    setActionType("delete");
+    setActionTarget(piece);
+    setConfirmationOpen(true);
   };
-  
-  const handleConfirmationClose = async (confirm) => {
-    setConfirmationOpen(false);
-    if (confirm) {
-      if (actionType === "delete") {
-        if (selectAll) {
-          await handleDeleteAll();
-        } else {
-          // Delete selected pieces in parallel
-          await Promise.all(selectedDatasets.map(label => handleDelete(label)));
-        }
-      }
-      setSelectAll(false);
-      setSelectedDatasets([]);
-    }
-  };
-  
-  const handleDeleteAll = async () => {
+
+  const handleTrain = async (piece) => {
     try {
-      await datasetService.deleteAllPieces();
-      setDatasets([]);
-      setSelectedDatasets([]);
+      setLoading(true);
+      await datasetService.trainModel(piece.label);
+      showNotification(`Training started for ${piece.label}`, "success");
+      fetchData(); // Refresh data
     } catch (error) {
-      console.error("Error deleting all pieces:", error);
+      showNotification(`Failed to start training for ${piece.label}`, "error");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleBulkDelete = () => {
-    setActionType("delete");
+    setActionType("bulkDelete");
+    setActionTarget(selectedDatasets);
     setConfirmationOpen(true);
   };
 
-  // Group datasets by their common identifier
-  const groupedDatasets = datasets.reduce((groups, dataset) => {
-    const groupLabel = dataset.label.split(".").slice(0, 2).join(".");
-    if (!groups[groupLabel]) {
-      groups[groupLabel] = { label: groupLabel, pieces: [] };
+  const handleConfirmationClose = async (confirm) => {
+    setConfirmationOpen(false);
+    
+    if (confirm) {
+      try {
+        setLoading(true);
+        
+        if (actionType === "delete" && actionTarget) {
+          await datasetService.deletePieceByLabel(actionTarget.label);
+          showNotification(`Successfully deleted ${actionTarget.label}`, "success");
+        } else if (actionType === "bulkDelete" && actionTarget) {
+          // For bulk delete, you might need to delete each piece individually
+          // or implement a bulk delete endpoint
+          for (const id of actionTarget) {
+            const piece = datasets.find(d => d.id === id);
+            if (piece) {
+              await datasetService.deletePieceByLabel(piece.label);
+            }
+          }
+          showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");
+          setSelectedDatasets([]);
+          setSelectAll(false);
+        }
+        
+        fetchData(); // Refresh data after deletion
+      } catch (error) {
+        showNotification("Failed to delete. Please try again.", "error");
+      } finally {
+        setLoading(false);
+      }
     }
-    groups[groupLabel].pieces.push(dataset);
-    return groups;
-  }, {});
+    
+    setActionTarget(null);
+    setActionType("");
+  };
 
-  // Calculate statistics
-  const totalPieces = datasets.length;
-  const annotatedPieces = datasets.filter(d => d.is_annotated).length;
-  const trainedPieces = datasets.filter(d => d.is_yolo_trained).length;
-  const totalImages = datasets.reduce((sum, d) => sum + d.images.length, 0);
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   return (
     <Container>
+      <Backdrop open={loading} sx={{ zIndex: 1000, color: '#fff' }}>
+        <CircularProgress color="inherit" />
+      </Backdrop>
+
       <HeaderBox>
-        <Title>Dataset Management</Title>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <SelectAllButton 
-            onClick={handleSelectAll}
-            selected={selectAll}
+        <Title>Enhanced Dataset Management</Title>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            startIcon={<FilterList />}
+            onClick={() => setShowFilters(!showFilters)}
+            variant={showFilters ? "contained" : "outlined"}
+            sx={{ textTransform: "none" }}
           >
-            {selectAll ? "Deselect All" : "Select All"}
-          </SelectAllButton>
+            Filters
+          </Button>
+          <Button
+            startIcon={<Refresh />}
+            onClick={fetchData}
+            variant="outlined"
+            sx={{ textTransform: "none" }}
+          >
+            Refresh
+          </Button>
           {selectedDatasets.length > 0 && (
             <Button 
               variant="contained"
@@ -386,153 +460,326 @@ export default function DataTable() {
         </Box>
       </HeaderBox>
 
-      <StatsContainer>
-        <StatCard>
-          <StatValue>{totalPieces}</StatValue>
-          <StatLabel>Total Pieces</StatLabel>
-        </StatCard>
-        <StatCard>
-          <StatValue>{totalImages}</StatValue>
-          <StatLabel>Total Images</StatLabel>
-        </StatCard>
-        <StatCard>
-          <StatValue>{annotatedPieces}</StatValue>
-          <StatLabel>Annotated</StatLabel>
-        </StatCard>
-        <StatCard>
-          <StatValue>{trainedPieces}</StatValue>
-          <StatLabel>Trained</StatLabel>
-        </StatCard>
-      </StatsContainer>
+      {/* Error Alert */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
 
-      {Object.values(groupedDatasets).map((group, index) => (
-        <ModernCard key={index} elevation={0}>
-          <GroupHeader>
-            <GroupTitle>
-              <PhotoLibrary sx={{ fontSize: 20 }} />
-              {group.label}
-              <Typography variant="caption" sx={{ 
-                ml: 2, 
-                px: 1.5, 
-                py: 0.5, 
-                backgroundColor: "rgba(102, 126, 234, 0.1)",
-                borderRadius: "12px",
-                color: "#667eea",
-                fontWeight: "600"
-              }}>
-                {group.pieces.length} pieces
-              </Typography>
-            </GroupTitle>
-          </GroupHeader>
-          
-          <ProductTable>
-            <TableHead>
-              <TableRow>
-                <TableCell width="5%">Select</TableCell>
-                <TableCell width="35%">Piece Details</TableCell>
-                <TableCell width="15%" align="center">Images</TableCell>
-                <TableCell width="15%" align="center">Annotation</TableCell>
-                <TableCell width="15%" align="center">Training</TableCell>
-                <TableCell width="15%" align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
+      {/* Statistics Cards */}
+      {statistics && (
+        <StatsContainer>
+          <StatCard>
+            <StatValue>{statistics.total_pieces}</StatValue>
+            <StatLabel>Total Pieces</StatLabel>
+          </StatCard>
+          <StatCard>
+            <StatValue>{statistics.total_images}</StatValue>
+            <StatLabel>Total Images</StatLabel>
+          </StatCard>
+          <StatCard>
+            <StatValue>{statistics.total_annotations}</StatValue>
+            <StatLabel>Annotations</StatLabel>
+          </StatCard>
+          <StatCard>
+            <StatValue>{statistics.annotation_completion_rate}%</StatValue>
+            <StatLabel>Annotated</StatLabel>
+          </StatCard>
+          <StatCard>
+            <StatValue>{statistics.training_completion_rate}%</StatValue>
+            <StatLabel>Trained</StatLabel>
+          </StatCard>
+          <StatCard>
+            <StatValue>{statistics.recent_pieces}</StatValue>
+            <StatLabel>Recent</StatLabel>
+          </StatCard>
+        </StatsContainer>
+      )}
 
-            <TableBody>
-              {group.pieces.map((piece) => (
-                <TableRow key={piece.id} hover>
-                  <TableCell>
-                    <Checkbox
-                      checked={selectedDatasets.includes(piece.label)}
-                      onChange={() => handleSelect(piece.label)}
+      {/* Filters Panel */}
+      <Collapse in={showFilters}>
+        <FilterCard>
+          <Box sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: "#667eea" }}>
+              Search & Filter Options
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Search"
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange('search', e.target.value)}
+                  placeholder="Search by label or class ID..."
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth>
+                  <InputLabel>Annotation Status</InputLabel>
+                  <Select
+                    value={filters.status_filter}
+                    onChange={(e) => handleFilterChange('status_filter', e.target.value)}
+                    label="Annotation Status"
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="annotated">Annotated</MenuItem>
+                    <MenuItem value="not_annotated">Not Annotated</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth>
+                  <InputLabel>Training Status</InputLabel>
+                  <Select
+                    value={filters.training_filter}
+                    onChange={(e) => handleFilterChange('training_filter', e.target.value)}
+                    label="Training Status"
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="trained">Trained</MenuItem>
+                    <MenuItem value="not_trained">Not Trained</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth>
+                  <InputLabel>Group</InputLabel>
+                  <Select
+                    value={filters.group_filter}
+                    onChange={(e) => handleFilterChange('group_filter', e.target.value)}
+                    label="Group"
+                  >
+                    <MenuItem value="">All Groups</MenuItem>
+                    {availableGroups.map(group => (
+                      <MenuItem key={group} value={group}>{group}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Date From"
+                  type="date"
+                  value={filters.date_from}
+                  onChange={(e) => handleFilterChange('date_from', e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Date To"
+                  type="date"
+                  value={filters.date_to}
+                  onChange={(e) => handleFilterChange('date_to', e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Min Images"
+                  type="number"
+                  value={filters.min_images}
+                  onChange={(e) => handleFilterChange('min_images', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Max Images"
+                  type="number"
+                  value={filters.max_images}
+                  onChange={(e) => handleFilterChange('max_images', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                  <Button
+                    startIcon={<Clear />}
+                    onClick={handleClearFilters}
+                    variant="outlined"
+                    sx={{ textTransform: "none" }}
+                  >
+                    Clear Filters
+                  </Button>
+                </Box>
+              </Grid>
+            </Grid>
+          </Box>
+        </FilterCard>
+      </Collapse>
+
+      {/* Data Table */}
+      <ModernCard elevation={0}>
+        <ProductTable>
+          <TableHead>
+            <TableRow>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  checked={selectAll}
+                  onChange={handleSelectAll}
+                  sx={{ color: "#667eea", '&.Mui-checked': { color: "#667eea" } }}
+                />
+              </TableCell>
+              <TableCell>Piece Details</TableCell>
+              <TableCell align="center">Group</TableCell>
+              <TableCell align="center">Images</TableCell>
+              <TableCell align="center">Annotations</TableCell>
+              <TableCell align="center">Status</TableCell>
+              <TableCell align="center">Training</TableCell>
+              <TableCell align="center">Created</TableCell>
+              <TableCell align="center">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {datasets.map((piece) => (
+              <TableRow key={piece.id} hover>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={selectedDatasets.includes(piece.id)}
+                    onChange={() => handleSelect(piece.id)}
+                    sx={{ color: "#667eea", '&.Mui-checked': { color: "#667eea" } }}
+                  />
+                </TableCell>
+                
+                <TableCell>
+                  <Box display="flex" alignItems="center">
+                    <Avatar 
                       sx={{ 
-                        color: "#667eea",
-                        '&.Mui-checked': { color: "#667eea" }
+                        width: 40, 
+                        height: 40, 
+                        mr: 2, 
+                        borderRadius: "8px",
+                        bgcolor: "rgba(102, 126, 234, 0.1)",
+                        color: "#667eea"
                       }}
-                    />
-                  </TableCell>
-                  
-                  <TableCell>
-                    <Box display="flex" alignItems="center">
-                      <ImageAvatar 
-                        src={piece.images[0]?.url} 
-                        variant="rounded"
-                      >
-                        <PhotoLibrary />
-                      </ImageAvatar>
-                      <Box>
-                        <Typography variant="body1" fontWeight="600" color="#333">
-                          {piece.label}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          ID: {piece.id}
-                        </Typography>
-                      </Box>
+                    >
+                      <PhotoLibrary />
+                    </Avatar>
+                    <Box>
+                      <Typography variant="body2" fontWeight="600" color="#333">
+                        {piece.label}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        ID: {piece.class_data_id}
+                      </Typography>
                     </Box>
-                  </TableCell>
-                  
-                  <TableCell align="center">
-                    <Typography variant="h6" color="#667eea" fontWeight="700">
-                      {piece.images.length}
+                  </Box>
+                </TableCell>
+                
+                <TableCell align="center">
+                  <Chip 
+                    label={piece.group} 
+                    size="small"
+                    sx={{ 
+                      bgcolor: "rgba(102, 126, 234, 0.1)",
+                      color: "#667eea",
+                      fontWeight: "600"
+                    }}
+                  />
+                </TableCell>
+                
+                <TableCell align="center">
+                  <Box display="flex" alignItems="center" justifyContent="center" gap={0.5}>
+                    <ImageIcon fontSize="small" color="action" />
+                    <Typography variant="body2" fontWeight="600">
+                      {piece.nbre_img}
                     </Typography>
-                  </TableCell>
-                  
-                  <TableCell align="center">
-                    <StatusChip 
-                      variant={piece.is_annotated ? "completed" : "pending"}
-                      icon={piece.is_annotated ? <CheckCircle /> : <RadioButtonUnchecked />}
-                      label={piece.is_annotated ? "Completed" : "Pending"}
-                    />
-                  </TableCell>
-                  
-                  <TableCell align="center">
-                    <StatusChip 
-                      variant={piece.is_yolo_trained ? "trained" : "pending"}
-                      icon={piece.is_yolo_trained ? <CheckCircle /> : <RadioButtonUnchecked />}
-                      label={piece.is_yolo_trained ? "Trained" : "Not Trained"}
-                    />
-                  </TableCell>
-                  
-                  <TableCell align="center">
-                    <Box display="flex" justifyContent="center" alignItems="center" gap={1}>
-                      <ActionButton variant="view" onClick={() => handleView(piece.label)}>
-                        <Visibility fontSize="small" />
-                      </ActionButton>
-                      
-                      <ActionButton variant="delete" onClick={() => handleDelete(piece.label)}>
-                        <Delete fontSize="small" />
-                      </ActionButton>
-                      
-                      <TrainButton 
-                        onClick={() => handleTrain(piece.label)} 
-                        training={trainingInProgress === piece.label}
-                        disabled={trainingInProgress === piece.label}
-                        size="small"
-                      >
-                        {trainingInProgress === piece.label ? "Training..." : "Train"}
-                      </TrainButton>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </ProductTable>
-        </ModernCard>
-      ))}
+                  </Box>
+                </TableCell>
+                
+                <TableCell align="center">
+                  <Typography variant="body2" color="#667eea" fontWeight="600">
+                    {piece.total_annotations}
+                  </Typography>
+                </TableCell>
+                
+                <TableCell align="center">
+                  <StatusChip 
+                    variant={piece.is_annotated ? "completed" : "pending"}
+                    icon={piece.is_annotated ? <CheckCircle /> : <RadioButtonUnchecked />}
+                    label={piece.is_annotated ? "Annotated" : "Pending"}
+                    size="small"
+                  />
+                </TableCell>
+                
+                <TableCell align="center">
+                  <StatusChip 
+                    variant={piece.is_yolo_trained ? "trained" : "pending"}
+                    icon={piece.is_yolo_trained ? <CheckCircle /> : <RadioButtonUnchecked />}
+                    label={piece.is_yolo_trained ? "Trained" : "Not Trained"}
+                    size="small"
+                  />
+                </TableCell>
+                
+                <TableCell align="center">
+                  <Typography variant="caption" color="text.secondary">
+                    {formatDate(piece.created_at)}
+                  </Typography>
+                </TableCell>
+                
+                <TableCell align="center">
+                  <Box display="flex" justifyContent="center" gap={0.5}>
+                    <ActionButton variant="view" onClick={() => handleView(piece.label)}>
+                      <Visibility fontSize="small" />
+                    </ActionButton>
+                    <ActionButton variant="delete" onClick={() => handleDelete(piece.id)}>
+                      <Delete fontSize="small" />
+                    </ActionButton>
+                    <Button 
+                      onClick={() => handleTrain(piece.label)} 
+                      size="small"
+                      variant="outlined"
+                      sx={{ 
+                        textTransform: "none",
+                        minWidth: "60px",
+                        fontSize: "0.75rem",
+                        py: 0.5
+                      }}
+                    >
+                      Train
+                    </Button>
+                  </Box>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </ProductTable>
+        
+        <TablePagination
+          component="div"
+          count={totalCount}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={pageSize}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          rowsPerPageOptions={[5, 10, 25, 50]}
+          sx={{
+            borderTop: "1px solid rgba(102, 126, 234, 0.1)",
+            "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
+              color: "#667eea",
+              fontWeight: "500"
+            }
+          }}
+        />
+      </ModernCard>
 
-      <TrainingProgressModal 
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        progress={progress}
-      />
-
+      {/* Confirmation Dialog */}
       <Dialog
         open={confirmationOpen}
         onClose={() => setConfirmationOpen(false)}
         PaperProps={{
-          sx: {
-            borderRadius: "16px",
-            padding: "8px",
-          }
+          sx: { borderRadius: "16px", padding: "8px" }
         }}
       >
         <DialogTitle sx={{ fontWeight: "600", color: "#333" }}>
@@ -540,7 +787,7 @@ export default function DataTable() {
         </DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete {selectAll ? "all items" : `${selectedDatasets.length} selected item${selectedDatasets.length !== 1 ? 's' : ''}`}? 
+            Are you sure you want to delete {selectedDatasets.length} selected item{selectedDatasets.length !== 1 ? 's' : ''}? 
             This action cannot be undone.
           </Typography>
         </DialogContent>
