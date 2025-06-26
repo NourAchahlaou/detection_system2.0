@@ -5,7 +5,7 @@ import SidenavImageDisplay from "./annotation/components/SidenavImageDisplay";
 import Simple from "./Simple";
 import api from "../../utils/UseAxios";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-
+import HorizontalAnnotationSlider from "./annotation/components/HorizontalAnnotationSlider";
 
 // Updated to match VideoCard styling exactly
 const AnnotationCard = styled(Card)(({ theme }) => ({
@@ -66,6 +66,20 @@ const SidebarContainer = styled(Box)({
   padding: "0 16px",
 });
 
+// FIXED: Modal overlay for horizontal slider
+const ModalOverlay = styled(Box)({
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(0, 0, 0, 0.9)",
+  zIndex: 9999,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+});
+
 export default function AppImageAnnotaion() {
   const [selectedPieceLabel, setSelectedPieceLabel] = useState('');
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
@@ -78,6 +92,10 @@ export default function AppImageAnnotaion() {
   const [isLoading, setIsLoading] = useState(true);
   const [pieceNotFound, setPieceNotFound] = useState(false);
   
+  // FIXED: Horizontal slider state management
+  const [horizontalSliderOpen, setHorizontalSliderOpen] = useState(false);
+  const [horizontalSliderInitialIndex, setHorizontalSliderInitialIndex] = useState(0);
+    
   // Force refresh trigger for SidenavImageDisplay
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const sidenavRef = useRef(null);
@@ -94,7 +112,33 @@ export default function AppImageAnnotaion() {
 
   // NEW: Extract piece from URL parameters
   const urlPiece = searchParams.get('piece');
+  
+  // FIXED: Handle image double click - properly sets initial index and opens slider
+  const handleImageDoubleClick = useCallback((imageIndex) => {
+    console.log('Opening horizontal slider at index:', imageIndex);
+    setHorizontalSliderInitialIndex(imageIndex);
+    setHorizontalSliderOpen(true);
+  }, []);
 
+  // FIXED: Handle horizontal slider close
+  const handleHorizontalSliderClose = useCallback(() => {
+    console.log('Closing horizontal slider');
+    setHorizontalSliderOpen(false);
+  }, []);
+
+  // FIXED: Handle image selection from horizontal slider
+  const handleHorizontalSliderImageSelect = useCallback((imageUrl, imageId, index, statusUpdateCallback) => {
+    console.log('Image selected from horizontal slider:', { imageUrl, imageId, index });
+    setSelectedImageUrl(imageUrl);
+    setSelectedImageId(imageId);
+    if (typeof index === 'number') {
+      setCurrentImageIndex(index);
+    }
+    
+    // Store the status update callback
+    setUpdateImageStatusCallback(() => statusUpdateCallback);
+  }, []);
+    
   // UPDATED: Handle image selection from sidebar - now includes statusUpdateCallback
   const handleImageSelect = useCallback((imageUrl, imageId, index, statusUpdateCallback) => {
     setSelectedImageUrl(imageUrl);
@@ -495,11 +539,48 @@ export default function AppImageAnnotaion() {
                 onImageStatusUpdate={(imageId, hasAnnotations) => {
                   console.log(`SidenavImageDisplay notified parent: Image ${imageId} -> ${hasAnnotations}`);
                 }}
+                // FIXED: Pass the double click handler
+                onImageDoubleClick={handleImageDoubleClick} 
               />
             </Box>
           </SidebarContainer>
         </Grid>
       </Grid>
+      
+      {/* FIXED: Horizontal Annotation Slider Modal */}
+      {horizontalSliderOpen && (
+        <ModalOverlay onClick={handleHorizontalSliderClose}>
+          <Box 
+            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+            sx={{ 
+              width: '95vw', 
+              height: '95vh', 
+              maxWidth: '1400px',
+              maxHeight: '900px',
+              backgroundColor: 'transparent',
+              borderRadius: 2,
+              overflow: 'hidden'
+            }}
+          >
+            <HorizontalAnnotationSlider
+              pieceLabel={selectedPieceLabel}
+              onImageSelect={handleHorizontalSliderImageSelect}
+              onFirstImageLoad={handleFirstImageLoad}
+              onImageCountUpdate={handleImageCountUpdate}
+              onImagesLoaded={handleImagesLoaded}
+              currentImageIndex={horizontalSliderInitialIndex}
+              refreshTrigger={refreshTrigger}
+              imageStatusUpdates={imageStatusUpdates}
+              onImageStatusUpdate={(imageId, hasAnnotations) => {
+                console.log(`HorizontalSlider notified parent: Image ${imageId} -> ${hasAnnotations}`);
+              }}
+              onImageDoubleClick={handleHorizontalSliderClose} // Double click to close
+              // FIXED: Add close handler prop if your HorizontalAnnotationSlider supports it
+              onClose={handleHorizontalSliderClose}
+            />
+          </Box>
+        </ModalOverlay>
+      )}   
     </Box>
   );
 }

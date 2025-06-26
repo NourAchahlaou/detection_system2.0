@@ -59,7 +59,9 @@ export default function SidenavImageDisplay({
   refreshTrigger,
   // NEW: Add these props to handle image status updates
   onImageStatusUpdate, // Callback to notify parent when image status changes
-  imageStatusUpdates = {} // Object with imageId -> hasAnnotations mapping
+  imageStatusUpdates = {}, // Object with imageId -> hasAnnotations mapping
+  // NEW: Add double click handler prop
+  onImageDoubleClick // Callback for when an image is double-clicked
 }) {
   const [images, setImages] = useState([]);
   const [localCurrentIndex, setLocalCurrentIndex] = useState(0);
@@ -70,6 +72,13 @@ export default function SidenavImageDisplay({
   
   const mountedRef = useRef(true);
   const lastPieceLabelRef = useRef(null);
+
+  // NEW: Handle double click function (same as in ImageSlider)
+  const handleImageDoubleClick = useCallback((imageIndex) => {
+    if (onImageDoubleClick) {
+      onImageDoubleClick(imageIndex);
+    }
+  }, [onImageDoubleClick]);
 
   // NEW: Effect to handle real-time image status updates
   useEffect(() => {
@@ -519,6 +528,8 @@ export default function SidenavImageDisplay({
                         }
                       }
                     }}
+                    // NEW: Add double click handler (same as in ImageSlider)
+                    onDoubleClick={() => handleImageDoubleClick(image.index)}
                   >
                     <ImageWithAnnotations
                       imageUrl={image.url}
