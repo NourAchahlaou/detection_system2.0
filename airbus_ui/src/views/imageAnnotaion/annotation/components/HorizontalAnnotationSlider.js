@@ -289,43 +289,135 @@ export default function HorizontalAnnotationSlider({
     }
   };
 
-  // Navigate left with transition
-  const handlePrevious = useCallback(() => {
-    if (images.length > 0 && !isTransitioning) {
-      setIsTransitioning(true);
-      setTimeout(() => {
-        const newIndex = localCurrentIndex > 0 ? localCurrentIndex - 1 : images.length - 1;
-        const newImage = images[newIndex];
-        
-        setLocalCurrentIndex(newIndex);
-        setSelectedImageUrl(newImage.url);
-        
-        if (onImageSelect) {
-          onImageSelect(newImage.url, newImage.name, newIndex, updateImageAnnotationStatus);
-        }
-        setTimeout(() => setIsTransitioning(false), 100);
-      }, 200);
+// FIXED: The problem is in this useEffect - it's reverting changes during transitions
+useEffect(() => {
+  console.log('🔄 currentImageIndex effect triggered:', {
+    currentImageIndex,
+    localCurrentIndex,
+    imagesLength: images.length,
+    isTransitioning,
+    shouldUpdate: typeof currentImageIndex === 'number' && currentImageIndex !== localCurrentIndex && images.length > 0
+  });
+  
+  // PROBLEM: This condition is too restrictive and conflicts with navigation
+  // When you navigate from 3->4, parent updates currentImageIndex to 4
+  // But this effect runs and sees currentImageIndex(4) !== localCurrentIndex(4 briefly, then 3)
+  // and reverts back to 3
+  
+  if (typeof currentImageIndex === 'number' && 
+      currentImageIndex !== localCurrentIndex && 
+      images.length > 0 && 
+      !isTransitioning &&
+      (Math.abs(currentImageIndex - localCurrentIndex) > 1 || !selectedImageUrl)) {
+    
+    // This condition is causing the revert during normal navigation
+    console.log('🔄 Syncing with parent index (significant change):', {
+      from: localCurrentIndex,
+      to: currentImageIndex,
+      imageUrl: images[currentImageIndex]?.url
+    });
+    
+    setLocalCurrentIndex(currentImageIndex);
+    if (images[currentImageIndex]) {
+      setSelectedImageUrl(images[currentImageIndex].url);
     }
-  }, [images, localCurrentIndex, onImageSelect, updateImageAnnotationStatus, isTransitioning]);
+  }
+}, [currentImageIndex, images, localCurrentIndex, isTransitioning, selectedImageUrl]);
 
-  // Navigate right with transition
+
+
+  // Alternative approach - you can also modify the handleNext and handlePrevious to not call onImageSelect immediately:
+
   const handleNext = useCallback(() => {
+    console.log('🔄 handleNext called', { 
+      imagesLength: images.length, 
+      isTransitioning, 
+      localCurrentIndex 
+    });
+    
     if (images.length > 0 && !isTransitioning) {
       setIsTransitioning(true);
+      console.log('🔄 Starting transition to next image');
+      
       setTimeout(() => {
         const newIndex = localCurrentIndex < images.length - 1 ? localCurrentIndex + 1 : 0;
         const newImage = images[newIndex];
         
+        console.log('🔄 Next navigation:', {
+          oldIndex: localCurrentIndex,
+          newIndex,
+          newImageUrl: newImage?.url,
+          newImageName: newImage?.name
+        });
+        
         setLocalCurrentIndex(newIndex);
         setSelectedImageUrl(newImage.url);
         
-        if (onImageSelect) {
-          onImageSelect(newImage.url, newImage.name, newIndex, updateImageAnnotationStatus);
-        }
-        setTimeout(() => setIsTransitioning(false), 100);
+        // FIXED: Delay the parent callback until after transition
+        setTimeout(() => {
+          if (onImageSelect) {
+            console.log('🔄 Calling onImageSelect for next image (delayed)');
+            onImageSelect(newImage.url, newImage.name, newIndex, updateImageAnnotationStatus);
+          }
+          setIsTransitioning(false);
+          console.log('🔄 Transition completed for next image');
+        }, 100);
+        
       }, 200);
     }
-  }, [images, localCurrentIndex, onImageSelect, updateImageAnnotationStatus, isTransitioning]);
+  }, [images, localCurrentIndex, isTransitioning, onImageSelect, updateImageAnnotationStatus]);
+
+  const handlePrevious = useCallback(() => {
+    console.log('🔄 handlePrevious called', { 
+      imagesLength: images.length, 
+      isTransitioning, 
+      localCurrentIndex 
+    });
+    
+    if (images.length > 0 && !isTransitioning) {
+      setIsTransitioning(true);
+      console.log('🔄 Starting transition to previous image');
+      
+      setTimeout(() => {
+        const newIndex = localCurrentIndex > 0 ? localCurrentIndex - 1 : images.length - 1;
+        const newImage = images[newIndex];
+        
+        console.log('🔄 Previous navigation:', {
+          oldIndex: localCurrentIndex,
+          newIndex,
+          newImageUrl: newImage?.url,
+          newImageName: newImage?.name
+        });
+        
+        setLocalCurrentIndex(newIndex);
+        setSelectedImageUrl(newImage.url);
+        
+        // FIXED: Delay the parent callback until after transition
+        setTimeout(() => {
+          if (onImageSelect) {
+            console.log('🔄 Calling onImageSelect for previous image (delayed)');
+            onImageSelect(newImage.url, newImage.name, newIndex, updateImageAnnotationStatus);
+          }
+          setIsTransitioning(false);
+          console.log('🔄 Transition completed for previous image');
+        }, 100);
+        
+      }, 200);
+    }
+  }, [images, localCurrentIndex, isTransitioning, onImageSelect, updateImageAnnotationStatus]);
+  
+  // Also add this debug useEffect to monitor state changes:
+  useEffect(() => {
+    console.log('🔍 State changed:', {
+      localCurrentIndex,
+      selectedImageUrl,
+      imagesLength: images.length,
+      currentImageFromProps: currentImageIndex,
+      isTransitioning
+    });
+  }, [localCurrentIndex, selectedImageUrl, images.length, currentImageIndex, isTransitioning]);
+
+
 
   // Get visible images for horizontal three-image display
   const getVisibleImages = () => {
@@ -964,7 +1056,6 @@ export default function HorizontalAnnotationSlider({
               </>
             )}
 
-            {/* Images Container */}
             <Box
               sx={{
                 position: 'relative',
@@ -985,7 +1076,6 @@ export default function HorizontalAnnotationSlider({
                 const isSide = image.position === 'side';
                 const isAnnotated = image.is_annotated === true;
 
-                // Position and style calculations
                 let translateX = 0;
                 let zIndex = 100;
                 let scale = 0.75;
@@ -1092,7 +1182,6 @@ export default function HorizontalAnnotationSlider({
                       }}
                     />
                     
-                    {/* Image Number Badge */}
                     <Box
                       sx={{
                         position: 'absolute',
@@ -1115,7 +1204,6 @@ export default function HorizontalAnnotationSlider({
                       {image.displayNumber}
                     </Box>
 
-                    {/* Annotation Status Badge */}
                     <Box
                       sx={{
                         position: 'absolute',
@@ -1153,52 +1241,7 @@ export default function HorizontalAnnotationSlider({
                   </Card>
                 );
               })}
-            </Box>
-
-            {/* Footer with Progress Indicators */}
-            {images.length > 1 && (
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: 20,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: 3,
-                  padding: 2,
-                  zIndex: 500
-                }}
-              >
-                {images.map((_, index) => (
-                  <Box
-                    key={index}
-                    sx={{
-                      width: index === localCurrentIndex ? 12 : 8,
-                      height: index === localCurrentIndex ? 12 : 8,
-                      borderRadius: '50%',
-                      backgroundColor: index === localCurrentIndex ? '#667eea' : 'rgba(102, 126, 234, 0.4)',
-                      transition: 'all 0.3s ease',
-                      cursor: 'pointer'
-                    }}
-                    onClick={() => {
-                      if (!isTransitioning) {
-                        setIsTransitioning(true);
-                        setTimeout(() => {
-                          handleImageClick(images[index].url, images[index].name, index);
-                          setTimeout(() => setIsTransitioning(false), 100);
-                        }, 200);
-                      }
-                    }}
-                  />
-                ))}
-              </Box>
-            )}
-
-            {/* Keyboard Shortcuts Info */}
+            </Box>   
             <Box
               sx={{
                 position: 'absolute',
@@ -1218,8 +1261,7 @@ export default function HorizontalAnnotationSlider({
         )}
       </Box>
 
-      {/* Fullscreen Modal */}
       {renderFullscreenModal()}
-    </MaxCustomaizer>
+    </MaxCustomaizer> 
   );
 }

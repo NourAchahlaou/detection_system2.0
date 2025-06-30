@@ -1,7 +1,7 @@
 
 from sqlalchemy import Column, DateTime, Integer, Null, String,Boolean, func
 from sqlalchemy.orm import relationship
-from dataset_manager.app.db.session import Base
+from training.app.db.session import Base
 
 class Piece(Base):
     __tablename__ = 'piece'

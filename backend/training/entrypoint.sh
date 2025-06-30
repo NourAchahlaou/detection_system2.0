@@ -67,7 +67,7 @@ echo "Schemas created successfully!"
 
 # Run Alembic migrations
 echo "Running Alembic migrations..."
-cd dataset_manager
+cd training
 alembic upgrade head
 if [ $? -eq 0 ]; then
     echo "Alembic migrations completed successfully!"
@@ -107,4 +107,4 @@ echo "Database setup verification complete!"
 
 # Start the application
 echo "Starting application"
-exec uvicorn dataset_manager.app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn training.app.main:app --host 0.0.0.0 --port 8000 --reload

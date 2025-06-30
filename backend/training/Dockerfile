@@ -12,23 +12,23 @@ RUN apt-get update && apt-get install -y postgresql-client ca-certificates && rm
 RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
 
 
-RUN mkdir -p /usr/srv/dataset_manager/migrations
+RUN mkdir -p /usr/srv/training/migrations
 
 # Install Python dependencies
 COPY ./requirements.txt /usr/srv/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # Copy application code
-COPY . /usr/srv/dataset_manager 
+COPY . /usr/srv/training 
 
-RUN chmod +x /usr/srv/dataset_manager/entrypoint.sh
+RUN chmod +x /usr/srv/training/entrypoint.sh
 
 # Verify permissions
-RUN ls -la /usr/srv/dataset_manager/entrypoint.sh
+RUN ls -la /usr/srv/training/entrypoint.sh
 
 # Switch to non-root user
 USER ubuntu
 
 EXPOSE 8000
 
-ENTRYPOINT ["/usr/srv/dataset_manager/entrypoint.sh"]
+ENTRYPOINT ["/usr/srv/training/entrypoint.sh"]
