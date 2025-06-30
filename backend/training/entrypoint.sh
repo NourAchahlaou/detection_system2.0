@@ -61,7 +61,7 @@ if [ -z "$DB_PASSWORD" ]; then
 fi
 
 export PGPASSWORD="$DB_PASSWORD"
-psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "CREATE SCHEMA IF NOT EXISTS dataset_mng;"
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "CREATE SCHEMA IF NOT EXISTS training;"
 
 echo "Schemas created successfully!"
 
@@ -82,7 +82,7 @@ echo "Verifying database setup..."
 VERIFICATION_RESULT=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "
     SELECT COUNT(*) 
     FROM information_schema.tables 
-    WHERE table_schema = 'dataset_mng' 
+    WHERE table_schema = 'training' 
 ")
 
 EXPECTED_TABLES=1
@@ -94,11 +94,11 @@ if [ "$ACTUAL_TABLES" -eq "$EXPECTED_TABLES" ]; then
 else
     echo "⚠ Warning: Expected $EXPECTED_TABLES tables, found $ACTUAL_TABLES"
     # List available tables for debugging
-    echo "Available tables in dataset schema:"
+    echo "Available tables in training schema:"
     psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "
         SELECT table_name 
         FROM information_schema.tables 
-        WHERE table_schema = 'dataset_mng'
+        WHERE table_schema = 'training'
         ORDER BY table_name;
     "
 fi

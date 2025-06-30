@@ -29,8 +29,8 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {
-        "message": " dataset Service", 
+        "message": " training Service", 
         "status": "running",
-        "service": "dataset",
+        "service": "training",
     }
 

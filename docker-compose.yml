@@ -71,7 +71,7 @@ services:
       - DATASET_BASE_PATH=/app/shared/dataset
 
   training:
-    container_name: datasetManagerMicroservice
+    container_name: trainingMicroservice
     build:
       context: ./backend/training
     env_file:
