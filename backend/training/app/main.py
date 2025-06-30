@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from training.app.api.router import training_router
 
 def create_application():
     application = FastAPI(
-        title="dataset Service",
-        description="Microservice for managing database operations in the dataset application",
+        title="training Service",
+        description="Microservice for managing training operations in the dataset application",
         version="1.0.0"
     )
+    application.include_router(training_router.training_router)
     return application
 
 app = create_application()

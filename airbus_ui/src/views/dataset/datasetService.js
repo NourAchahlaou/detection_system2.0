@@ -143,5 +143,85 @@ export const datasetService = {
       console.error("Error fetching datasets:", error.response?.data?.detail || error.message);
       throw error;
     }
+  },
+
+  // === TRAINING SERVICES ===
+  
+  // Train a specific piece model
+  trainPieceModel: async (pieceLabels) => {
+    try {
+      const response = await api.post("/api/training/training/train", {
+        piece_labels: Array.isArray(pieceLabels) ? pieceLabels : [pieceLabels]
+      });
+      console.log(response.data.message || "Training started successfully");
+      return response.data;
+    } catch (error) {
+      console.error("Error starting training:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // Train multiple pieces
+  trainMultiplePieces: async (pieceLabels) => {
+    try {
+      const response = await api.post("/api/training/training/train", {
+        piece_labels: pieceLabels
+      });
+      console.log(response.data.message || "Training started successfully");
+      return response.data;
+    } catch (error) {
+      console.error("Error starting training for multiple pieces:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // Train all non-trained pieces
+  trainAllPieces: async () => {
+    try {
+      // First get all datasets to find non-trained pieces
+      const datasetsResponse = await api.get("/api/artifact_keeper/datasetManager/datasets");
+      const datasets = Object.values(datasetsResponse.data || {});
+      
+      // Filter non-trained pieces
+      const nonTrainedPieces = datasets
+        .filter(piece => !piece.is_yolo_trained)
+        .map(piece => piece.label);
+      
+      if (nonTrainedPieces.length === 0) {
+        throw new Error("No pieces available for training");
+      }
+
+      const response = await api.post("/api/training/training/train", {
+        piece_labels: nonTrainedPieces
+      });
+      console.log(response.data.message || "Training started for all pieces");
+      return response.data;
+    } catch (error) {
+      console.error("Error starting training for all pieces:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // Stop training process
+  stopTraining: async () => {
+    try {
+      const response = await api.post("/api/training/training/stop_training");
+      console.log(response.data.message || "Training stopped successfully");
+      return response.data;
+    } catch (error) {
+      console.error("Error stopping training:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // Get training status/progress (if you have an endpoint for this)
+  getTrainingStatus: async () => {
+    try {
+      const response = await api.get("/api/training/training/status");
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching training status:", error.response?.data?.detail || error.message);
+      throw error;
+    }
   }
 };

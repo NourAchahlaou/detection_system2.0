@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Delete, Visibility, PhotoLibrary, CheckCircle, RadioButtonUnchecked,
   Search, FilterList, Sort, CalendarToday, Image as ImageIcon,
-  Refresh, Download, Clear
+  Refresh, Download, Clear, PlayArrow, Stop
 } from "@mui/icons-material";
 import {
   Box,
@@ -38,7 +38,8 @@ import {
   CircularProgress,
   Backdrop,
   Alert,
-  Snackbar
+  Snackbar,
+  LinearProgress
 } from "@mui/material";
 
 // Import your real service
@@ -151,6 +152,13 @@ const ActionButton = styled(IconButton)(({ variant }) => ({
   },
 }));
 
+const TrainButton = styled(Button)(({ theme }) => ({
+  textTransform: "none",
+  fontSize: "0.875rem",
+  marginLeft: theme.spacing(2),
+  borderRadius: "8px",
+}));
+
 const StatsContainer = styled(Box)({
   display: "flex",
   gap: "16px",
@@ -182,6 +190,53 @@ const StatLabel = styled(Typography)({
   marginTop: "4px",
 });
 
+// Training Progress Modal Component
+const TrainingProgressModal = ({ open, onClose, progress, trainingPieces }) => (
+  <Dialog 
+    open={open} 
+    onClose={onClose}
+    maxWidth="sm"
+    fullWidth
+    PaperProps={{
+      sx: { borderRadius: "16px", padding: "8px" }
+    }}
+  >
+    <DialogTitle sx={{ fontWeight: "600", color: "#333", textAlign: "center" }}>
+      Training in Progress
+    </DialogTitle>
+    <DialogContent sx={{ textAlign: "center", py: 3 }}>
+      <CircularProgress 
+        variant="determinate" 
+        value={progress} 
+        size={80}
+        thickness={4}
+        sx={{ 
+          color: "#667eea",
+          mb: 2
+        }}
+      />
+      <Typography variant="h6" sx={{ mb: 2, fontWeight: "600" }}>
+        {progress}%
+      </Typography>
+      <LinearProgress 
+        variant="determinate" 
+        value={progress} 
+        sx={{ 
+          height: 8, 
+          borderRadius: 4,
+          mb: 2,
+          "& .MuiLinearProgress-bar": {
+            backgroundColor: "#667eea"
+          }
+        }}
+      />
+      <Typography variant="body2" color="text.secondary">
+        Training {Array.isArray(trainingPieces) ? trainingPieces.length : 1} piece(s)...
+      </Typography>
+    </DialogContent>
+  </Dialog>
+);
+
 export default function EnhancedDataTable() {
   const { palette } = useTheme();
   
@@ -192,6 +247,12 @@ export default function EnhancedDataTable() {
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Training state
+  const [trainingInProgress, setTrainingInProgress] = useState(false);
+  const [trainingProgress, setTrainingProgress] = useState(0);
+  const [trainingModalOpen, setTrainingModalOpen] = useState(false);
+  const [trainingPieces, setTrainingPieces] = useState([]);
   
   // Pagination state
   const [page, setPage] = useState(0);
@@ -288,6 +349,84 @@ export default function EnhancedDataTable() {
     setNotification(prev => ({ ...prev, open: false }));
   };
 
+  // Training progress simulation
+  const simulateTrainingProgress = (pieces) => {
+    setTrainingProgress(0);
+    const interval = setInterval(() => {
+      setTrainingProgress((prevProgress) => {
+        if (prevProgress >= 100) {
+          clearInterval(interval);
+          setTrainingInProgress(false);
+          setTrainingModalOpen(false);
+          setTrainingPieces([]);
+          showNotification(`Training completed for ${Array.isArray(pieces) ? pieces.length : 1} piece(s)`, "success");
+          fetchData(); // Refresh data after training
+          return 100;
+        }
+        return Math.min(prevProgress + 10, 100);
+      });
+    }, 1000);
+  };
+
+  // Training handlers
+  const handleTrain = async (piece) => {
+    try {
+      setTrainingInProgress(true);
+      setTrainingPieces([piece.label]);
+      setTrainingModalOpen(true);
+      
+      await datasetService.trainPieceModel(piece.label);
+      simulateTrainingProgress([piece.label]);
+      
+    } catch (error) {
+      setTrainingInProgress(false);
+      setTrainingModalOpen(false);
+      setTrainingPieces([]);
+      showNotification(`Failed to start training for ${piece.label}`, "error");
+    }
+  };
+
+  const handleTrainAll = async () => {
+    try {
+      setTrainingInProgress(true);
+      setTrainingModalOpen(true);
+      
+      const nonTrainedPieces = datasets
+        .filter(piece => !piece.is_yolo_trained)
+        .map(piece => piece.label);
+      
+      if (nonTrainedPieces.length === 0) {
+        setTrainingInProgress(false);
+        setTrainingModalOpen(false);
+        showNotification("No pieces available for training", "warning");
+        return;
+      }
+
+      setTrainingPieces(nonTrainedPieces);
+      await datasetService.trainAllPieces();
+      simulateTrainingProgress(nonTrainedPieces);
+      
+    } catch (error) {
+      setTrainingInProgress(false);
+      setTrainingModalOpen(false);
+      setTrainingPieces([]);
+      showNotification("Failed to start training for all pieces", "error");
+    }
+  };
+
+  const handleStopTraining = async () => {
+    try {
+      await datasetService.stopTraining();
+      setTrainingInProgress(false);
+      setTrainingModalOpen(false);
+      setTrainingProgress(0);
+      setTrainingPieces([]);
+      showNotification("Training stopped successfully", "info");
+    } catch (error) {
+      showNotification("Failed to stop training", "error");
+    }
+  };
+
   // Filter handlers
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -356,19 +495,6 @@ export default function EnhancedDataTable() {
     setConfirmationOpen(true);
   };
 
-  const handleTrain = async (piece) => {
-    try {
-      setLoading(true);
-      await datasetService.trainModel(piece.label);
-      showNotification(`Training started for ${piece.label}`, "success");
-      fetchData(); // Refresh data
-    } catch (error) {
-      showNotification(`Failed to start training for ${piece.label}`, "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleBulkDelete = () => {
     setActionType("bulkDelete");
     setActionTarget(selectedDatasets);
@@ -431,6 +557,25 @@ export default function EnhancedDataTable() {
       <HeaderBox>
         <Title>Enhanced Dataset Management</Title>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TrainButton 
+            variant="contained" 
+            color="primary" 
+            onClick={handleTrainAll}
+            disabled={trainingInProgress}
+            startIcon={trainingInProgress ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
+          >
+            {trainingInProgress ? "Training..." : "Train All"}
+          </TrainButton>
+          {trainingInProgress && (
+            <TrainButton 
+              variant="outlined" 
+              color="error" 
+              onClick={handleStopTraining}
+              startIcon={<Stop />}
+            >
+              Stop Training
+            </TrainButton>
+          )}
           <Button
             startIcon={<FilterList />}
             onClick={() => setShowFilters(!showFilters)}
@@ -496,7 +641,6 @@ export default function EnhancedDataTable() {
           </StatCard>
         </StatsContainer>
       )}
-
       {/* Filters Panel */}
       <Collapse in={showFilters}>
         <FilterCard>
