@@ -9,7 +9,7 @@ import yaml
 from collections import Counter
 import matplotlib.pyplot as plt
 from training.app.db.models.piece_image import PieceImage
-from backend.training.app.services.basic_rotation_service import rotate_and_update_images
+from training.app.services.basic_rotation_service import rotate_and_update_images
 from training.app.db.models.piece import Piece
 # Set up logging
 logging.basicConfig(level=logging.INFO,

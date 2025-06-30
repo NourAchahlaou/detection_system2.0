@@ -134,18 +134,6 @@ export const datasetService = {
     }
   },
 
-  // Train a model for a specific piece (kept from original service)
-  // trainModel: async (pieceLabel) => {
-  //   try {
-  //     const response = await api.post(`/api/artifact_keeper/detection/train/${pieceLabel}`);
-  //     console.log(response.data.message || "Training started successfully");
-  //     return response.data;
-  //   } catch (error) {
-  //     console.error("Error starting training:", error.response?.data?.detail || error.message);
-  //     throw error;
-  //   }
-  // },
-
   // Legacy method to get all datasets (for backward compatibility)
   getAllDatasets: async () => {
     try {
