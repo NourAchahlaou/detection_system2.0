@@ -131,7 +131,7 @@ def video_feed():
 async def capture_images(
     piece_label: str = Path(..., title="The label of the piece to capture images for")
 ):
-    """Capture images with resilience using circuit breaker"""
+    """Capture images with resilience using circuit breaker - NO LOCAL STORAGE"""
     if not frame_source.camera_is_running:
         raise HTTPException(
             status_code=503,
@@ -143,18 +143,12 @@ async def capture_images(
     if not match:
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
     
-    extracted_label = match.group(1)
-    url = os.path.join('Pieces','Pieces','images',"valid",extracted_label, piece_label)
-   
-    # Define save_folder using the extracted_label
-    save_folder = os.path.join('dataset','Pieces','Pieces','images','valid',extracted_label,piece_label)
-    os.makedirs(save_folder, exist_ok=True)
-    
     # Use a specific circuit breaker for image capture
     image_capture_cb = CircuitBreaker(failure_threshold=2, recovery_timeout=30, name="image_capture")
     
     def capture_image():
-        return ImageCapture().capture_images(frame_source, save_folder, url, piece_label)
+        """Capture an image using the ImageCapture service"""
+        return ImageCapture().capture_image_only(frame_source, piece_label)
     
     def capture_fallback():
         # Return a default "service unavailable" image or None
