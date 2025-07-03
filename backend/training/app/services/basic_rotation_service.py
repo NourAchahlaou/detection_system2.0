@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from training.app.services.advanced_rotation_service import rotate_and_save_images_and_annotations
 from training.app.db.models.piece import Piece
 from training.app.db.models.piece_image import PieceImage
-from services.file_mover_with_hash_check import split_and_move_files
+from training.app.services.file_mover_with_hash_check import split_and_move_files
 
 def rotate_and_update_images(piece_label: str, db: Session):
     # Retrieve the piece and its image record

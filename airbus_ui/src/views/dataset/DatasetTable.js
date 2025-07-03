@@ -375,6 +375,7 @@ export default function EnhancedDataTable() {
       setTrainingPieces([piece.label]);
       setTrainingModalOpen(true);
       
+      // Fixed: Pass the piece object, not just the label
       await datasetService.trainPieceModel(piece.label);
       simulateTrainingProgress([piece.label]);
       
@@ -495,6 +496,7 @@ export default function EnhancedDataTable() {
     setConfirmationOpen(true);
   };
 
+
   const handleBulkDelete = () => {
     setActionType("bulkDelete");
     setActionTarget(selectedDatasets);
@@ -513,7 +515,6 @@ export default function EnhancedDataTable() {
           showNotification(`Successfully deleted ${actionTarget.label}`, "success");
         } else if (actionType === "bulkDelete" && actionTarget) {
           // For bulk delete, you might need to delete each piece individually
-          // or implement a bulk delete endpoint
           for (const id of actionTarget) {
             const piece = datasets.find(d => d.id === id);
             if (piece) {
@@ -874,16 +875,17 @@ export default function EnhancedDataTable() {
                 
                 <TableCell align="center">
                   <Box display="flex" justifyContent="center" gap={0.5}>
-                    <ActionButton variant="view" onClick={() => handleView(piece.label)}>
+                    <ActionButton variant="view" onClick={() => handleView(piece)}>
                       <Visibility fontSize="small" />
                     </ActionButton>
-                    <ActionButton variant="delete" onClick={() => handleDelete(piece.id)}>
+                    <ActionButton variant="delete" onClick={() => handleDelete(piece)}>
                       <Delete fontSize="small" />
                     </ActionButton>
                     <Button 
-                      onClick={() => handleTrain(piece.label)} 
+                      onClick={() => handleTrain(piece)} 
                       size="small"
                       variant="outlined"
+                      disabled={trainingInProgress}
                       sx={{ 
                         textTransform: "none",
                         minWidth: "60px",
@@ -891,7 +893,7 @@ export default function EnhancedDataTable() {
                         py: 0.5
                       }}
                     >
-                      Train
+                      {trainingInProgress ? "Training..." : "Train"}
                     </Button>
                   </Box>
                 </TableCell>

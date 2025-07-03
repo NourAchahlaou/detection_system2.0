@@ -91,9 +91,12 @@ services:
       - ./backend/training:/usr/srv/training
       - ./.env:/usr/srv/.env
       - dataset:/app/shared/dataset
+      - training_logs:/usr/srv/logs  # Dedicated volume for training logs
     user: "1001:1001"
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
+      - LOG_PATH=/usr/srv/logs  # Environment variable for log path
+
   databasePostgres:
     image: postgres:15
     container_name: postgres
@@ -161,10 +164,16 @@ volumes:
       o: bind
       device: ./shared_data/dataset
   
-  
   dataset_backup:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: ./shared_data/backup
+  
+  training_logs:  # Dedicated volume for training logs
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./shared_data/logs

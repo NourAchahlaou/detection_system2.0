@@ -5,12 +5,20 @@ WORKDIR /usr/srv
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y postgresql-client ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install system dependencies including OpenGL libraries
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    ca-certificates \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create user and directories with proper permissions
 RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
-
 
 RUN mkdir -p /usr/srv/training/migrations
 
@@ -25,7 +33,8 @@ RUN chmod +x /usr/srv/training/entrypoint.sh
 
 # Verify permissions
 RUN ls -la /usr/srv/training/entrypoint.sh
-
+RUN mkdir -p ./shared_data/logs
+RUN chmod 755 ./shared_data/logs
 # Switch to non-root user
 USER ubuntu
 

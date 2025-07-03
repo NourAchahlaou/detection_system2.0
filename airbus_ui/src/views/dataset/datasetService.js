@@ -147,11 +147,11 @@ export const datasetService = {
 
   // === TRAINING SERVICES ===
   
-  // Train a specific piece model
-  trainPieceModel: async (pieceLabels) => {
+  // Train a specific piece model - FIXED
+  trainPieceModel: async (pieceLabel) => {
     try {
       const response = await api.post("/api/training/training/train", {
-        piece_labels: Array.isArray(pieceLabels) ? pieceLabels : [pieceLabels]
+        piece_labels: Array.isArray(pieceLabel) ? pieceLabel : [pieceLabel]
       });
       console.log(response.data.message || "Training started successfully");
       return response.data;
@@ -161,11 +161,11 @@ export const datasetService = {
     }
   },
 
-  // Train multiple pieces
+  // Train multiple pieces - FIXED
   trainMultiplePieces: async (pieceLabels) => {
     try {
       const response = await api.post("/api/training/training/train", {
-        piece_labels: pieceLabels
+        piece_labels: Array.isArray(pieceLabels) ? pieceLabels : [pieceLabels]
       });
       console.log(response.data.message || "Training started successfully");
       return response.data;
@@ -175,7 +175,7 @@ export const datasetService = {
     }
   },
 
-  // Train all non-trained pieces
+  // Train all non-trained pieces - FIXED
   trainAllPieces: async () => {
     try {
       // First get all datasets to find non-trained pieces
@@ -214,7 +214,7 @@ export const datasetService = {
     }
   },
 
-  // Get training status/progress (if you have an endpoint for this)
+  // Get training status/progress
   getTrainingStatus: async () => {
     try {
       const response = await api.get("/api/training/training/status");

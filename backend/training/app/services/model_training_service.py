@@ -7,15 +7,26 @@ from requests import Session
 from ultralytics import YOLO
 import yaml
 from collections import Counter
-import matplotlib.pyplot as plt
 from training.app.db.models.piece_image import PieceImage
 from training.app.services.basic_rotation_service import rotate_and_update_images
 from training.app.db.models.piece import Piece
-# Set up logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    handlers=[logging.StreamHandler(),
-                              logging.FileHandler("training_logs.log", mode='a')])
+
+# Set up logging with dedicated log volume
+log_dir = os.getenv("LOG_PATH", "/usr/srv/logs")
+log_file = os.path.join(log_dir, "model_training_service.log")
+
+# Ensure log directory exists and is writable
+os.makedirs(log_dir, exist_ok=True)
+
+# Configure logging with both console and file handlers
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+        logging.FileHandler(log_file, mode='a')  # File output
+    ]
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +35,9 @@ stop_event = asyncio.Event()
 stop_sign = False
 
 async def stop_training():
+    global stop_sign
     stop_event.set()
-    stop_sign == True
+    stop_sign = True
     logger.info("Stop training signal sent.")
 
 def select_device():
@@ -50,39 +62,6 @@ def adjust_batch_size(device, base_batch_size=8):
             return base_batch_size // 2
     else:
         return base_batch_size // 2
-
-def analyze_class_distribution(data_yaml_path):
-    """Analyze and plot class distribution in the dataset."""
-    with open(data_yaml_path, 'r') as f:
-        data = yaml.safe_load(f)
-
-    class_counts = Counter()
-    train_labels_dir = data['train'].replace('images', 'labels')
-
-    label_files = [os.path.join(train_labels_dir, f) for f in os.listdir(train_labels_dir) if f.endswith('.txt')]
-
-    for label_file in label_files:
-        with open(label_file, 'r') as lf:
-            for line in lf:
-                try:
-                    class_idx = int(line.split()[0])
-                    class_counts[class_idx] += 1
-                except ValueError:
-                    logger.error(f"Error parsing line in {label_file}: {line}")
-
-    class_names = data['names']
-    class_labels = [class_names[i] for i in sorted(class_counts.keys())]
-    counts = [class_counts[i] for i in sorted(class_counts.keys())]
-
-    plt.figure(figsize=(10, 6))
-    plt.bar(class_labels, counts, color='skyblue')
-    plt.xlabel('Class')
-    plt.ylabel('Number of Samples')
-    plt.title('Class Distribution')
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    plt.savefig("class_distribution.png")
-    plt.show()
 
 def adjust_imgsz(device):
     """Adjust image size based on available GPU memory."""
@@ -128,15 +107,55 @@ def add_background_images(data_yaml_path):
     else:
         logger.warning("No background images found.")
 
-
-
-def train_model(piece_label: str, db: Session):
+# FIXED: Updated to handle list of piece labels
+def train_model(piece_labels: list, db: Session):
+    """
+    Train models for multiple pieces.
+    
+    Args:
+        piece_labels: List of piece labels to train
+        db: Database session
+    """
     model = None
+    
+    # Ensure piece_labels is a list
+    if isinstance(piece_labels, str):
+        piece_labels = [piece_labels]
+    
     try:
         # Set service directory
         service_dir = os.path.dirname(os.path.abspath(__file__))
         logger.info(f"Service directory: {service_dir}")
+        logger.info(f"Starting training process for piece labels: {piece_labels}")
 
+        # Process each piece
+        for piece_label in piece_labels:
+            if stop_event.is_set():
+                logger.info("Stop event detected. Ending training.")
+                break
+                
+            logger.info(f"Training piece: {piece_label}")
+            train_single_piece(piece_label, db, service_dir)
+            
+    except Exception as e:
+        logger.error(f"An error occurred during training: {str(e)}", exc_info=True)
+    finally:
+        stop_event.clear()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Training process finished and GPU memory cleared.")
+
+def train_single_piece(piece_label: str, db: Session, service_dir: str):
+    """
+    Train a single piece model.
+    
+    Args:
+        piece_label: Label of the piece to train
+        db: Database session
+        service_dir: Service directory path
+    """
+    model = None
+    try:
         # Fetch the specific piece from the database
         piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
         if not piece:
@@ -161,14 +180,17 @@ def train_model(piece_label: str, db: Session):
         piece_data_dir = os.path.join(service_dir, "..", "..", "dataset_custom")
         os.makedirs(piece_data_dir, exist_ok=True)
 
-        image_dir = os.path.join(piece_data_dir, "images", "valid",piece_label)
-        image_dir_train = os.path.join(piece_data_dir, "images", "train",piece_label)
-        label_dir = os.path.join(piece_data_dir, "labels", "valid",piece_label)
-        label_dir_train = os.path.join(piece_data_dir, "labels", "train",piece_label)
+        image_dir = os.path.join(piece_data_dir, "images", "valid", piece_label)
+        image_dir_train = os.path.join(piece_data_dir, "images", "train", piece_label)
+        label_dir = os.path.join(piece_data_dir, "labels", "valid", piece_label)
+        label_dir_train = os.path.join(piece_data_dir, "labels", "train", piece_label)
+        
         os.makedirs(image_dir, exist_ok=True)
         os.makedirs(label_dir, exist_ok=True)
         os.makedirs(image_dir_train, exist_ok=True)
         os.makedirs(label_dir_train, exist_ok=True)
+
+        logger.info(f"Created dataset directories for piece: {piece_label}")
 
         # Copy images and labels to the custom dataset directory
         for image in images:
@@ -178,11 +200,12 @@ def train_model(piece_label: str, db: Session):
                 with open(label_path, "w") as label_file:
                     label_file.write(f"{piece.class_data_id} {annotation.x} {annotation.y} {annotation.width} {annotation.height}\n")
 
+        logger.info(f"Copied {len(images)} images and their annotations to dataset directory")
+
         # Create a custom data.yaml for this piece
         data_yaml_path = os.path.join(piece_data_dir, "data.yaml")
-
-
-        model_save_path = os.path.join(service_dir, '..', '..', 'detection', 'models', f"yolo8x_model.pt")
+        model_save_path = os.path.join(service_dir, '..', '..', 'detection', 'models', f"yolo8x_model_{piece_label}.pt")
+        
         logger.info(f"Resolved data.yaml path: {data_yaml_path}")
         logger.info(f"Model save path: {model_save_path}")
 
@@ -197,6 +220,7 @@ def train_model(piece_label: str, db: Session):
         os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
 
         # Rotate and update images for the specific piece
+        logger.info("Starting image rotation and augmentation process")
         rotate_and_update_images(piece_label, db)
 
         # Initialize the model (load the previously trained model for the piece if available)
@@ -211,10 +235,8 @@ def train_model(piece_label: str, db: Session):
         model.to(device)
         batch_size = adjust_batch_size(device)
         imgsz = adjust_imgsz(device)
-        logger.info(f"Using image size: {imgsz}")
-
-        logger.info(f"Starting fine-tuning for piece: {piece_label}")
-        logger.info(f"Using device: {device}, Batch size: {batch_size}")
+        
+        logger.info(f"Training configuration - Device: {device}, Batch size: {batch_size}, Image size: {imgsz}")
 
         # Hyperparameters setup
         hyperparameters = {
@@ -227,7 +249,7 @@ def train_model(piece_label: str, db: Session):
             "warmup_epochs": 10.0,  # Increased warmup for fine-tuning
             "warmup_momentum": 0.8,
             "warmup_bias_lr": 0.1,
-            "label_smoothing" : 0.1,
+            "label_smoothing": 0.1,
         }
 
         # Augmentation parameters (Mosaic and Mixup)
@@ -249,17 +271,18 @@ def train_model(piece_label: str, db: Session):
             "crop_fraction": 1.0,
         }
 
-
         # Merge augmentations into hyperparameters
         hyperparameters.update(augmentations)
 
-        # Set the optimizer object
+        logger.info(f"Starting fine-tuning for piece: {piece_label} with 25 epochs")
 
         # Fine-tuning loop
         for epoch in range(25):
             if stop_event.is_set():
                 logger.info("Stop event detected. Ending training.")
                 break
+
+            logger.info(f"Starting epoch {epoch + 1}/25 for piece {piece_label}")
 
             # Start the training process
             model.train(
@@ -269,7 +292,7 @@ def train_model(piece_label: str, db: Session):
                 batch=batch_size,
                 device=device,
                 project=os.path.dirname(model_save_path),
-                name=piece_label,
+                name=f"{piece_label}_epoch_{epoch}",
                 exist_ok=True,
                 amp=True,
                 patience=10,
@@ -279,13 +302,13 @@ def train_model(piece_label: str, db: Session):
             
             # Validate the model periodically during training to monitor metrics
             if epoch % 5 == 0:  # Every 5 epochs, check validation performance
+                logger.info(f"Running validation after epoch {epoch + 1} for piece {piece_label}")
                 validation_results = model.val(
                     data=data_yaml_path,
                     imgsz=640,
                     batch=batch_size,
                     device=device,
                 )
-
                 logger.info(f"Validation results after epoch {epoch + 1}: {validation_results}")
 
             # Save the model periodically
@@ -293,25 +316,24 @@ def train_model(piece_label: str, db: Session):
                 model.save(model_save_path)
                 logger.info(f"Checkpoint saved to {model_save_path} after epoch {epoch + 1}")
 
-            logger.info(f"Results after epoch {epoch + 1}")
+            logger.info(f"Completed epoch {epoch + 1}/25 for piece {piece_label}")
 
         logger.info(f"Model fine-tuning complete for piece: {piece_label}. Final model saved to {model_save_path}")
 
         # Update the `is_yolo_trained` field for the piece
         piece.is_yolo_trained = True
         db.commit()
+        logger.info(f"Updated piece {piece_label} is_yolo_trained status to True")
 
     except Exception as e:
-        logger.error(f"An error occurred: {e}")
+        logger.error(f"An error occurred during training piece {piece_label}: {str(e)}", exc_info=True)
         if model:
             try:
                 model.save(model_save_path)
                 logger.info(f"Model saved at {model_save_path} after encountering an error.")
             except Exception as save_error:
-                logger.error(f"Failed to save model after error: {save_error}")
+                logger.error(f"Failed to save model after error: {str(save_error)}")
     finally:
-        stop_event.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        logger.info("Fine-tuning process finished.")
-
+        logger.info(f"Training process finished for piece {piece_label} and GPU memory cleared.")
