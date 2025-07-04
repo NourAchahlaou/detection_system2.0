@@ -148,6 +148,9 @@ services:
       - user_management
       - artifact_keeper
       - airbus_ui
+      - training
+      - annotation
+      - databasePostgres
     networks:
       - airvision-net
 
