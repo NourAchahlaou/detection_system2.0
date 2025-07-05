@@ -17,6 +17,7 @@ from training.app.core.settings import get_settings
 from training.app.db.models.training  import TrainingSession 
 from training.app.db.models.piece import Piece  # Read-only
 from training.app.db.models.piece_image import PieceImage  # Read-only
+from artifact_keeper.app.db.models.annotation import Annotation  # Read-only
 
 version_table = "alembic_version_training "
 
@@ -41,7 +42,8 @@ OWNED_TABLES = {
 # Tables from other services that we reference but don't own
 REFERENCED_TABLES = {
     'piece',        # Owned by artifact_keeper
-    'piece_image'   # Owned by artifact_keeper
+    'piece_image',
+    'annotation'   # Owned by artifact_keeper
 }
 
 def include_object(object, name, type_, reflected, compare_to):

@@ -92,10 +92,12 @@ services:
       - ./.env:/usr/srv/.env
       - dataset:/app/shared/dataset
       - training_logs:/usr/srv/logs  # Dedicated volume for training logs
+      - models:/app/shared/models  # NEW: Shared models volume
     user: "1001:1001"
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
       - LOG_PATH=/usr/srv/logs  # Environment variable for log path
+      - MODELS_BASE_PATH=/app/shared/models  # NEW: Environment variable for models path
 
   databasePostgres:
     image: postgres:15
@@ -180,3 +182,10 @@ volumes:
       type: none
       o: bind
       device: ./shared_data/logs
+  
+  models:  # NEW: Shared models volume
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./shared_data/models

@@ -33,8 +33,11 @@ RUN chmod +x /usr/srv/training/entrypoint.sh
 
 # Verify permissions
 RUN ls -la /usr/srv/training/entrypoint.sh
-RUN mkdir -p ./shared_data/logs
-RUN chmod 755 ./shared_data/logs
+
+# Create shared data directories with proper permissions
+RUN mkdir -p ./shared_data/logs ./shared_data/models
+RUN chmod 755 ./shared_data/logs ./shared_data/models
+
 # Switch to non-root user
 USER ubuntu
 

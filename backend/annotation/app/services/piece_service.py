@@ -1,5 +1,5 @@
-from datetime import datetime
 import os
+from datetime import datetime
 import re
 from typing import Dict, Union, Any
 from fastapi import HTTPException, logger
@@ -13,6 +13,20 @@ from annotation.app.db.models.piece_image import PieceImage
 
 # Virtual storage dictionary
 virtual_storage: Dict[str, Dict] = {}
+
+# Configuration for API endpoints
+def get_api_base_url():
+    """Get the base URL for artifact_keeper API calls"""
+    # In containerized environment, use the service name from docker-compose
+    # In development, fall back to localhost
+    api_host = os.getenv('ARTIFACT_KEEPER_HOST', 'artifact_keeper')
+    api_port = os.getenv('ARTIFACT_KEEPER_PORT', '8000')
+    
+    # If running in containers, use service name; otherwise use localhost
+    if api_host == 'artifact_keeper':
+        return f"http://{api_host}:{api_port}"
+    else:
+        return f"http://localhost/api/artifact_keeper"
 
 def get_images_of_piece(piece_label: str, db: Session):
     """Fetch all images of a piece with their annotation status."""
@@ -142,11 +156,18 @@ def update_piece_annotation_status(piece_label: str, is_annotated: bool):
     This respects service boundaries and data ownership.
     """
     try:
+        payload = {"is_annotated": is_annotated}
+        api_base_url = get_api_base_url()
+        
         response = requests.patch(
-            f"http://localhost/api/artifact_keeper/captureImage/pieces/{piece_label}/annotation-status",
-            json={"is_annotated": is_annotated},
-            timeout=10
+            f"{api_base_url}/captureImage/pieces/{piece_label}/annotation-status",
+            json=payload,
+            timeout=10,
+            headers={"Content-Type": "application/json"}
         )
+        
+        print(f"Piece {piece_label} API Response Status: {response.status_code}")
+        print(f"Piece {piece_label} API Response Text: {response.text}")
         
         if response.status_code == 200:
             print(f"Successfully updated piece {piece_label} annotation status to {is_annotated}")
@@ -162,7 +183,7 @@ def update_piece_annotation_status(piece_label: str, is_annotated: bool):
 def create_yolo_directory_structure(base_path: str, piece_label: str):
     """Create YOLO directory structure for a piece in the unified dataset folder"""
     # UPDATED: New unified structure - shared_data/dataset/piece/{piece_label}/
-    piece_path = os.path.join(base_path, "piece","piece", piece_label)
+    piece_path = os.path.join(base_path, "piece", piece_label)
     
     # Create the YOLO directories
     directories = [
@@ -182,7 +203,12 @@ def copy_image_to_yolo_structure(source_image_path: str, piece_label: str, image
     """Copy image from captured location to YOLO structure within the same dataset folder"""
     try:
         # UPDATED: Destination is now in the unified structure
-        dest_image_path = os.path.join(dataset_base_path, "piece","piece", piece_label, "images", "valid", image_filename)
+        dest_image_path = os.path.join(dataset_base_path, "piece", piece_label, "images", "valid", image_filename)
+        
+        # Check if source and destination are the same
+        if os.path.abspath(source_image_path) == os.path.abspath(dest_image_path):
+            print(f"Source and destination are the same: {source_image_path}")
+            return True  # Consider this a success since the file is already in the right place
         
         # Copy the image file
         if os.path.exists(source_image_path):
@@ -195,11 +221,99 @@ def copy_image_to_yolo_structure(source_image_path: str, piece_label: str, image
     except Exception as e:
         print(f"Error copying image: {e}")
         return False
+    
+def update_piece_image_annotation_status(image_id: int, is_annotated: bool):
+    """
+    Update piece image annotation status via artifact_keeper API.
+    This respects service boundaries and data ownership.
+    """
+    try:
+        payload = {"is_annotated": is_annotated}
+        api_base_url = get_api_base_url()
+        
+        response = requests.patch(
+            f"{api_base_url}/captureImage/piece-images/{image_id}/annotation-status",
+            json=payload,
+            timeout=10,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        print(f"Image {image_id} API Response Status: {response.status_code}")
+        print(f"Image {image_id} API Response Text: {response.text}")
+        
+        if response.status_code == 200:
+            print(f"Successfully updated piece image {image_id} annotation status to {is_annotated}")
+            return True
+        else:
+            print(f"Failed to update piece image annotation status: {response.status_code} - {response.text}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling artifact_keeper API: {str(e)}")
+        return False
+
+def batch_update_piece_images_annotation_status(piece_label: str, image_ids: list, is_annotated: bool):
+    """
+    Batch update multiple piece images annotation status via artifact_keeper API.
+    This is more efficient when updating many images at once.
+    """
+    try:
+        # Fix: The API expects the request body to match PieceAnnotationStatusUpdate + image_ids
+        payload = {
+            "image_ids": image_ids,  # This is separate from the status update
+            "is_annotated": is_annotated
+        }
+        
+        api_base_url = get_api_base_url()
+        
+        response = requests.patch(
+            f"{api_base_url}/captureImage/pieces/{piece_label}/batch-update-images",
+            json=payload,
+            timeout=30,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        print(f"API Response Status: {response.status_code}")
+        print(f"API Response Text: {response.text}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"Successfully batch updated {result.get('updated_image_count', 0)} images for piece {piece_label}")
+            return True
+        else:
+            print(f"Failed to batch update piece images: {response.status_code} - {response.text}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling artifact_keeper batch update API: {str(e)}")
+        return False
+
+def get_piece_annotation_status(piece_label: str):
+    """
+    Get piece annotation status from artifact_keeper API.
+    """
+    try:
+        api_base_url = get_api_base_url()
+        
+        response = requests.get(
+            f"{api_base_url}/captureImage/pieces/{piece_label}/annotation-status",
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to get piece annotation status: {response.status_code} - {response.text}")
+            return None
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling artifact_keeper API: {str(e)}")
+        return None
 
 def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     """Save all annotations from virtual storage to the database and create YOLO structure."""
 
-    # Ensure the piece exists in the database
+    # Ensure the piece exists in the database (READ-ONLY check)
     piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
     if not piece:
         raise HTTPException(status_code=404, detail="Piece not found")
@@ -218,7 +332,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
     extracted_label = match.group(1)
 
-    # UPDATED: Use the unified dataset path instead of separate annotations path
+    # Use the unified dataset path
     dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
     
     # Create YOLO directory structure in the unified dataset folder
@@ -233,6 +347,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     # Collect unique class IDs and labels from annotations
     class_id_to_label = {}
     processed_images = set()
+    annotated_image_ids = []  # Track which images we've annotated
 
     # Save each annotation from virtual storage to the database
     for annotation_data in virtual_storage[piece_label]['annotations']:
@@ -252,7 +367,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                 print(f"Invalid value for {key}: {annotation_data[key]}")
                 raise HTTPException(status_code=400, detail=f"Invalid value for {key}: {annotation_data[key]}")
 
-        # Fetch the image record for the current annotation
+        # Fetch the image record for the current annotation (READ-ONLY)
         piece_image = db.query(PieceImage).filter(PieceImage.id == annotation_data['image_id']).first()
 
         if not piece_image:
@@ -278,7 +393,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         x_center_normalized = (annotation_data['x'] + annotation_data['width'] / 2) / 100
         y_center_normalized = (annotation_data['y'] + annotation_data['height'] / 2) / 100
 
-        # Generate the annotationTXT_name from the file_name (not image_name)
+        # Generate the annotationTXT_name from the file_name
         image_name_without_extension = os.path.splitext(piece_image.file_name)[0]
         annotationTXT_name = f"{image_name_without_extension}.txt"
 
@@ -299,7 +414,7 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
             print(f"Error writing annotation file {file_path}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to write annotation file: {str(e)}")
 
-        # Save the annotation in the database
+        # Save the annotation in the database (annotation service owns this)
         annotation = Annotation(
             annotationTXT_name=annotationTXT_name,
             type=annotation_data['type'],
@@ -311,72 +426,109 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         )
 
         db.add(annotation)
+        
+        # Track this image as annotated
+        if annotation_data['image_id'] not in annotated_image_ids:
+            annotated_image_ids.append(annotation_data['image_id'])
 
-        # Update the is_annotated field of the image (this is owned by annotation service)
-        piece_image.is_annotated = True
         class_id_to_label[piece.class_data_id] = piece.piece_label
 
-    # Check if all images related to the piece are annotated
-    remaining_unannotated = db.query(PieceImage).filter(
-        PieceImage.piece_id == piece.id,
-        PieceImage.is_annotated == False
-    ).count()
+    # Commit annotation service's own data first
+    try:
+        db.commit()
+        print("Successfully committed annotation data to database")
+    except Exception as e:
+        db.rollback()
+        print(f"Failed to commit annotation data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save annotations: {str(e)}")
     
-    print(f"Remaining unannotated images: {remaining_unannotated}")
+    # Now update piece images annotation status via API
+    print(f"Attempting to update {len(annotated_image_ids)} images: {annotated_image_ids}")
     
-    # If all images are annotated, update piece status via API
-    if remaining_unannotated == 0:
-        print("All images annotated. Updating piece to annotated via API.")
-        
-        # Update piece status via artifact_keeper API
-        if not update_piece_annotation_status(piece_label, True):
-            print("Warning: Failed to update piece annotation status via API")
-        
-        # UPDATED: Update data.yaml in the unified dataset folder
-        data_yaml_path = os.path.join(dataset_base_path, "data.yaml")
-
-        # Load existing data if it exists
-        if os.path.exists(data_yaml_path):
-            with open(data_yaml_path, 'r') as yaml_file:
-                data_yaml = yaml.safe_load(yaml_file)
-                print(f"Existing data_yaml loaded: {data_yaml}")
+    # FIXED: Use individual updates for now as they're more reliable
+    update_successes = 0
+    for image_id in annotated_image_ids:
+        if update_piece_image_annotation_status(image_id, True):
+            update_successes += 1
         else:
-            # Create new data.yaml with relative paths for YOLO training
-            data_yaml = {
-                'names': {},
-                'nc': 0,
-                'path': dataset_base_path,  # Base path for the dataset
-                'train': 'piece/*/images/train',  # Pattern for all training images
-                'val': 'piece/*/images/valid'     # Pattern for all validation images
-            }
-            print("No existing data_yaml found. Creating new.")
-
-        # Update the data_yaml with new class data
-        class_id_to_label[piece.class_data_id] = piece.piece_label
-        data_yaml['names'].update(class_id_to_label)
-        data_yaml['nc'] = len(data_yaml['names'])
-
-        # Create directories if needed
-        os.makedirs(os.path.dirname(data_yaml_path), exist_ok=True)
-
-        # Write to data.yaml
-        try:
-            with open(data_yaml_path, 'w') as yaml_file:
-                yaml.dump(data_yaml, yaml_file, default_flow_style=False)
-            print(f"data.yaml file updated at: {data_yaml_path}")
-        except IOError as e:
-            print(f"Warning: Failed to write data.yaml: {e}")
-
-    # Commit changes to annotation service's data only
-    db.commit()
-    db.refresh(annotation)
-    db.refresh(piece_image)
+            print(f"Warning: Failed to update piece image {image_id} annotation status via API")
+    
+    print(f"Successfully updated {update_successes} out of {len(annotated_image_ids)} images")
+    
+    # Only proceed with piece status update if at least some image updates succeeded
+    if update_successes > 0:
+        # Check if all images related to the piece are annotated
+        piece_status = get_piece_annotation_status(piece_label)
+        
+        if piece_status:
+            remaining_unannotated = piece_status.get('remaining_unannotated_images', 0)
+            print(f"Remaining unannotated images: {remaining_unannotated}")
+            
+            # If all images are annotated, update piece status via API
+            if remaining_unannotated == 0:
+                print("All images annotated. Updating piece to annotated via API.")
+                
+                # Update piece status via artifact_keeper API
+                if update_piece_annotation_status(piece_label, True):
+                    print("Successfully updated piece annotation status")
+                else:
+                    print("Warning: Failed to update piece annotation status via API")
+                
+                # Update data.yaml in the unified dataset folder
+                update_data_yaml(dataset_base_path, piece, class_id_to_label)
+            else:
+                print(f"Piece not fully annotated yet. {remaining_unannotated} images remaining.")
+        else:
+            print("Warning: Could not get piece annotation status from API")
+    else:
+        print("Warning: No image updates succeeded, skipping piece status update")
           
     # Clear virtual storage
     virtual_storage.pop(piece_label, None)
     print("Annotations saved successfully and virtual storage cleared.")
     
-    return {"status": "Annotations saved successfully", "save_folder": labels_save_folder, "yolo_structure": piece_path}
+    return {
+        "status": "Annotations saved successfully", 
+        "save_folder": labels_save_folder, 
+        "yolo_structure": piece_path,
+        "updated_images": update_successes,
+        "total_images": len(annotated_image_ids)
+    }
+
+def update_data_yaml(dataset_base_path: str, piece: Piece, class_id_to_label: dict):
+    """Update data.yaml file with new class data."""
+    data_yaml_path = os.path.join(dataset_base_path, "data.yaml")
+
+    # Load existing data if it exists
+    if os.path.exists(data_yaml_path):
+        with open(data_yaml_path, 'r') as yaml_file:
+            data_yaml = yaml.safe_load(yaml_file)
+            print(f"Existing data_yaml loaded: {data_yaml}")
+    else:
+        # Create new data.yaml with relative paths for YOLO training
+        data_yaml = {
+            'names': {},
+            'nc': 0,
+            'path': dataset_base_path,
+            'train': 'piece/*/images/train',
+            'val': 'piece/*/images/valid'
+        }
+        print("No existing data_yaml found. Creating new.")
+
+    # Update the data_yaml with new class data
+    data_yaml['names'].update(class_id_to_label)
+    data_yaml['nc'] = len(data_yaml['names'])
+
+    # Create directories if needed
+    os.makedirs(os.path.dirname(data_yaml_path), exist_ok=True)
+
+    # Write to data.yaml
+    try:
+        with open(data_yaml_path, 'w') as yaml_file:
+            yaml.dump(data_yaml, yaml_file, default_flow_style=False)
+        print(f"data.yaml file updated at: {data_yaml_path}")
+    except IOError as e:
+        print(f"Warning: Failed to write data.yaml: {e}")
 
 def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]:
     """Delete a specific annotation from the database"""
@@ -438,7 +590,7 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         try:
             # UPDATED: Use the unified dataset path for YOLO structure
             dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
-            labels_folder = os.path.join(dataset_base_path, "piece","piece",  piece_label, "labels", "valid")
+            labels_folder = os.path.join(dataset_base_path, "piece", piece_label, "labels", "valid")
             
             # Get the annotation file name
             annotation_file_path = os.path.join(labels_folder, annotation_txt_name)
@@ -532,7 +684,7 @@ def delete_virtual_annotation_service(piece_label: str, image_id: int, annotatio
     except Exception as e:
         print(f"Error removing annotation from virtual storage: {e}")
         raise HTTPException(status_code=500, detail=f"Error removing annotation from virtual storage: {str(e)}")
-
+    
 def get_virtual_annotations_service(piece_label: str, virtual_storage: Dict) -> Dict[str, Any]:
     """Get all annotations currently in virtual storage for a piece"""
     try:

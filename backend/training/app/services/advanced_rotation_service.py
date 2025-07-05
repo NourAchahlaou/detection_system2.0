@@ -70,6 +70,9 @@ def rotate_and_save_images_and_annotations(piece_label: str, rotation_angles: li
                 line = f"{int(annotation[0])} {annotation[1]} {annotation[2]} {annotation[3]} {annotation[4]}\n"
                 file.write(line)
     
+    # Get the dataset base path from environment variable
+    dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
+    
     # Validate piece_label format
     match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
     if not match:
@@ -77,16 +80,29 @@ def rotate_and_save_images_and_annotations(piece_label: str, rotation_angles: li
         
     group_label = match.group(1)
     
-    image_folder = f'dataset_custom/images/valid/{piece_label}'
-    annotation_folder = f'dataset_custom/labels/valid/{piece_label}'
-    save_image_folder = f'dataset_custom/images/train/{piece_label}'
-    save_annotation_folder = f'dataset_custom/labels/train/{piece_label}'
+    # Updated paths to use the Docker volume mount point
+    image_folder = os.path.join(dataset_base_path,'piece','piece','images', 'valid', piece_label)
+    annotation_folder = os.path.join(dataset_base_path,'piece','piece','labels', 'valid', piece_label)
+    
+    # Create dataset_custom directory structure
+    dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom')
+    save_image_folder = os.path.join(dataset_custom_path, 'images', 'train', piece_label)
+    save_annotation_folder = os.path.join(dataset_custom_path, 'labels', 'train', piece_label)
 
-    if not os.path.exists(save_image_folder):
-        os.makedirs(save_image_folder)
+    # Create directories if they don't exist
+    os.makedirs(save_image_folder, exist_ok=True)
+    os.makedirs(save_annotation_folder, exist_ok=True)
+    
+    # Also create the dataset_custom validation directories for completeness
+    os.makedirs(os.path.join(dataset_custom_path, 'images', 'valid'), exist_ok=True)
+    os.makedirs(os.path.join(dataset_custom_path, 'labels', 'valid'), exist_ok=True)
 
-    if not os.path.exists(save_annotation_folder):
-        os.makedirs(save_annotation_folder)
+    # Check if source directories exist
+    if not os.path.exists(image_folder):
+        raise HTTPException(status_code=404, detail=f"Source image folder not found: {image_folder}")
+    
+    if not os.path.exists(annotation_folder):
+        raise HTTPException(status_code=404, detail=f"Source annotation folder not found: {annotation_folder}")
 
     def apply_greyscale(image: np.ndarray, probability: float) -> np.ndarray:
         """Randomly convert image to greyscale with the given probability."""
@@ -132,47 +148,71 @@ def rotate_and_save_images_and_annotations(piece_label: str, rotation_angles: li
         
         return scaled_image
 
-    for image_file in os.listdir(image_folder):
-        if image_file.endswith('.jpg') or image_file.endswith('.png'):
-            image_path = os.path.join(image_folder, image_file)
-            image = cv2.imread(image_path)
+    # Process images
+    image_files = [f for f in os.listdir(image_folder) if f.endswith(('.jpg', '.png'))]
+    
+    if not image_files:
+        raise HTTPException(status_code=404, detail=f"No image files found in {image_folder}")
 
-            # Apply the augmentations (same for all transformations)
-            augmented_images = [
-                apply_greyscale(image, 0.5),
-                apply_occlusion(image, 0.5),
-                add_noise(image),
-                adjust_brightness_contrast(image),
-                scale_image(image)
-            ]
+    print(f"Processing {len(image_files)} images from {image_folder}")
+    print(f"Saving augmented images to {save_image_folder}")
+    print(f"Saving augmented annotations to {save_annotation_folder}")
 
-            for angle in rotation_angles:
-                for flip_code in [0, 1]:  # Flip vertically and horizontally
-                    for i, augmented_image in enumerate(augmented_images):
-                        # Rotate image
-                        rotated_image = rotate_image(augmented_image, angle)
-                        flipped_image = flip_image(rotated_image, flip_code)
+    for image_file in image_files:
+        image_path = os.path.join(image_folder, image_file)
+        image = cv2.imread(image_path)
+        
+        if image is None:
+            print(f"Warning: Could not load image {image_path}")
+            continue
 
-                        # Save images
-                        new_image_file = f"{group_label}_{angle}_{flip_code}_{i}_{image_file}"
-                        new_image_path = os.path.join(save_image_folder, new_image_file)
-                        cv2.imwrite(new_image_path, flipped_image)
+        # Apply the augmentations (same for all transformations)
+        augmented_images = [
+            apply_greyscale(image, 0.5),
+            apply_occlusion(image, 0.5),
+            add_noise(image),
+            adjust_brightness_contrast(image),
+            scale_image(image)
+        ]
 
-                        # Read annotations
-                        annotation_file = os.path.join(annotation_folder, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
-                        with open(annotation_file, 'r') as file:
-                            annotations = [line.strip().split() for line in file.readlines()]
-                            annotations = [list(map(float, annotation)) for annotation in annotations]
+        for angle in rotation_angles:
+            for flip_code in [0, 1]:  # Flip vertically and horizontally
+                for i, augmented_image in enumerate(augmented_images):
+                    # Rotate image
+                    rotated_image = rotate_image(augmented_image, angle)
+                    flipped_image = flip_image(rotated_image, flip_code)
 
-                        # Rotate and flip annotations
-                        rotated_annotations = [rotate_annotation(annotation, angle, image.shape[:2]) for annotation in annotations]
-                        flipped_annotations = [flip_annotation(annotation, flip_code, image.shape[:2]) for annotation in rotated_annotations if annotation]
-                        valid_annotations = [annotation for annotation in flipped_annotations if annotation]
+                    # Save images
+                    new_image_file = f"{group_label}_{angle}_{flip_code}_{i}_{image_file}"
+                    new_image_path = os.path.join(save_image_folder, new_image_file)
+                    cv2.imwrite(new_image_path, flipped_image)
 
-                        if valid_annotations:
-                         
+                    # Read annotations
+                    annotation_file = os.path.join(annotation_folder, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
+                    
+                    if not os.path.exists(annotation_file):
+                        print(f"Warning: Annotation file not found: {annotation_file}")
+                        continue
+                        
+                    with open(annotation_file, 'r') as file:
+                        annotations = [line.strip().split() for line in file.readlines()]
+                        annotations = [list(map(float, annotation)) for annotation in annotations]
 
-                            # Save annotations
-                            new_annotation_file = f"{group_label}_{angle}_{flip_code}_{i}_{image_file.replace('.jpg', '.txt').replace('.png', '.txt')}"
-                            new_annotation_path = os.path.join(save_annotation_folder, new_annotation_file)
-                            save_annotations(new_annotation_path, flipped_annotations)
+                    # Rotate and flip annotations
+                    rotated_annotations = [rotate_annotation(annotation, angle, image.shape[:2]) for annotation in annotations]
+                    flipped_annotations = [flip_annotation(annotation, flip_code, image.shape[:2]) for annotation in rotated_annotations if annotation]
+                    valid_annotations = [annotation for annotation in flipped_annotations if annotation]
+
+                    if valid_annotations:
+                        # Save annotations
+                        new_annotation_file = f"{group_label}_{angle}_{flip_code}_{i}_{image_file.replace('.jpg', '.txt').replace('.png', '.txt')}"
+                        new_annotation_path = os.path.join(save_annotation_folder, new_annotation_file)
+                        save_annotations(new_annotation_path, valid_annotations)
+    
+    print(f"Dataset augmentation completed. Files saved to dataset_custom directory.")
+    return {
+        "message": "Dataset augmentation completed successfully",
+        "dataset_custom_path": dataset_custom_path,
+        "images_saved": save_image_folder,
+        "annotations_saved": save_annotation_folder
+    }

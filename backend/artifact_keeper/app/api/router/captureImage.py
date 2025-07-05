@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Dict, Annotated
 import logging
@@ -189,3 +190,206 @@ def update_piece_annotation_status(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update piece annotation status: {str(e)}")
+    
+# Add these endpoints to your existing captureImage_router in artifact_keeper
+
+@captureImage_router.patch("/piece-images/{image_id}/annotation-status")
+def update_piece_image_annotation_status(
+    image_id: int, 
+    status_update: PieceAnnotationStatusUpdate,
+    db: Session = Depends(get_session)
+):
+    """
+    Update the annotation status of a piece image.
+    This endpoint should only be called by the annotation service.
+    """
+    try:
+        from artifact_keeper.app.db.models.piece_image import PieceImage
+        
+        # Find the piece image
+        piece_image = db.query(PieceImage).filter(PieceImage.id == image_id).first()
+        
+        if not piece_image:
+            raise HTTPException(status_code=404, detail="Piece image not found")
+        
+        # Update the annotation status
+        piece_image.is_annotated = status_update.is_annotated
+        
+        # Commit the changes
+        db.commit()
+        db.refresh(piece_image)
+        
+        logger.info(f"Updated piece image {image_id} annotation status to {status_update.is_annotated}")
+        
+        return {
+            "message": f"Piece image {image_id} annotation status updated to {status_update.is_annotated}",
+            "image_id": image_id,
+            "is_annotated": status_update.is_annotated
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update piece image annotation status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update piece image annotation status: {str(e)}")
+
+@captureImage_router.get("/pieces/{piece_label}/annotation-status")
+def get_piece_annotation_status(
+    piece_label: str,
+    db: Session = Depends(get_session)
+):
+    """
+    Get the annotation status of a piece and count of remaining unannotated images.
+    This endpoint is used by the annotation service to check completion status.
+    """
+    try:
+        from artifact_keeper.app.db.models.piece import Piece
+        from artifact_keeper.app.db.models.piece_image import PieceImage
+        
+        # Find the piece
+        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+        
+        if not piece:
+            raise HTTPException(status_code=404, detail="Piece not found")
+        
+        # Count remaining unannotated images
+        remaining_unannotated = db.query(PieceImage).filter(
+            PieceImage.piece_id == piece.id,
+            PieceImage.is_annotated == False,
+            PieceImage.is_deleted == False  # Don't count deleted images
+        ).count()
+        
+        # Count total active images
+        total_active_images = db.query(PieceImage).filter(
+            PieceImage.piece_id == piece.id,
+            PieceImage.is_deleted == False
+        ).count()
+        
+        logger.info(f"Piece {piece_label} status: {remaining_unannotated} unannotated out of {total_active_images} total images")
+        
+        return {
+            "piece_label": piece_label,
+            "is_annotated": piece.is_annotated,
+            "remaining_unannotated_images": remaining_unannotated,
+            "total_images": total_active_images,
+            "piece_id": piece.id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get piece annotation status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get piece annotation status: {str(e)}")
+
+@captureImage_router.get("/pieces/{piece_label}/images")
+def get_piece_images_status(
+    piece_label: str,
+    db: Session = Depends(get_session)
+):
+    """
+    Get detailed information about all images for a piece.
+    This can be useful for debugging annotation status issues.
+    """
+    try:
+        from artifact_keeper.app.db.models.piece import Piece
+        from artifact_keeper.app.db.models.piece_image import PieceImage
+        
+        # Find the piece
+        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+        
+        if not piece:
+            raise HTTPException(status_code=404, detail="Piece not found")
+        
+        # Get all images for this piece
+        images = db.query(PieceImage).filter(
+            PieceImage.piece_id == piece.id,
+            PieceImage.is_deleted == False
+        ).all()
+        
+        image_details = []
+        for img in images:
+            image_details.append({
+                "id": img.id,
+                "file_name": img.file_name,
+                "is_annotated": img.is_annotated,
+                "upload_date": img.upload_date.isoformat() if img.upload_date else None,
+                "image_path": img.image_path
+            })
+        
+        return {
+            "piece_label": piece_label,
+            "piece_id": piece.id,
+            "piece_is_annotated": piece.is_annotated,
+            "total_images": len(image_details),
+            "annotated_images": sum(1 for img in image_details if img["is_annotated"]),
+            "images": image_details
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get piece images status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get piece images status: {str(e)}")
+
+class BatchUpdateRequest(BaseModel):
+    image_ids: List[int]
+    is_annotated: bool
+
+@captureImage_router.patch("/pieces/{piece_label}/batch-update-images")
+def batch_update_piece_images_annotation_status(
+    piece_label: str,
+    request: BatchUpdateRequest,  # Use a proper request model
+    db: Session = Depends(get_session)
+):
+    """
+    Batch update annotation status for multiple images.
+    This is more efficient when updating many images at once.
+    """
+    try:
+        from artifact_keeper.app.db.models.piece import Piece
+        from artifact_keeper.app.db.models.piece_image import PieceImage
+        
+        # Find the piece first
+        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+        
+        if not piece:
+            logger.error(f"Piece not found: {piece_label}")
+            raise HTTPException(status_code=404, detail="Piece not found")
+        
+        logger.info(f"Attempting to update {len(request.image_ids)} images for piece {piece_label}")
+        logger.info(f"Image IDs: {request.image_ids}")
+        
+        # Check which images exist before updating
+        existing_images = db.query(PieceImage).filter(
+            PieceImage.id.in_(request.image_ids),
+            PieceImage.piece_id == piece.id,
+            PieceImage.is_deleted == False
+        ).all()
+        
+        logger.info(f"Found {len(existing_images)} existing images out of {len(request.image_ids)} requested")
+        
+        # Update all specified images
+        updated_count = db.query(PieceImage).filter(
+            PieceImage.id.in_(request.image_ids),
+            PieceImage.piece_id == piece.id,  # Security: ensure images belong to this piece
+            PieceImage.is_deleted == False
+        ).update(
+            {"is_annotated": request.is_annotated},
+            synchronize_session=False
+        )
+        
+        if updated_count == 0:
+            logger.warning(f"No images were updated for piece {piece_label}")
+            raise HTTPException(status_code=404, detail="No matching images found to update")
+        
+        # Commit the changes
+        db.commit()
+        
+        logger.info(f"Batch updated {updated_count} images for piece {piece_label} to annotation status {request.is_annotated}")
+        
+        return {
+            "message": f"Successfully updated {updated_count} images",
+            "piece_label": piece_label,
+            "updated_image_count": updated_count,
+            "is_annotated": request.is_annotated
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to batch update piece images: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to batch update piece images: {str(e)}")

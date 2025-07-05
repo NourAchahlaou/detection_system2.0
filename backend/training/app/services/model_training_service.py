@@ -2,11 +2,12 @@ import asyncio
 import os
 import logging
 import shutil
+from training.app.db.models.annotation import Annotation
 import torch
 from requests import Session
 from ultralytics import YOLO
 import yaml
-from collections import Counter
+
 from training.app.db.models.piece_image import PieceImage
 from training.app.services.basic_rotation_service import rotate_and_update_images
 from training.app.db.models.piece import Piece
@@ -176,48 +177,71 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
 
         logger.info(f"Found {len(images)} images for piece: {piece_label}")
 
-        # Generate a custom dataset for the specific piece
-        piece_data_dir = os.path.join(service_dir, "..", "..", "dataset_custom")
-        os.makedirs(piece_data_dir, exist_ok=True)
-
-        image_dir = os.path.join(piece_data_dir, "images", "valid", piece_label)
-        image_dir_train = os.path.join(piece_data_dir, "images", "train", piece_label)
-        label_dir = os.path.join(piece_data_dir, "labels", "valid", piece_label)
-        label_dir_train = os.path.join(piece_data_dir, "labels", "train", piece_label)
+        # Get the dataset base path from environment variable (consistent with paste-2)
+        dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
         
+        # NEW: Get the models base path from environment variable
+        models_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
+        
+        # Ensure models directory exists
+        os.makedirs(models_base_path, exist_ok=True)
+        
+        # Create dataset_custom directory structure (consistent with paste-2)
+        dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom')
+        
+        # Updated directory paths to match paste-2 structure
+        image_dir = os.path.join(dataset_custom_path, "images", "valid", piece_label)
+        image_dir_train = os.path.join(dataset_custom_path, "images", "train", piece_label)
+        label_dir = os.path.join(dataset_custom_path, "labels", "valid", piece_label)
+        label_dir_train = os.path.join(dataset_custom_path, "labels", "train", piece_label)
+        
+        # Create all necessary directories
         os.makedirs(image_dir, exist_ok=True)
         os.makedirs(label_dir, exist_ok=True)
         os.makedirs(image_dir_train, exist_ok=True)
         os.makedirs(label_dir_train, exist_ok=True)
 
         logger.info(f"Created dataset directories for piece: {piece_label}")
+        logger.info(f"Dataset custom path: {dataset_custom_path}")
 
-        # Copy images and labels to the custom dataset directory
         for image in images:
-            shutil.copy(image.piece_path, os.path.join(image_dir, os.path.basename(image.piece_path)))
-            for annotation in image.annotations:
+            # Copy to validation directory
+            shutil.copy(image.image_path, os.path.join(image_dir, os.path.basename(image.image_path)))
+            
+            # Query annotations directly instead of using relationship
+            annotations = db.query(Annotation).filter(Annotation.piece_image_id == image.id).all()
+            
+            # Create annotations for validation directory
+            for annotation in annotations:
                 label_path = os.path.join(label_dir, annotation.annotationTXT_name)
                 with open(label_path, "w") as label_file:
                     label_file.write(f"{piece.class_data_id} {annotation.x} {annotation.y} {annotation.width} {annotation.height}\n")
 
         logger.info(f"Copied {len(images)} images and their annotations to dataset directory")
 
-        # Create a custom data.yaml for this piece
-        data_yaml_path = os.path.join(piece_data_dir, "data.yaml")
-        model_save_path = os.path.join(service_dir, '..', '..', 'detection', 'models', f"yolo8x_model_{piece_label}.pt")
+        # Create a custom data.yaml for this piece in the dataset_custom directory
+        data_yaml_path = os.path.join(dataset_custom_path, "data.yaml")
         
-        logger.info(f"Resolved data.yaml path: {data_yaml_path}")
+        # Create the data.yaml file with correct paths
+        data_yaml_content = {
+            'train': os.path.join(dataset_custom_path, 'images', 'train'),
+            'val': os.path.join(dataset_custom_path, 'images', 'valid'),
+            'nc': 1,  # Number of classes (assuming single class per piece)
+            'names': [piece_label]
+        }
+        
+        with open(data_yaml_path, 'w') as f:
+            yaml.dump(data_yaml_content, f)
+        
+        logger.info(f"Created data.yaml at: {data_yaml_path}")
+        
+        # NEW: Model save path using shared models volume
+        model_save_path = os.path.join(models_base_path, f"yolo8x_model_{piece_label}.pt")
+        
         logger.info(f"Model save path: {model_save_path}")
-
-        if not os.path.isfile(data_yaml_path):
-            logger.error(f"data.yaml file not found at {data_yaml_path}")
-            return
 
         # Validate dataset for issues
         validate_dataset(data_yaml_path)
-
-        # Ensure the model directory exists
-        os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
 
         # Rotate and update images for the specific piece
         logger.info("Starting image rotation and augmentation process")
