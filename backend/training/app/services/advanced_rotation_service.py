@@ -81,8 +81,8 @@ def rotate_and_save_images_and_annotations(piece_label: str, rotation_angles: li
     group_label = match.group(1)
     
     # Updated paths to use the Docker volume mount point
-    image_folder = os.path.join(dataset_base_path,'piece','piece','images', 'valid', piece_label)
-    annotation_folder = os.path.join(dataset_base_path,'piece','piece','labels', 'valid', piece_label)
+    image_folder = os.path.join(dataset_base_path,'piece','piece',piece_label,'images', 'valid')
+    annotation_folder = os.path.join(dataset_base_path,'piece','piece',piece_label,'labels', 'valid')
     
     # Create dataset_custom directory structure
     dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom')

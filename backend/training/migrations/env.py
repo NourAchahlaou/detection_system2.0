@@ -17,7 +17,7 @@ from training.app.core.settings import get_settings
 from training.app.db.models.training  import TrainingSession 
 from training.app.db.models.piece import Piece  # Read-only
 from training.app.db.models.piece_image import PieceImage  # Read-only
-from artifact_keeper.app.db.models.annotation import Annotation  # Read-only
+from training.app.db.models.annotation import Annotation  # Read-only
 
 version_table = "alembic_version_training "
 
