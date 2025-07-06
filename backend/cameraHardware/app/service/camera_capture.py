@@ -1,8 +1,6 @@
-import os
+
 from datetime import datetime
 import cv2
-from sqlalchemy import func
-from sqlalchemy.orm import Session
 from pypylon import pylon
 
 

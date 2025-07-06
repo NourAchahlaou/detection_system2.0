@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from app.service.frameSource import FrameSource
 from app.service.camera_capture import ImageCapture
 import re
-from app.db.schemas.camera import BaslerCameraRequest, OpenCVCameraRequest
+from app.schemas.camera import BaslerCameraRequest, OpenCVCameraRequest
 from app.response.camera import (
      CameraStopResponse, CameraStatusResponse, CameraResponse
       )

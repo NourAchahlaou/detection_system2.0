@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic import BaseModel
 
 # Base schemas for Camera START
