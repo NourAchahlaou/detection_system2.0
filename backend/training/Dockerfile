@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create user and directories with proper permissions
@@ -27,16 +28,27 @@ COPY ./requirements.txt /usr/srv/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # Copy application code
-COPY . /usr/srv/training 
+COPY . /usr/srv/training
 
 RUN chmod +x /usr/srv/training/entrypoint.sh
 
 # Verify permissions
 RUN ls -la /usr/srv/training/entrypoint.sh
 
-# Create shared data directories with proper permissions
+# Create shared data directories with proper permissions for ubuntu user
+RUN mkdir -p /app/shared/dataset /app/shared/models /app/shared/logs /app/shared/backup
+RUN chown -R ubuntu:ubuntu /app/shared
+RUN chmod -R 755 /app/shared
+
+# Also create the local shared_data directories with proper permissions
 RUN mkdir -p ./shared_data/logs ./shared_data/models
-RUN chmod 755 ./shared_data/logs ./shared_data/models
+RUN chown -R ubuntu:ubuntu ./shared_data
+RUN chmod -R 755 ./shared_data
+
+# Create a cache directory for YOLO models that the ubuntu user can write to
+RUN mkdir -p /home/ubuntu/.cache/yolo
+RUN chown -R ubuntu:ubuntu /home/ubuntu/.cache
+RUN chmod -R 755 /home/ubuntu/.cache
 
 # Switch to non-root user
 USER ubuntu

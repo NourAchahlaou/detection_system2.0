@@ -254,7 +254,12 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
             model = YOLO(model_save_path)  # Load the pre-trained model for fine-tuning
         else:
             logger.info("No pre-existing model found. Starting training from scratch.")
-            model = YOLO("yolov8x.pt")  # Load a base YOLO model
+            model_path = os.path.join(models_base_path, "yolov8m.pt")
+            if os.path.exists(model_path):
+                model = YOLO(model_path)
+            else:
+                # Fallback to default YOLO model download location
+                model = YOLO("yolov8m.pt")  # Load a base YOLO model
 
         model.to(device)
         batch_size = adjust_batch_size(device)

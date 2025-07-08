@@ -105,6 +105,86 @@ fi
 
 echo "Database setup verification complete!"
 
+# ========================================
+# YOLO MODEL DOWNLOAD SECTION
+# ========================================
+
+echo "Setting up YOLO model..."
+
+# Set model paths based on environment variables or defaults
+MODELS_BASE_PATH=${MODELS_BASE_PATH:-/app/shared/models}
+YOLO_MODEL_PATH="$MODELS_BASE_PATH/yolov8m.pt"
+YOLO_MODEL_URL="https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8m.pt"
+
+echo "Model configuration:"
+echo "  Models base path: $MODELS_BASE_PATH"
+echo "  YOLO model path: $YOLO_MODEL_PATH"
+echo "  Download URL: $YOLO_MODEL_URL"
+
+# Create models directory if it doesn't exist
+echo "Creating models directory..."
+mkdir -p "$MODELS_BASE_PATH"
+
+# Check if model already exists
+if [ -f "$YOLO_MODEL_PATH" ]; then
+    echo "✓ YOLO model already exists at $YOLO_MODEL_PATH"
+    
+    # Verify the file size (yolov8m.pt should be around 50MB)
+    MODEL_SIZE=$(stat -c%s "$YOLO_MODEL_PATH" 2>/dev/null || echo "0")
+    MIN_SIZE=40000000  # 40MB minimum
+    
+    if [ "$MODEL_SIZE" -gt "$MIN_SIZE" ]; then
+        echo "✓ Model file size looks good ($MODEL_SIZE bytes)"
+    else
+        echo "⚠ Model file seems too small ($MODEL_SIZE bytes), re-downloading..."
+        rm -f "$YOLO_MODEL_PATH"
+    fi
+fi
+
+# Download model if it doesn't exist or was removed
+if [ ! -f "$YOLO_MODEL_PATH" ]; then
+    echo "Downloading YOLO model..."
+    echo "This may take a few minutes depending on your internet connection..."
+    
+    # Use curl with progress bar and retry options
+    if curl -L --progress-bar --retry 3 --retry-delay 2 -o "$YOLO_MODEL_PATH" "$YOLO_MODEL_URL"; then
+        echo "✓ YOLO model downloaded successfully!"
+        
+        # Verify the downloaded file
+        if [ -f "$YOLO_MODEL_PATH" ]; then
+            DOWNLOADED_SIZE=$(stat -c%s "$YOLO_MODEL_PATH")
+            echo "✓ Downloaded file size: $DOWNLOADED_SIZE bytes"
+            
+            if [ "$DOWNLOADED_SIZE" -lt "$MIN_SIZE" ]; then
+                echo "ERROR: Downloaded file seems too small, possibly corrupted"
+                rm -f "$YOLO_MODEL_PATH"
+                exit 1
+            fi
+        else
+            echo "ERROR: Model file was not created after download"
+            exit 1
+        fi
+    else
+        echo "ERROR: Failed to download YOLO model"
+        exit 1
+    fi
+fi
+
+# Final verification
+if [ -f "$YOLO_MODEL_PATH" ]; then
+    echo "✓ YOLO model setup complete!"
+    ls -lh "$YOLO_MODEL_PATH"
+else
+    echo "ERROR: YOLO model setup failed"
+    exit 1
+fi
+
+echo "Model setup verification complete!"
+
+# ========================================
+# END YOLO MODEL DOWNLOAD SECTION
+# ========================================
+
 # Start the application
 echo "Starting application"
 exec uvicorn training.app.main:app --host 0.0.0.0 --port 8000 --reload

@@ -30,4 +30,4 @@ async def root():
     return {"message": "this is the piece registry service"}
 
 
-# uvicorn main:app --host 127.0.0.1 --port 8001 --reload
+# uvicorn main:app --host 127.0.0.1 --port 8003 --reload
