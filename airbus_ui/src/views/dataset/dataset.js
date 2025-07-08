@@ -1,6 +1,7 @@
 import { Box, styled, Typography, CircularProgress } from "@mui/material";
 import DataTable from "./DatasetTable";
 import NoData from "../sessions/NoData";
+import TrainingProgressSidebar from "./TrainingProgressSidebar"; // Add this import
 import { useState, useEffect } from "react";
 import { datasetService } from "./datasetService";
 import { useNavigate } from "react-router-dom";
@@ -40,37 +41,16 @@ const ErrorContainer = styled(Box)(({ theme }) => ({
   margin: "20px 0",
 }));
 
-const ModernBreadcrumb = styled(Box)(({ theme }) => ({
-  marginBottom: "32px",
-  padding: "16px 0",
-  borderBottom: "1px solid rgba(102, 126, 234, 0.1)",
-  
-  "& .MuiBreadcrumbs-root": {
-    fontSize: "0.875rem",
-    color: "#667eea",
-    
-    "& .MuiBreadcrumbs-separator": {
-      color: "rgba(102, 126, 234, 0.4)",
-    },
-    
-    "& a, & span": {
-      color: "#667eea",
-      textDecoration: "none",
-      fontWeight: "500",
-      transition: "color 0.2s ease",
-      
-      "&:hover": {
-        color: "#5a67d8",
-      }
-    }
-  }
-}));
-
 export default function AppDatabasesetup() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+
+  // Training sidebar state - Add these states
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [trainingData, setTrainingData] = useState(null);
+  const [trainingInProgress, setTrainingInProgress] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -97,6 +77,33 @@ export default function AppDatabasesetup() {
 
     fetchData();
   }, [navigate]);
+
+  // Training handlers - Add these functions
+  const handleTrainingStart = (trainingInfo) => {
+    setTrainingData(trainingInfo);
+    setTrainingInProgress(true);
+    setSidebarOpen(true);
+  };
+
+  const handleTrainingStop = async () => {
+    try {
+      await datasetService.stopTraining();
+      setTrainingInProgress(false);
+      setSidebarOpen(false);
+      setTrainingData(null);
+    } catch (error) {
+      console.error("Failed to stop training:", error);
+    }
+  };
+
+  const handleRefreshTraining = () => {
+    // Refresh training data - in a real app, this would fetch from API
+    console.log("Refreshing training data...");
+  };
+
+  const handleSidebarClose = () => {
+    setSidebarOpen(false);
+  };
 
   if (loading) {
     return (
@@ -135,7 +142,22 @@ export default function AppDatabasesetup() {
   return (
     <Container>
       {data && Object.keys(data).length > 0 ? (
-        <DataTable data={data} />
+        <>
+          <DataTable 
+            data={data} 
+            onTrainingStart={handleTrainingStart}
+            trainingInProgress={trainingInProgress}
+            sidebarOpen={sidebarOpen}
+            setSidebarOpen={setSidebarOpen}
+          />
+          <TrainingProgressSidebar
+            isOpen={sidebarOpen}
+            onClose={handleSidebarClose}
+            trainingData={trainingData}
+            onStopTraining={handleTrainingStop}
+            onRefresh={handleRefreshTraining}
+          />
+        </>
       ) : (
         <NoData />
       )}

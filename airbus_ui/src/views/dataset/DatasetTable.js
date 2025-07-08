@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Delete, Visibility, PhotoLibrary, CheckCircle, RadioButtonUnchecked,
-  Search, FilterList, Sort, CalendarToday, Image as ImageIcon,
-  Refresh, Download, Clear, PlayArrow, Stop
+  Search, FilterList, Image as ImageIcon,
+  Refresh, Clear, PlayArrow, Stop, ModelTraining
 } from "@mui/icons-material";
 import {
   Box,
@@ -11,7 +11,7 @@ import {
   Avatar,
   styled,
   TableRow,
-  useTheme,
+
   TableBody,
   TableCell,
   TableHead,
@@ -30,25 +30,25 @@ import {
   Select,
   MenuItem,
   Grid,
-  Paper,
+
   TablePagination,
   Collapse,
   InputAdornment,
-  Divider,
   CircularProgress,
   Backdrop,
   Alert,
-  Snackbar,
-  LinearProgress
 } from "@mui/material";
 
 // Import your real service
 import { datasetService } from './datasetService';
 
+
+
 // STYLED COMPONENTS (keeping the same styled components from your original code)
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
+  position: "relative", // Add this for sidebar positioning
 }));
 
 const HeaderBox = styled(Box)({
@@ -190,55 +190,14 @@ const StatLabel = styled(Typography)({
   marginTop: "4px",
 });
 
-// Training Progress Modal Component
-const TrainingProgressModal = ({ open, onClose, progress, trainingPieces }) => (
-  <Dialog 
-    open={open} 
-    onClose={onClose}
-    maxWidth="sm"
-    fullWidth
-    PaperProps={{
-      sx: { borderRadius: "16px", padding: "8px" }
-    }}
-  >
-    <DialogTitle sx={{ fontWeight: "600", color: "#333", textAlign: "center" }}>
-      Training in Progress
-    </DialogTitle>
-    <DialogContent sx={{ textAlign: "center", py: 3 }}>
-      <CircularProgress 
-        variant="determinate" 
-        value={progress} 
-        size={80}
-        thickness={4}
-        sx={{ 
-          color: "#667eea",
-          mb: 2
-        }}
-      />
-      <Typography variant="h6" sx={{ mb: 2, fontWeight: "600" }}>
-        {progress}%
-      </Typography>
-      <LinearProgress 
-        variant="determinate" 
-        value={progress} 
-        sx={{ 
-          height: 8, 
-          borderRadius: 4,
-          mb: 2,
-          "& .MuiLinearProgress-bar": {
-            backgroundColor: "#667eea"
-          }
-        }}
-      />
-      <Typography variant="body2" color="text.secondary">
-        Training {Array.isArray(trainingPieces) ? trainingPieces.length : 1} piece(s)...
-      </Typography>
-    </DialogContent>
-  </Dialog>
-);
+export default function EnhancedDataTable({ 
+  data, 
+  onTrainingStart, 
+  trainingInProgress, 
+  sidebarOpen, 
+  setSidebarOpen 
+}) {
 
-export default function EnhancedDataTable() {
-  const { palette } = useTheme();
   
   // State management
   const [datasets, setDatasets] = useState([]);
@@ -249,10 +208,11 @@ export default function EnhancedDataTable() {
   const [error, setError] = useState(null);
   
   // Training state
-  const [trainingInProgress, setTrainingInProgress] = useState(false);
   const [trainingProgress, setTrainingProgress] = useState(0);
-  const [trainingModalOpen, setTrainingModalOpen] = useState(false);
   const [trainingPieces, setTrainingPieces] = useState([]);
+  const [trainingData, setTrainingData] = useState(null);
+  
+  // Sidebar state
   
   // Pagination state
   const [page, setPage] = useState(0);
@@ -345,72 +305,134 @@ export default function EnhancedDataTable() {
     });
   };
 
-  const handleCloseNotification = () => {
-    setNotification(prev => ({ ...prev, open: false }));
-  };
 
   // Training progress simulation
-  const simulateTrainingProgress = (pieces) => {
-    setTrainingProgress(0);
-    const interval = setInterval(() => {
-      setTrainingProgress((prevProgress) => {
-        if (prevProgress >= 100) {
-          clearInterval(interval);
-          setTrainingInProgress(false);
-          setTrainingModalOpen(false);
-          setTrainingPieces([]);
-          showNotification(`Training completed for ${Array.isArray(pieces) ? pieces.length : 1} piece(s)`, "success");
-          fetchData(); // Refresh data after training
-          return 100;
-        }
-        return Math.min(prevProgress + 10, 100);
-      });
-    }, 1000);
-  };
+const simulateTrainingProgress = (pieces) => {
+  setTrainingProgress(0);
+  const interval = setInterval(() => {
+    setTrainingProgress((prevProgress) => {
+      if (prevProgress >= 100) {
+        clearInterval(interval);
+        // Don't call setTrainingInProgress(false) here - let parent handle it
+        setSidebarOpen(false);
+        setTrainingPieces([]);
+        setTrainingData(null);
+        showNotification(`Training completed for ${Array.isArray(pieces) ? pieces.length : 1} piece(s)`, "success");
+        fetchData(); // Refresh data after training
+        return 100;
+      }
+      return Math.min(prevProgress + 10, 100);
+    });
+  }, 1000);
+};
 
   // Training handlers
   const handleTrain = async (piece) => {
     try {
-      setTrainingInProgress(true);
+      // Prepare training data
+      const trainingInfo = {
+        status: 'training',
+        piece_labels: [piece.label],
+        current_epoch: 1,
+        total_epochs: 25,
+        progress: 4,
+        batch_size: 4,
+        image_size: 640,
+        device: 'cpu',
+        total_images: piece.nbre_img,
+        augmented_images: piece.nbre_img * 50,
+        validation_images: Math.floor(piece.nbre_img * 0.2),
+        losses: {
+          box_loss: 0.0,
+          cls_loss: 0.0,
+          dfl_loss: 0.0,
+        },
+        metrics: {
+          instances: piece.total_annotations,
+          lr: 0.002,
+          momentum: 0.9,
+        },
+        logs: [
+          { level: 'INFO', message: `Starting training process for piece: ${piece.label}`, timestamp: new Date().toISOString() },
+          { level: 'INFO', message: `Found ${piece.nbre_img} images for piece: ${piece.label}`, timestamp: new Date().toISOString() },
+          { level: 'INFO', message: `Total annotations: ${piece.total_annotations}`, timestamp: new Date().toISOString() },
+        ]
+      };
+
       setTrainingPieces([piece.label]);
-      setTrainingModalOpen(true);
+      setTrainingData(trainingInfo);
       
-      // Fixed: Pass the piece object, not just the label
+      // Call the parent's training start handler
+      onTrainingStart(trainingInfo);
+      
       await datasetService.trainPieceModel(piece.label);
       simulateTrainingProgress([piece.label]);
       
     } catch (error) {
-      setTrainingInProgress(false);
-      setTrainingModalOpen(false);
-      setTrainingPieces([]);
       showNotification(`Failed to start training for ${piece.label}`, "error");
     }
   };
 
   const handleTrainAll = async () => {
     try {
-      setTrainingInProgress(true);
-      setTrainingModalOpen(true);
-      
       const nonTrainedPieces = datasets
         .filter(piece => !piece.is_yolo_trained)
         .map(piece => piece.label);
       
       if (nonTrainedPieces.length === 0) {
-        setTrainingInProgress(false);
-        setTrainingModalOpen(false);
         showNotification("No pieces available for training", "warning");
         return;
       }
 
       setTrainingPieces(nonTrainedPieces);
+      
+      // Set training data for multiple pieces
+      const totalImages = datasets
+        .filter(piece => !piece.is_yolo_trained)
+        .reduce((sum, piece) => sum + piece.nbre_img, 0);
+      
+      const totalAnnotations = datasets
+        .filter(piece => !piece.is_yolo_trained)
+        .reduce((sum, piece) => sum + piece.total_annotations, 0);
+      
+      const trainingInfo = {
+        status: 'training',
+        piece_labels: nonTrainedPieces,
+        current_epoch: 1,
+        total_epochs: 25,
+        progress: 4,
+        batch_size: 4,
+        image_size: 640,
+        device: 'cpu',
+        total_images: totalImages,
+        augmented_images: totalImages * 50,
+        validation_images: Math.floor(totalImages * 0.2),
+        losses: {
+          box_loss: 0.0,
+          cls_loss: 0.0,
+          dfl_loss: 0.0,
+        },
+        metrics: {
+          instances: totalAnnotations,
+          lr: 0.002,
+          momentum: 0.9,
+        },
+        logs: [
+          { level: 'INFO', message: `Starting training process for ${nonTrainedPieces.length} pieces`, timestamp: new Date().toISOString() },
+          { level: 'INFO', message: `Total images: ${totalImages}`, timestamp: new Date().toISOString() },
+          { level: 'INFO', message: `Total annotations: ${totalAnnotations}`, timestamp: new Date().toISOString() },
+        ]
+      };
+
+      setTrainingData(trainingInfo);
+      
+      // Call the parent's training start handler
+      onTrainingStart(trainingInfo);
+      
       await datasetService.trainAllPieces();
       simulateTrainingProgress(nonTrainedPieces);
       
     } catch (error) {
-      setTrainingInProgress(false);
-      setTrainingModalOpen(false);
-      setTrainingPieces([]);
       showNotification("Failed to start training for all pieces", "error");
     }
   };
@@ -418,14 +440,18 @@ export default function EnhancedDataTable() {
   const handleStopTraining = async () => {
     try {
       await datasetService.stopTraining();
-      setTrainingInProgress(false);
-      setTrainingModalOpen(false);
       setTrainingProgress(0);
       setTrainingPieces([]);
+      setTrainingData(null);
       showNotification("Training stopped successfully", "info");
     } catch (error) {
       showNotification("Failed to stop training", "error");
     }
+  };
+
+  const handleRefreshTraining = () => {
+    // Refresh training data - in a real app, this would fetch from API
+    showNotification("Training data refreshed", "info");
   };
 
   // Filter handlers
@@ -495,7 +521,6 @@ export default function EnhancedDataTable() {
     setActionTarget(piece);
     setConfirmationOpen(true);
   };
-
 
   const handleBulkDelete = () => {
     setActionType("bulkDelete");
@@ -577,6 +602,16 @@ export default function EnhancedDataTable() {
               Stop Training
             </TrainButton>
           )}
+          {trainingInProgress && (
+            <Button
+              variant="outlined"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              startIcon={<ModelTraining />}
+              sx={{ textTransform: "none" }}
+            >
+              {sidebarOpen ? "Hide Progress" : "Show Progress"}
+            </Button>
+          )}
           <Button
             startIcon={<FilterList />}
             onClick={() => setShowFilters(!showFilters)}
@@ -642,6 +677,7 @@ export default function EnhancedDataTable() {
           </StatCard>
         </StatsContainer>
       )}
+      
       {/* Filters Panel */}
       <Collapse in={showFilters}>
         <FilterCard>
