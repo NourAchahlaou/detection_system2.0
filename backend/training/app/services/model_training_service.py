@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ultralytics import YOLO
 import yaml
 from datetime import datetime
+import time
 
 from training.app.db.models.piece_image import PieceImage
 from training.app.services.basic_rotation_service import rotate_and_update_images
@@ -112,11 +113,276 @@ def add_background_images(data_yaml_path):
     else:
         logger.warning("No background images found.")
 
-def train_model(piece_labels: list, db: Session, session_id: int):
-    """
-    Train models for multiple pieces.
+def update_training_progress(session_id: int, epoch: int, total_epochs: int, losses: dict = None, metrics: dict = None):
+    """Update training progress in database with real-time data."""
+    db = create_new_session()
+    try:
+        training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+        if training_session:
+            # Update epoch and progress
+            training_session.current_epoch = epoch
+            training_session.progress_percentage = (epoch / total_epochs) * 100
+            
+            # Update losses if provided
+            if losses:
+                training_session.update_losses(
+                    box_loss=losses.get('box_loss'),
+                    cls_loss=losses.get('cls_loss'),
+                    dfl_loss=losses.get('dfl_loss')
+                )
+            
+            # Update metrics if provided
+            if metrics:
+                training_session.update_metrics(
+                    instances=metrics.get('instances'),
+                    lr=metrics.get('lr'),
+                    momentum=metrics.get('momentum')
+                )
+            
+            # Update timestamp
+            training_session.last_updated = datetime.utcnow()
+            
+            if safe_commit(db):
+                logger.info(f"Updated training progress - Epoch: {epoch}/{total_epochs}, Progress: {training_session.progress_percentage:.1f}%")
+                if losses:
+                    logger.info(f"Current losses - Box: {losses.get('box_loss', 'N/A')}, Cls: {losses.get('cls_loss', 'N/A')}, DFL: {losses.get('dfl_loss', 'N/A')}")
+    except Exception as e:
+        logger.error(f"Failed to update training progress: {str(e)}")
+    finally:
+        safe_close(db)
+
+class TrainingCallback:
+    """Custom callback to capture training metrics in real-time."""
     
-    """
+    def __init__(self, session_id: int, total_epochs: int):
+        self.session_id = session_id
+        self.total_epochs = total_epochs
+        self.current_epoch = 0
+        self.batch_count = 0
+        
+    def on_train_epoch_start(self, trainer):
+        """Called at the start of each training epoch."""
+        self.current_epoch = trainer.epoch + 1
+        self.batch_count = 0
+        logger.info(f"Starting epoch {self.current_epoch}/{self.total_epochs}")
+        
+    def on_train_batch_end(self, trainer):
+        """Called at the end of each training batch."""
+        try:
+            self.batch_count += 1
+            
+            # Get current losses from trainer
+            if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+                # YOLO typically has [box_loss, cls_loss, dfl_loss]
+                losses = {
+                    'box_loss': float(trainer.loss_items[0]) if len(trainer.loss_items) > 0 else 0,
+                    'cls_loss': float(trainer.loss_items[1]) if len(trainer.loss_items) > 1 else 0,
+                    'dfl_loss': float(trainer.loss_items[2]) if len(trainer.loss_items) > 2 else 0
+                }
+                
+                # Get current learning rate
+                current_lr = trainer.optimizer.param_groups[0]['lr'] if trainer.optimizer else 0
+                
+                metrics = {
+                    'lr': current_lr,
+                    'momentum': trainer.optimizer.param_groups[0].get('momentum', 0.9) if trainer.optimizer else 0.9,
+                    'batch_count': self.batch_count
+                }
+                
+                # Update every 10 batches to avoid too frequent database updates
+                if self.batch_count % 10 == 0:
+                    update_training_progress(
+                        session_id=self.session_id,
+                        epoch=self.current_epoch,
+                        total_epochs=self.total_epochs,
+                        losses=losses,
+                        metrics=metrics
+                    )
+        except Exception as e:
+            logger.error(f"Error in training callback: {str(e)}")
+    
+    def on_train_epoch_end(self, trainer):
+        """Called at the end of each training epoch."""
+        try:
+            # Get final epoch losses
+            if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+                losses = {
+                    'box_loss': float(trainer.loss_items[0]) if len(trainer.loss_items) > 0 else 0,
+                    'cls_loss': float(trainer.loss_items[1]) if len(trainer.loss_items) > 1 else 0,
+                    'dfl_loss': float(trainer.loss_items[2]) if len(trainer.loss_items) > 2 else 0
+                }
+                
+                current_lr = trainer.optimizer.param_groups[0]['lr'] if trainer.optimizer else 0
+                metrics = {
+                    'lr': current_lr,
+                    'momentum': trainer.optimizer.param_groups[0].get('momentum', 0.9) if trainer.optimizer else 0.9,
+                    'batch_count': self.batch_count
+                }
+                
+                # Final update for the epoch
+                update_training_progress(
+                    session_id=self.session_id,
+                    epoch=self.current_epoch,
+                    total_epochs=self.total_epochs,
+                    losses=losses,
+                    metrics=metrics
+                )
+                
+                logger.info(f"Completed epoch {self.current_epoch}/{self.total_epochs}")
+                
+        except Exception as e:
+            logger.error(f"Error in epoch end callback: {str(e)}")
+    
+    def on_val_end(self, trainer):
+        """Called at the end of validation."""
+        try:
+            # Get validation metrics if available
+            if hasattr(trainer, 'metrics') and trainer.metrics is not None:
+                # Log validation metrics
+                logger.info(f"Validation completed for epoch {self.current_epoch}")
+                
+                # You can add validation metrics update here if needed
+                # For example: mAP, precision, recall, etc.
+                
+        except Exception as e:
+            logger.error(f"Error in validation callback: {str(e)}")
+    
+    def on_fit_epoch_end(self, trainer):
+        """Called at the end of each fit epoch (after validation)."""
+        try:
+            # This is called after both training and validation for the epoch
+            # You can use this for final epoch statistics
+            pass
+        except Exception as e:
+            logger.error(f"Error in fit epoch end callback: {str(e)}")
+
+def TrainingCallback(session_id: int, total_epochs: int):
+    """Create custom callback functions for YOLO training."""
+    
+    def on_train_epoch_start(trainer):
+        """Called at the start of each training epoch."""
+        current_epoch = trainer.epoch + 1
+        logger.info(f"Starting epoch {current_epoch}/{total_epochs}")
+        
+        # Update database with epoch start
+        update_training_progress(
+            session_id=session_id,
+            epoch=current_epoch,
+            total_epochs=total_epochs
+        )
+    
+    def on_train_batch_end(trainer):
+        """Called at the end of each training batch."""
+        try:
+            # Get current epoch and batch info
+            current_epoch = trainer.epoch + 1
+            
+            # Get batch number from trainer
+            batch_num = getattr(trainer, 'batch_i', 0)
+            
+            # Get current losses from trainer
+            if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+                losses = {
+                    'box_loss': float(trainer.loss_items[0]) if len(trainer.loss_items) > 0 else 0,
+                    'cls_loss': float(trainer.loss_items[1]) if len(trainer.loss_items) > 1 else 0,
+                    'dfl_loss': float(trainer.loss_items[2]) if len(trainer.loss_items) > 2 else 0
+                }
+                
+                # Get current learning rate
+                current_lr = trainer.optimizer.param_groups[0]['lr'] if trainer.optimizer else 0
+                
+                metrics = {
+                    'lr': current_lr,
+                    'momentum': trainer.optimizer.param_groups[0].get('momentum', 0.9) if trainer.optimizer else 0.9,
+                    'batch_num': batch_num
+                }
+                
+                # Update every 10 batches to avoid too frequent database updates
+                if batch_num % 10 == 0:
+                    update_training_progress(
+                        session_id=session_id,
+                        epoch=current_epoch,
+                        total_epochs=total_epochs,
+                        losses=losses,
+                        metrics=metrics
+                    )
+        except Exception as e:
+            logger.error(f"Error in batch end callback: {str(e)}")
+    
+    def on_train_epoch_end(trainer):
+        """Called at the end of each training epoch."""
+        try:
+            current_epoch = trainer.epoch + 1
+            
+            # Get final epoch losses
+            if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+                losses = {
+                    'box_loss': float(trainer.loss_items[0]) if len(trainer.loss_items) > 0 else 0,
+                    'cls_loss': float(trainer.loss_items[1]) if len(trainer.loss_items) > 1 else 0,
+                    'dfl_loss': float(trainer.loss_items[2]) if len(trainer.loss_items) > 2 else 0
+                }
+                
+                current_lr = trainer.optimizer.param_groups[0]['lr'] if trainer.optimizer else 0
+                metrics = {
+                    'lr': current_lr,
+                    'momentum': trainer.optimizer.param_groups[0].get('momentum', 0.9) if trainer.optimizer else 0.9
+                }
+                
+                # Final update for the epoch
+                update_training_progress(
+                    session_id=session_id,
+                    epoch=current_epoch,
+                    total_epochs=total_epochs,
+                    losses=losses,
+                    metrics=metrics
+                )
+                
+                logger.info(f"Completed epoch {current_epoch}/{total_epochs}")
+                
+        except Exception as e:
+            logger.error(f"Error in epoch end callback: {str(e)}")
+    
+    def on_val_end(trainer):
+        """Called at the end of validation."""
+        try:
+            current_epoch = trainer.epoch + 1
+            
+            # Get validation metrics if available
+            if hasattr(trainer, 'metrics') and trainer.metrics is not None:
+                logger.info(f"Validation completed for epoch {current_epoch}")
+                
+                # Extract validation metrics
+                val_metrics = {}
+                if hasattr(trainer.metrics, 'box_map'):
+                    val_metrics['mAP_0.5'] = trainer.metrics.box_map
+                if hasattr(trainer.metrics, 'box_map_50'):
+                    val_metrics['mAP_0.5'] = trainer.metrics.box_map_50
+                if hasattr(trainer.metrics, 'box_map_75'):
+                    val_metrics['mAP_0.75'] = trainer.metrics.box_map_75
+                
+                # Update with validation metrics
+                if val_metrics:
+                    update_training_progress(
+                        session_id=session_id,
+                        epoch=current_epoch,
+                        total_epochs=total_epochs,
+                        metrics=val_metrics
+                    )
+                
+        except Exception as e:
+            logger.error(f"Error in validation callback: {str(e)}")
+    
+    return {
+        'on_train_epoch_start': on_train_epoch_start,
+        'on_train_batch_end': on_train_batch_end,
+        'on_train_epoch_end': on_train_epoch_end,
+        'on_val_end': on_val_end
+    }
+def train_model(piece_labels: list, db: Session, session_id: int):
+
+    # Train models for multiple pieces.
+    
+   
     
     # Ensure piece_labels is a list
     if isinstance(piece_labels, str):
@@ -189,7 +455,7 @@ def train_model(piece_labels: list, db: Session, session_id: int):
 
 def train_single_piece(piece_label: str, db: Session, service_dir: str, session_id: int):
     """
-    Train a single piece model.
+    Train a single piece model with real-time loss updates.
     
     Args:
         piece_label: Label of the piece to train
@@ -367,85 +633,43 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
         # Merge augmentations into hyperparameters
         hyperparameters.update(augmentations)
 
-        training_session.add_log("INFO", f"Starting fine-tuning for piece: {piece_label} with {training_session.epochs} epochs")
+        training_session.add_log("INFO", f"Starting training for piece: {piece_label} with {training_session.epochs} epochs")
         db.commit()
 
-        # Fine-tuning loop
-        for epoch in range(training_session.epochs):
-            if stop_event.is_set():
-                training_session.add_log("INFO", "Stop event detected. Ending training.")
-                db.commit()
-                break
+        # Create training callback for real-time updates
+        callback = TrainingCallback(session_id, training_session.epochs)
 
-            # Update current epoch and progress
-            training_session.current_epoch = epoch + 1
-            epoch_progress = ((epoch + 1) / training_session.epochs) * 100
-            training_session.progress_percentage = epoch_progress
-            training_session.add_log("INFO", f"Starting epoch {epoch + 1}/{training_session.epochs} for piece {piece_label}")
-            db.commit()
+        # Add the callback to the model
+        for callback_name, callback_func in callback.items():
+            model.add_callback(callback_name, callback_func)
 
-            # Start the training process
-            results = model.train(
-                data=data_yaml_path,
-                epochs=1,
-                imgsz=imgsz,
-                batch=batch_size,
-                device=device,
-                project=os.path.dirname(model_save_path),
-                name=f"{piece_label}_epoch_{epoch}",
-                exist_ok=True,
-                amp=True,
-                patience=10,
-                augment=True,  # Ensure augmentation is enabled
-                **hyperparameters
-            )
-            
-            # Update losses and metrics if available
-            if hasattr(results, 'results_dict'):
-                results_dict = results.results_dict
-                if 'train/box_loss' in results_dict:
-                    training_session.update_losses(
-                        box_loss=results_dict.get('train/box_loss'),
-                        cls_loss=results_dict.get('train/cls_loss'),
-                        dfl_loss=results_dict.get('train/dfl_loss')
-                    )
-                
-                if 'lr/pg0' in results_dict:
-                    training_session.update_metrics(
-                        lr=results_dict.get('lr/pg0'),
-                        momentum=hyperparameters.get('momentum', 0.937)
-                    )
-                
-                db.commit()
-            
-            # Validate the model periodically during training to monitor metrics
-            if epoch % 5 == 0:  # Every 5 epochs, check validation performance
-                training_session.add_log("INFO", f"Running validation after epoch {epoch + 1} for piece {piece_label}")
-                db.commit()
-                
-                validation_results = model.val(
-                    data=data_yaml_path,
-                    imgsz=imgsz,
-                    batch=batch_size,
-                    device=device,
-                )
-                
-                training_session.add_log("INFO", f"Validation completed after epoch {epoch + 1}")
-                db.commit()
-
-            # Save the model periodically
-            if epoch % 1 == 0:  # Save model after every epoch
-                model.save(model_save_path)
-                training_session.add_log("INFO", f"Checkpoint saved after epoch {epoch + 1}")
-                db.commit()
+        # Start the training process with all epochs at once
+        training_session.add_log("INFO", f"Starting training with {training_session.epochs} epochs")
+        db.commit()
+        
+        results = model.train(
+            data=data_yaml_path,
+            epochs=training_session.epochs,  # Train for all epochs at once
+            imgsz=imgsz,
+            batch=batch_size,
+            device=device,
+            project=os.path.dirname(model_save_path),
+            name=f"{piece_label}_training",
+            exist_ok=True,
+            amp=True,
+            patience=10,
+            augment=True,
+            save_period=1,  # Save every epoch
+            **hyperparameters
+        )
 
         # Final model save and completion
         model.save(model_save_path)
         training_session.model_path = model_save_path
-        training_session.add_log("SUCCESS", f"Model fine-tuning complete for piece: {piece_label}. Final model saved to {model_save_path}")
+        training_session.add_log("SUCCESS", f"Model training complete for piece: {piece_label}. Final model saved to {model_save_path}")
         db.commit()
 
-        # Update the `is_yolo_trained` field for the piece
+        # Update the is_yolo_trained field for the piece
         piece.is_yolo_trained = True
         db.commit()
         

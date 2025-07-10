@@ -108,19 +108,19 @@ const StatusIndicator = styled(Box)(({ status }) => ({
   gap: '8px',
   padding: '8px 12px',
   borderRadius: '20px',
-  backgroundColor: status === 'training' 
+  backgroundColor: status === 'running' 
     ? 'rgba(102, 126, 234, 0.1)' 
     : status === 'completed'
     ? 'rgba(76, 175, 80, 0.1)'
     : 'rgba(244, 67, 54, 0.1)',
-  color: status === 'training' 
+  color: status === 'running' 
     ? '#667eea' 
     : status === 'completed'
     ? '#4caf50'
     : '#f44336',
   fontWeight: '600',
   fontSize: '0.875rem',
-  animation: status === 'training' ? `${pulse} 2s infinite` : 'none',
+  animation: status === 'running' ? `${pulse} 2s infinite` : 'none',
 }));
 
 const ProgressCard = styled(Card)(({ theme }) => ({
@@ -186,11 +186,11 @@ const TrainingProgressSidebar = ({
 
   // Set start time when training begins
   useEffect(() => {
-    if (trainingData?.status === 'training' && !startTime) {
+    if (trainingData?.status === 'running' && !startTime) {
       setStartTime(Date.now());
     }
     // Reset start time if training stops
-    if (trainingData?.status !== 'training') {
+    if (trainingData?.status !== 'running') {
       setStartTime(null);
       setDuration(0);
     }
@@ -199,7 +199,7 @@ const TrainingProgressSidebar = ({
   // Update duration timer only when training is active
   useEffect(() => {
     let interval;
-    if (trainingData?.status === 'training' && startTime) {
+    if (trainingData?.status === 'running' && startTime) {
       interval = setInterval(() => {
         setDuration(Math.floor((Date.now() - startTime) / 1000));
       }, 1000);
@@ -218,7 +218,7 @@ const TrainingProgressSidebar = ({
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'training':
+      case 'running':
         return <ModelTraining sx={{ animation: `${pulse} 2s infinite` }} />;
       case 'completed':
         return <CheckCircle />;
@@ -333,14 +333,14 @@ const TrainingProgressSidebar = ({
           <StatusIndicator status={currentData.status}>
             {getStatusIcon(currentData.status)}
             <Typography variant="body2" fontWeight="600">
-              {currentData.status === 'training' ? 'Training Active' : 
+              {currentData.status === 'running' ? 'Training Active' : 
                currentData.status === 'completed' ? 'Training Completed' : 
                currentData.status === 'error' ? 'Training Error' :
                currentData.status === 'stopped' ? 'Training Stopped' : 'No Training'}
             </Typography>
           </StatusIndicator>
 
-          {currentData.status === 'training' && (
+          {currentData.status === 'running' && (
             <Stack spacing={1} mt={2}>
               <Box display="flex" justifyContent="space-between" alignItems="center">
                 <Typography variant="body2" color="text.secondary">
