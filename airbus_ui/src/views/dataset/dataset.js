@@ -1,8 +1,8 @@
 import { Box, styled, Typography, CircularProgress } from "@mui/material";
 import DataTable from "./DatasetTable";
 import NoData from "../sessions/NoData";
-import TrainingProgressSidebar from "./TrainingProgressSidebar"; // Add this import
-import { useState, useEffect } from "react";
+import TrainingProgressSidebar from "./TrainingProgressSidebar";
+import { useState, useEffect, useRef } from "react";
 import { datasetService } from "./datasetService";
 import { useNavigate } from "react-router-dom";
 
@@ -47,11 +47,46 @@ export default function AppDatabasesetup() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
-  // Training sidebar state - Add these states
+  // Training sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [trainingData, setTrainingData] = useState(null);
   const [trainingInProgress, setTrainingInProgress] = useState(false);
+  
+  // Remove polling-related refs and state
+  const hasCheckedInitialStatus = useRef(false);
 
+  // Function to check training status (called only when needed)
+  const checkTrainingStatus = async () => {
+    try {
+      const status = await datasetService.getTrainingStatus();
+
+      if (status?.data?.is_training) {
+        setTrainingInProgress(true);
+        setTrainingData(status.data.session_info); // ✅ Pass only the session_info
+        setSidebarOpen(true);
+      } else {
+        setTrainingInProgress(false);
+        setTrainingData(null);
+        setSidebarOpen(false);
+      }
+    } catch (error) {
+      console.error("Error checking training status:", error);
+      setTrainingInProgress(false);
+      setTrainingData(null);
+      setSidebarOpen(false);
+    }
+  };
+
+
+  // Initial training status check on component mount (only once)
+  useEffect(() => {
+    if (!hasCheckedInitialStatus.current) {
+      checkTrainingStatus();
+      hasCheckedInitialStatus.current = true;
+    }
+  }, []);
+
+  // Fetch datasets data
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -78,11 +113,16 @@ export default function AppDatabasesetup() {
     fetchData();
   }, [navigate]);
 
-  // Training handlers - Add these functions
-  const handleTrainingStart = (trainingInfo) => {
+  // Training handlers
+  const handleTrainingStart = async (trainingInfo) => {
     setTrainingData(trainingInfo);
     setTrainingInProgress(true);
     setSidebarOpen(true);
+    
+    // Check training status once after starting training
+    setTimeout(() => {
+      checkTrainingStatus();
+    }, 1000);
   };
 
   const handleTrainingStop = async () => {
@@ -96,13 +136,25 @@ export default function AppDatabasesetup() {
     }
   };
 
-  const handleRefreshTraining = () => {
-    // Refresh training data - in a real app, this would fetch from API
-    console.log("Refreshing training data...");
+  const handleRefreshTraining = async () => {
+    try {
+      const status = await datasetService.getTrainingStatus();
+      if (status?.data?.session_info) {
+        setTrainingData(status.data.session_info); // ✅ Fix here too
+      }
+    } catch (error) {
+      console.error("Failed to refresh training data:", error);
+    }
   };
+
 
   const handleSidebarClose = () => {
     setSidebarOpen(false);
+  };
+
+  // Function to manually refresh training status (for page refresh)
+  const handlePageRefresh = () => {
+    checkTrainingStatus();
   };
 
   if (loading) {
@@ -149,6 +201,8 @@ export default function AppDatabasesetup() {
             trainingInProgress={trainingInProgress}
             sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
+            trainingData={trainingData}
+            onRefreshTraining={handlePageRefresh}
           />
           <TrainingProgressSidebar
             isOpen={sidebarOpen}

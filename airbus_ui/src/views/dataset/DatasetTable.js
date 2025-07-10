@@ -189,15 +189,15 @@ const StatLabel = styled(Typography)({
   letterSpacing: "1px",
   marginTop: "4px",
 });
-
 export default function EnhancedDataTable({ 
   data, 
   onTrainingStart, 
   trainingInProgress, 
   sidebarOpen, 
-  setSidebarOpen 
+  setSidebarOpen,
+  trainingData,
+  onTrainingCheck // New prop to check training status
 }) {
-
   
   // State management
   const [datasets, setDatasets] = useState([]);
@@ -207,12 +207,9 @@ export default function EnhancedDataTable({
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState(null);
   
-  // Training state
+  // Training state - removed local training state since it's now passed from parent
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [trainingPieces, setTrainingPieces] = useState([]);
-  const [trainingData, setTrainingData] = useState(null);
-  
-  // Sidebar state
   
   // Pagination state
   const [page, setPage] = useState(0);
@@ -248,6 +245,17 @@ export default function EnhancedDataTable({
     message: '',
     severity: 'success'
   });
+
+  // Sync training pieces with training data from parent
+  useEffect(() => {
+    if (trainingData && trainingData.piece_labels) {
+      setTrainingPieces(trainingData.piece_labels);
+      setTrainingProgress(trainingData.progress || 0);
+    } else {
+      setTrainingPieces([]);
+      setTrainingProgress(0);
+    }
+  }, [trainingData]);
 
   // Fetch data
   const fetchData = useCallback(async () => {
@@ -305,27 +313,6 @@ export default function EnhancedDataTable({
     });
   };
 
-
-  // Training progress simulation
-const simulateTrainingProgress = (pieces) => {
-  setTrainingProgress(0);
-  const interval = setInterval(() => {
-    setTrainingProgress((prevProgress) => {
-      if (prevProgress >= 100) {
-        clearInterval(interval);
-        // Don't call setTrainingInProgress(false) here - let parent handle it
-        setSidebarOpen(false);
-        setTrainingPieces([]);
-        setTrainingData(null);
-        showNotification(`Training completed for ${Array.isArray(pieces) ? pieces.length : 1} piece(s)`, "success");
-        fetchData(); // Refresh data after training
-        return 100;
-      }
-      return Math.min(prevProgress + 10, 100);
-    });
-  }, 1000);
-};
-
   // Training handlers
   const handleTrain = async (piece) => {
     try {
@@ -359,17 +346,28 @@ const simulateTrainingProgress = (pieces) => {
         ]
       };
 
-      setTrainingPieces([piece.label]);
-      setTrainingData(trainingInfo);
-      
       // Call the parent's training start handler
       onTrainingStart(trainingInfo);
       
+      // Start the actual training
       await datasetService.trainPieceModel(piece.label);
-      simulateTrainingProgress([piece.label]);
+      
+      // Check training status after starting
+      if (onTrainingCheck) {
+        setTimeout(async () => {
+          await onTrainingCheck();
+        }, 3000);
+      }
       
     } catch (error) {
       showNotification(`Failed to start training for ${piece.label}`, "error");
+      
+      // If training failed to start, check status to update UI
+      if (onTrainingCheck) {
+        setTimeout(async () => {
+          await onTrainingCheck();
+        }, 1000);
+      }
     }
   };
 
@@ -383,8 +381,6 @@ const simulateTrainingProgress = (pieces) => {
         showNotification("No pieces available for training", "warning");
         return;
       }
-
-      setTrainingPieces(nonTrainedPieces);
       
       // Set training data for multiple pieces
       const totalImages = datasets
@@ -424,34 +420,60 @@ const simulateTrainingProgress = (pieces) => {
         ]
       };
 
-      setTrainingData(trainingInfo);
-      
       // Call the parent's training start handler
       onTrainingStart(trainingInfo);
       
+      // Start the actual training
       await datasetService.trainAllPieces();
-      simulateTrainingProgress(nonTrainedPieces);
+      
+      // Check training status after starting
+      if (onTrainingCheck) {
+        setTimeout(async () => {
+          await onTrainingCheck();
+        }, 3000);
+      }
       
     } catch (error) {
       showNotification("Failed to start training for all pieces", "error");
+      
+      // If training failed to start, check status to update UI
+      if (onTrainingCheck) {
+        setTimeout(async () => {
+          await onTrainingCheck();
+        }, 1000);
+      }
     }
   };
 
   const handleStopTraining = async () => {
     try {
       await datasetService.stopTraining();
+      
+      // After stopping, check status to update UI
+      if (onTrainingCheck) {
+        setTimeout(async () => {
+          await onTrainingCheck();
+        }, 1000);
+      }
+      
       setTrainingProgress(0);
       setTrainingPieces([]);
-      setTrainingData(null);
       showNotification("Training stopped successfully", "info");
     } catch (error) {
       showNotification("Failed to stop training", "error");
     }
   };
 
-  const handleRefreshTraining = () => {
-    // Refresh training data - in a real app, this would fetch from API
-    showNotification("Training data refreshed", "info");
+  const handleRefreshTraining = async () => {
+    try {
+      // Use the parent's training check function to refresh status
+      if (onTrainingCheck) {
+        await onTrainingCheck();
+        showNotification("Training data refreshed", "info");
+      }
+    } catch (error) {
+      showNotification("Failed to refresh training data", "error");
+    }
   };
 
   // Filter handlers

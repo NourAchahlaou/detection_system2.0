@@ -4,13 +4,16 @@ import logging
 import shutil
 from training.app.db.models.annotation import Annotation
 import torch
-from requests import Session
+from sqlalchemy.orm import Session
 from ultralytics import YOLO
 import yaml
+from datetime import datetime
 
 from training.app.db.models.piece_image import PieceImage
 from training.app.services.basic_rotation_service import rotate_and_update_images
 from training.app.db.models.piece import Piece
+from training.app.db.models.training import TrainingSession
+from training.app.db.session import create_new_session, safe_commit, safe_close
 
 # Set up logging with dedicated log volume
 log_dir = os.getenv("LOG_PATH", "/usr/srv/logs")
@@ -36,6 +39,7 @@ stop_event = asyncio.Event()
 stop_sign = False
 
 async def stop_training():
+    """Set the stop event to signal training to stop."""
     global stop_sign
     stop_event.set()
     stop_sign = True
@@ -108,45 +112,82 @@ def add_background_images(data_yaml_path):
     else:
         logger.warning("No background images found.")
 
-# FIXED: Updated to handle list of piece labels
-def train_model(piece_labels: list, db: Session):
+def train_model(piece_labels: list, db: Session, session_id: int):
     """
     Train models for multiple pieces.
     
-    Args:
-        piece_labels: List of piece labels to train
-        db: Database session
     """
-    model = None
     
     # Ensure piece_labels is a list
     if isinstance(piece_labels, str):
         piece_labels = [piece_labels]
     
     try:
+        # Get training session
+        training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+        if not training_session:
+            logger.error(f"Training session {session_id} not found")
+            return
+
         # Set service directory
         service_dir = os.path.dirname(os.path.abspath(__file__))
         logger.info(f"Service directory: {service_dir}")
-        logger.info(f"Starting training process for piece labels: {piece_labels}")
+        
+        # Log training start
+        training_session.add_log("INFO", f"Starting training process for piece labels: {piece_labels}")
+        safe_commit(db)
+
+        # Select device and update session
+        device = select_device()
+        training_session.device_used = str(device)
+        safe_commit(db)
+
+        # Count total images across all pieces
+        total_images = 0
+        for piece_label in piece_labels:
+            piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+            if piece:
+                images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+                total_images += len(images)
+
+        # Update session with total images
+        training_session.total_images = total_images
+        safe_commit(db)
 
         # Process each piece
-        for piece_label in piece_labels:
+        for i, piece_label in enumerate(piece_labels):
             if stop_event.is_set():
-                logger.info("Stop event detected. Ending training.")
+                training_session.add_log("INFO", "Stop event detected. Ending training.")
+                safe_commit(db)
                 break
                 
             logger.info(f"Training piece: {piece_label}")
-            train_single_piece(piece_label, db, service_dir)
+            training_session.add_log("INFO", f"Training piece: {piece_label}")
+            safe_commit(db)
+            
+            # Update progress percentage based on piece completion
+            piece_progress = (i / len(piece_labels)) * 100
+            training_session.progress_percentage = piece_progress
+            safe_commit(db)
+            
+            train_single_piece(piece_label, db, service_dir, session_id)
             
     except Exception as e:
         logger.error(f"An error occurred during training: {str(e)}", exc_info=True)
+        # Update session with error
+        try:
+            db.refresh(training_session)
+            training_session.add_log("ERROR", f"Training failed: {str(e)}")
+            safe_commit(db)
+        except Exception as update_error:
+            logger.error(f"Failed to update session with error: {str(update_error)}")
     finally:
         stop_event.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         logger.info("Training process finished and GPU memory cleared.")
 
-def train_single_piece(piece_label: str, db: Session, service_dir: str):
+def train_single_piece(piece_label: str, db: Session, service_dir: str, session_id: int):
     """
     Train a single piece model.
     
@@ -154,42 +195,60 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
         piece_label: Label of the piece to train
         db: Database session
         service_dir: Service directory path
+        session_id: Training session ID
     """
     model = None
     try:
+        # Get training session
+        training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+        if not training_session:
+            logger.error(f"Training session {session_id} not found")
+            return
+
         # Fetch the specific piece from the database
         piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
         if not piece:
-            logger.error(f"Piece with label '{piece_label}' not found.")
+            error_msg = f"Piece with label '{piece_label}' not found."
+            logger.error(error_msg)
+            training_session.add_log("ERROR", error_msg)
+            db.commit()
             return
 
         if not piece.is_annotated:
-            logger.error(f"Piece with label '{piece_label}' is not annotated. Training cannot proceed.")
+            error_msg = f"Piece with label '{piece_label}' is not annotated. Training cannot proceed."
+            logger.error(error_msg)
+            training_session.add_log("ERROR", error_msg)
+            db.commit()
             return
 
-        logger.info(f"Found annotated piece: {piece_label}")
+        training_session.add_log("INFO", f"Found annotated piece: {piece_label}")
+        db.commit()
 
         # Retrieve all images for the piece
         images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
         if not images:
-            logger.error(f"No images found for piece '{piece_label}'. Training cannot proceed.")
+            error_msg = f"No images found for piece '{piece_label}'. Training cannot proceed."
+            logger.error(error_msg)
+            training_session.add_log("ERROR", error_msg)
+            db.commit()
             return
 
-        logger.info(f"Found {len(images)} images for piece: {piece_label}")
+        training_session.add_log("INFO", f"Found {len(images)} images for piece: {piece_label}")
+        db.commit()
 
-        # Get the dataset base path from environment variable (consistent with paste-2)
+        # Get the dataset base path from environment variable
         dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
         
-        # NEW: Get the models base path from environment variable
+        # Get the models base path from environment variable
         models_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
         
         # Ensure models directory exists
         os.makedirs(models_base_path, exist_ok=True)
         
-        # Create dataset_custom directory structure (consistent with paste-2)
+        # Create dataset_custom directory structure
         dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom')
         
-        # Updated directory paths to match paste-2 structure
+        # Directory paths
         image_dir = os.path.join(dataset_custom_path, "images", "valid", piece_label)
         image_dir_train = os.path.join(dataset_custom_path, "images", "train", piece_label)
         label_dir = os.path.join(dataset_custom_path, "labels", "valid", piece_label)
@@ -201,14 +260,15 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
         os.makedirs(image_dir_train, exist_ok=True)
         os.makedirs(label_dir_train, exist_ok=True)
 
-        logger.info(f"Created dataset directories for piece: {piece_label}")
-        logger.info(f"Dataset custom path: {dataset_custom_path}")
+        training_session.add_log("INFO", f"Created dataset directories for piece: {piece_label}")
+        db.commit()
 
+        # Copy images and create annotation files
         for image in images:
             # Copy to validation directory
             shutil.copy(image.image_path, os.path.join(image_dir, os.path.basename(image.image_path)))
             
-            # Query annotations directly instead of using relationship
+            # Query annotations directly
             annotations = db.query(Annotation).filter(Annotation.piece_image_id == image.id).all()
             
             # Create annotations for validation directory
@@ -217,9 +277,10 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
                 with open(label_path, "w") as label_file:
                     label_file.write(f"{piece.class_data_id} {annotation.x} {annotation.y} {annotation.width} {annotation.height}\n")
 
-        logger.info(f"Copied {len(images)} images and their annotations to dataset directory")
+        training_session.add_log("INFO", f"Copied {len(images)} images and their annotations to dataset directory")
+        db.commit()
 
-        # Create a custom data.yaml for this piece in the dataset_custom directory
+        # Create a custom data.yaml for this piece
         data_yaml_path = os.path.join(dataset_custom_path, "data.yaml")
         
         # Create the data.yaml file with correct paths
@@ -233,27 +294,27 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
         with open(data_yaml_path, 'w') as f:
             yaml.dump(data_yaml_content, f)
         
-        logger.info(f"Created data.yaml at: {data_yaml_path}")
+        training_session.add_log("INFO", f"Created data.yaml at: {data_yaml_path}")
+        db.commit()
         
-        # NEW: Model save path using shared models volume
+        # Model save path using shared models volume
         model_save_path = os.path.join(models_base_path, f"yolo8x_model_{piece_label}.pt")
         
-        logger.info(f"Model save path: {model_save_path}")
-
         # Validate dataset for issues
         validate_dataset(data_yaml_path)
 
         # Rotate and update images for the specific piece
-        logger.info("Starting image rotation and augmentation process")
+        training_session.add_log("INFO", "Starting image rotation and augmentation process")
+        db.commit()
         rotate_and_update_images(piece_label, db)
 
-        # Initialize the model (load the previously trained model for the piece if available)
+        # Initialize the model
         device = select_device()
         if os.path.exists(model_save_path):
-            logger.info(f"Loading existing model for piece {piece_label} from {model_save_path}")
+            training_session.add_log("INFO", f"Loading existing model for piece {piece_label}")
             model = YOLO(model_save_path)  # Load the pre-trained model for fine-tuning
         else:
-            logger.info("No pre-existing model found. Starting training from scratch.")
+            training_session.add_log("INFO", "No pre-existing model found. Starting training from scratch.")
             model_path = os.path.join(models_base_path, "yolov8m.pt")
             if os.path.exists(model_path):
                 model = YOLO(model_path)
@@ -265,7 +326,10 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
         batch_size = adjust_batch_size(device)
         imgsz = adjust_imgsz(device)
         
-        logger.info(f"Training configuration - Device: {device}, Batch size: {batch_size}, Image size: {imgsz}")
+        # Update training session with configuration
+        training_session.batch_size = batch_size
+        training_session.image_size = imgsz
+        db.commit()
 
         # Hyperparameters setup
         hyperparameters = {
@@ -281,7 +345,7 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
             "label_smoothing": 0.1,
         }
 
-        # Augmentation parameters (Mosaic and Mixup)
+        # Augmentation parameters
         augmentations = {
             "hsv_h": 0.015,  
             "hsv_s": 0.7,  
@@ -303,21 +367,28 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
         # Merge augmentations into hyperparameters
         hyperparameters.update(augmentations)
 
-        logger.info(f"Starting fine-tuning for piece: {piece_label} with 25 epochs")
+        training_session.add_log("INFO", f"Starting fine-tuning for piece: {piece_label} with {training_session.epochs} epochs")
+        db.commit()
 
         # Fine-tuning loop
-        for epoch in range(25):
+        for epoch in range(training_session.epochs):
             if stop_event.is_set():
-                logger.info("Stop event detected. Ending training.")
+                training_session.add_log("INFO", "Stop event detected. Ending training.")
+                db.commit()
                 break
 
-            logger.info(f"Starting epoch {epoch + 1}/25 for piece {piece_label}")
+            # Update current epoch and progress
+            training_session.current_epoch = epoch + 1
+            epoch_progress = ((epoch + 1) / training_session.epochs) * 100
+            training_session.progress_percentage = epoch_progress
+            training_session.add_log("INFO", f"Starting epoch {epoch + 1}/{training_session.epochs} for piece {piece_label}")
+            db.commit()
 
             # Start the training process
-            model.train(
+            results = model.train(
                 data=data_yaml_path,
                 epochs=1,
-                imgsz=640,
+                imgsz=imgsz,
                 batch=batch_size,
                 device=device,
                 project=os.path.dirname(model_save_path),
@@ -329,39 +400,78 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str):
                 **hyperparameters
             )
             
+            # Update losses and metrics if available
+            if hasattr(results, 'results_dict'):
+                results_dict = results.results_dict
+                if 'train/box_loss' in results_dict:
+                    training_session.update_losses(
+                        box_loss=results_dict.get('train/box_loss'),
+                        cls_loss=results_dict.get('train/cls_loss'),
+                        dfl_loss=results_dict.get('train/dfl_loss')
+                    )
+                
+                if 'lr/pg0' in results_dict:
+                    training_session.update_metrics(
+                        lr=results_dict.get('lr/pg0'),
+                        momentum=hyperparameters.get('momentum', 0.937)
+                    )
+                
+                db.commit()
+            
             # Validate the model periodically during training to monitor metrics
             if epoch % 5 == 0:  # Every 5 epochs, check validation performance
-                logger.info(f"Running validation after epoch {epoch + 1} for piece {piece_label}")
+                training_session.add_log("INFO", f"Running validation after epoch {epoch + 1} for piece {piece_label}")
+                db.commit()
+                
                 validation_results = model.val(
                     data=data_yaml_path,
-                    imgsz=640,
+                    imgsz=imgsz,
                     batch=batch_size,
                     device=device,
                 )
-                logger.info(f"Validation results after epoch {epoch + 1}: {validation_results}")
+                
+                training_session.add_log("INFO", f"Validation completed after epoch {epoch + 1}")
+                db.commit()
 
             # Save the model periodically
             if epoch % 1 == 0:  # Save model after every epoch
                 model.save(model_save_path)
-                logger.info(f"Checkpoint saved to {model_save_path} after epoch {epoch + 1}")
+                training_session.add_log("INFO", f"Checkpoint saved after epoch {epoch + 1}")
+                db.commit()
 
-            logger.info(f"Completed epoch {epoch + 1}/25 for piece {piece_label}")
-
-        logger.info(f"Model fine-tuning complete for piece: {piece_label}. Final model saved to {model_save_path}")
+        # Final model save and completion
+        model.save(model_save_path)
+        training_session.model_path = model_save_path
+        training_session.add_log("SUCCESS", f"Model fine-tuning complete for piece: {piece_label}. Final model saved to {model_save_path}")
+        db.commit()
 
         # Update the `is_yolo_trained` field for the piece
         piece.is_yolo_trained = True
         db.commit()
-        logger.info(f"Updated piece {piece_label} is_yolo_trained status to True")
+        
+        training_session.add_log("INFO", f"Updated piece {piece_label} is_yolo_trained status to True")
+        db.commit()
 
     except Exception as e:
-        logger.error(f"An error occurred during training piece {piece_label}: {str(e)}", exc_info=True)
+        error_msg = f"An error occurred during training piece {piece_label}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        
+        # Update session with error
+        training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+        if training_session:
+            training_session.add_log("ERROR", error_msg)
+            db.commit()
+        
         if model:
             try:
                 model.save(model_save_path)
-                logger.info(f"Model saved at {model_save_path} after encountering an error.")
+                training_session.add_log("INFO", f"Model saved at {model_save_path} after encountering an error.")
+                db.commit()
             except Exception as save_error:
-                logger.error(f"Failed to save model after error: {str(save_error)}")
+                save_error_msg = f"Failed to save model after error: {str(save_error)}"
+                logger.error(save_error_msg)
+                training_session.add_log("ERROR", save_error_msg)
+                db.commit()
     finally:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

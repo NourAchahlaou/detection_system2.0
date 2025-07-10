@@ -1,18 +1,18 @@
-"""table training creation
+"""creation of training table
 
-Revision ID: 6be7a4bc5b7f
+Revision ID: 367fb1124436
 Revises: 
-Create Date: 2025-07-02 11:07:25.518310
+Create Date: 2025-07-10 13:41:00.749659
 
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '6be7a4bc5b7f'
+revision: str = '367fb1124436'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -30,8 +30,19 @@ def upgrade() -> None:
     sa.Column('image_size', sa.Integer(), nullable=True),
     sa.Column('device_used', sa.String(), nullable=True),
     sa.Column('piece_id', sa.Integer(), nullable=True),
+    sa.Column('current_epoch', sa.Integer(), nullable=True),
+    sa.Column('progress_percentage', sa.Float(), nullable=True),
+    sa.Column('is_training', sa.Boolean(), nullable=True),
+    sa.Column('total_images', sa.Integer(), nullable=True),
+    sa.Column('augmented_images', sa.Integer(), nullable=True),
+    sa.Column('validation_images', sa.Integer(), nullable=True),
+    sa.Column('current_losses', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+    sa.Column('current_metrics', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+    sa.Column('piece_labels', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+    sa.Column('training_logs', postgresql.JSON(astext_type=sa.Text()), nullable=True),
     sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('last_updated', sa.DateTime(timezone=True), nullable=True),
     sa.Column('final_accuracy', sa.Float(), nullable=True),
     sa.Column('final_loss', sa.Float(), nullable=True),
     sa.Column('model_path', sa.String(), nullable=True),

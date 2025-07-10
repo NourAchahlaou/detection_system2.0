@@ -6,26 +6,15 @@ import {
   LinearProgress,
   IconButton,
   Collapse,
-  Chip,
-  Divider,
   Avatar,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  CircularProgress,
   Button,
-  Alert,
-  Stack,
-  Tooltip,
-  Badge
+  Stack
+
 } from '@mui/material';
 import {
   Close,
   PlayArrow,
   Stop,
-  Memory,
-  Timer,
   Dataset,
   ModelTraining,
   CheckCircle,
@@ -195,18 +184,27 @@ const TrainingProgressSidebar = ({
   const [startTime, setStartTime] = useState(null);
   const [duration, setDuration] = useState(0);
 
+  // Set start time when training begins
   useEffect(() => {
     if (trainingData?.status === 'training' && !startTime) {
       setStartTime(Date.now());
     }
+    // Reset start time if training stops
+    if (trainingData?.status !== 'training') {
+      setStartTime(null);
+      setDuration(0);
+    }
   }, [trainingData?.status, startTime]);
 
+  // Update duration timer only when training is active
   useEffect(() => {
     let interval;
     if (trainingData?.status === 'training' && startTime) {
       interval = setInterval(() => {
         setDuration(Math.floor((Date.now() - startTime) / 1000));
       }, 1000);
+    } else {
+      setDuration(0);
     }
     return () => clearInterval(interval);
   }, [trainingData?.status, startTime]);
@@ -253,21 +251,21 @@ const TrainingProgressSidebar = ({
     }));
   };
 
-  // Mock data structure based on your logs
-  const mockTrainingData = trainingData || {
-    status: 'training',
-    piece_labels: ['G123.12345.123.12'],
-    current_epoch: 1,
+  // Default data structure with safe fallbacks
+  const defaultData = {
+    status: 'idle',
+    piece_labels: [],
+    current_epoch: 0,
     total_epochs: 25,
-    progress: 4, // 1/25 * 100
+    progress: 0,
     batch_size: 4,
     image_size: 640,
     device: 'cpu',
-    model_path: '/app/shared/models/yolov8m.pt',
-    dataset_path: '/app/shared/dataset/dataset_custom/data.yaml',
-    total_images: 10,
-    augmented_images: 500,
-    validation_images: 10,
+    model_path: '',
+    dataset_path: '',
+    total_images: 0,
+    augmented_images: 0,
+    validation_images: 0,
     losses: {
       box_loss: 0.0,
       cls_loss: 0.0,
@@ -278,18 +276,30 @@ const TrainingProgressSidebar = ({
       lr: 0.002,
       momentum: 0.9,
     },
-    logs: [
-      { level: 'INFO', message: 'Starting training process for piece labels: [\'G123.12345.123.12\']', timestamp: '2025-07-08 19:36:39' },
-      { level: 'INFO', message: 'Found 10 images for piece: G123.12345.123.12', timestamp: '2025-07-08 19:36:39' },
-      { level: 'INFO', message: 'Created dataset directories for piece: G123.12345.123.12', timestamp: '2025-07-08 19:36:39' },
-      { level: 'WARNING', message: 'Train dataset split ratio is outside the recommended range (75-85%)', timestamp: '2025-07-08 19:36:39' },
-      { level: 'INFO', message: 'No GPU detected. Using CPU.', timestamp: '2025-07-08 19:37:37' },
-      { level: 'INFO', message: 'Starting fine-tuning for piece: G123.12345.123.12 with 25 epochs', timestamp: '2025-07-08 19:37:38' },
-      { level: 'INFO', message: 'Starting epoch 1/25 for piece G123.12345.123.12', timestamp: '2025-07-08 19:37:38' },
-    ]
+    logs: []
   };
 
-  const currentData = mockTrainingData;
+  // Safely merge trainingData with defaults
+  const currentData = React.useMemo(() => {
+    if (!trainingData) {
+      return defaultData;
+    }
+
+    return {
+      ...defaultData,
+      ...trainingData,
+      losses: {
+        ...defaultData.losses,
+        ...(trainingData.losses || {})
+      },
+      metrics: {
+        ...defaultData.metrics,
+        ...(trainingData.metrics || {})
+      },
+      piece_labels: trainingData.piece_labels || defaultData.piece_labels,
+      logs: trainingData.logs || defaultData.logs
+    };
+  }, [trainingData]);
 
   if (!isOpen) return null;
 
@@ -305,7 +315,10 @@ const TrainingProgressSidebar = ({
               Training Progress
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {currentData.piece_labels?.join(', ')}
+              {currentData.piece_labels?.length > 0 
+                ? currentData.piece_labels.join(', ')
+                : 'No active training'
+              }
             </Typography>
           </Box>
         </Box>
@@ -322,7 +335,8 @@ const TrainingProgressSidebar = ({
             <Typography variant="body2" fontWeight="600">
               {currentData.status === 'training' ? 'Training Active' : 
                currentData.status === 'completed' ? 'Training Completed' : 
-               'Training Stopped'}
+               currentData.status === 'error' ? 'Training Error' :
+               currentData.status === 'stopped' ? 'Training Stopped' : 'No Training'}
             </Typography>
           </StatusIndicator>
 
@@ -332,15 +346,17 @@ const TrainingProgressSidebar = ({
                 <Typography variant="body2" color="text.secondary">
                   Duration: {formatDuration(duration)}
                 </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={onStopTraining}
-                  startIcon={<Stop />}
-                >
-                  Stop
-                </Button>
+                {onStopTraining && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={onStopTraining}
+                    startIcon={<Stop />}
+                  >
+                    Stop
+                  </Button>
+                )}
               </Box>
             </Stack>
           )}
@@ -383,15 +399,15 @@ const TrainingProgressSidebar = ({
             </Box>
 
             <Stack spacing={1}>
-              <Box display="flex" justify="space-between">
+              <Box display="flex" justifyContent="space-between">
                 <Typography variant="caption" color="text.secondary">Images:</Typography>
                 <Typography variant="caption">{currentData.total_images}</Typography>
               </Box>
-              <Box display="flex" justify="space-between">
+              <Box display="flex" justifyContent="space-between">
                 <Typography variant="caption" color="text.secondary">Augmented:</Typography>
                 <Typography variant="caption">{currentData.augmented_images}</Typography>
               </Box>
-              <Box display="flex" justify="space-between">
+              <Box display="flex" justifyContent="space-between">
                 <Typography variant="caption" color="text.secondary">Validation:</Typography>
                 <Typography variant="caption">{currentData.validation_images}</Typography>
               </Box>
@@ -417,7 +433,7 @@ const TrainingProgressSidebar = ({
                 <Box>
                   <Typography variant="body2" fontWeight="600">Box Loss</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {currentData.losses.box_loss.toFixed(4)}
+                    {currentData.losses.box_loss?.toFixed(4) || '0.0000'}
                   </Typography>
                 </Box>
               </MetricCard>
@@ -426,7 +442,7 @@ const TrainingProgressSidebar = ({
                 <Box>
                   <Typography variant="body2" fontWeight="600">Classification Loss</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {currentData.losses.cls_loss.toFixed(4)}
+                    {currentData.losses.cls_loss?.toFixed(4) || '0.0000'}
                   </Typography>
                 </Box>
               </MetricCard>
@@ -435,7 +451,7 @@ const TrainingProgressSidebar = ({
                 <Box>
                   <Typography variant="body2" fontWeight="600">DFL Loss</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {currentData.losses.dfl_loss.toFixed(4)}
+                    {currentData.losses.dfl_loss?.toFixed(4) || '0.0000'}
                   </Typography>
                 </Box>
               </MetricCard>
@@ -458,7 +474,7 @@ const TrainingProgressSidebar = ({
             <Stack spacing={1}>
               <Box display="flex" alignItems="center" gap={1}>
                 <Computer fontSize="small" color="action" />
-                <Typography variant="caption">Device: {currentData.device.toUpperCase()}</Typography>
+                <Typography variant="caption">Device: {currentData.device?.toUpperCase() || 'N/A'}</Typography>
               </Box>
               <Box display="flex" alignItems="center" gap={1}>
                 <Storage fontSize="small" color="action" />
@@ -483,9 +499,11 @@ const TrainingProgressSidebar = ({
               Training Logs
             </Typography>
             <Box display="flex" gap={1}>
-              <IconButton size="small" onClick={onRefresh}>
-                <Refresh />
-              </IconButton>
+              {onRefresh && (
+                <IconButton size="small" onClick={onRefresh}>
+                  <Refresh />
+                </IconButton>
+              )}
               <IconButton size="small" onClick={() => toggleSection('logs')}>
                 {expandedSections.logs ? <ExpandLess /> : <ExpandMore />}
               </IconButton>
@@ -494,16 +512,24 @@ const TrainingProgressSidebar = ({
           
           <Collapse in={expandedSections.logs}>
             <LogContainer>
-              {currentData.logs.slice(-10).map((log, index) => (
-                <LogItem key={index} level={log.level}>
-                  {getLogIcon(log.level)}
-                  <Box flex={1}>
-                    <Typography variant="caption" display="block">
-                      [{log.timestamp}] {log.message}
-                    </Typography>
-                  </Box>
-                </LogItem>
-              ))}
+              {currentData.logs.length > 0 ? (
+                currentData.logs.slice(-10).map((log, index) => (
+                  <LogItem key={index} level={log.level}>
+                    {getLogIcon(log.level)}
+                    <Box flex={1}>
+                      <Typography variant="caption" display="block">
+                        [{log.timestamp}] {log.message}
+                      </Typography>
+                    </Box>
+                  </LogItem>
+                ))
+              ) : (
+                <Box p={2} textAlign="center">
+                  <Typography variant="caption" color="text.secondary">
+                    No logs available
+                  </Typography>
+                </Box>
+              )}
             </LogContainer>
           </Collapse>
         </ProgressCard>

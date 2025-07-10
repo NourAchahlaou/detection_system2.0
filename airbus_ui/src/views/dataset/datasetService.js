@@ -214,13 +214,57 @@ export const datasetService = {
     }
   },
 
-  // Get training status/progress
+  // Get training status/progress - ENHANCED
   getTrainingStatus: async () => {
     try {
       const response = await api.get("/api/training/training/status");
       return response.data;
     } catch (error) {
       console.error("Error fetching training status:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // NEW: Check if training is currently active
+  isTrainingActive: async () => {
+    try {
+      const response = await api.get("/api/training/training/status");
+      return response.data?.data?.is_training || false;
+    } catch (error) {
+      console.error("Error checking training status:", error.response?.data?.detail || error.message);
+      return false;
+    }
+  },
+
+  // NEW: Get training logs
+  getTrainingLogs: async (limit = 50) => {
+    try {
+      const response = await api.get(`/api/training/training/logs?limit=${limit}`);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching training logs:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // NEW: Update training progress (for real-time updates)
+  updateTrainingProgress: async (progressData) => {
+    try {
+      const response = await api.put("/api/training/training/progress", progressData);
+      return response.data;
+    } catch (error) {
+      console.error("Error updating training progress:", error.response?.data?.detail || error.message);
+      throw error;
+    }
+  },
+
+  // NEW: Health check for training service
+  checkTrainingHealth: async () => {
+    try {
+      const response = await api.get("/api/training/training/health");
+      return response.data;
+    } catch (error) {
+      console.error("Error checking training health:", error.response?.data?.detail || error.message);
       throw error;
     }
   }
