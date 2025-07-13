@@ -255,7 +255,7 @@ const TrainingProgressSidebar = ({
   const defaultData = {
     status: 'idle',
     piece_labels: [],
-    current_epoch: 0,
+    current_epoch: 1,
     total_epochs: 25,
     progress: 0,
     batch_size: 4,

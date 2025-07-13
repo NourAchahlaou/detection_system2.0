@@ -43,10 +43,32 @@ def get_active_training_session(db: Session) -> Optional[TrainingSession]:
     try:
         return db.query(TrainingSession).filter(
             TrainingSession.is_training == True
-            
         ).first()
     except Exception as e:
         logger.error(f"Error getting active training session: {str(e)}")
+        return None
+
+
+def find_existing_training_session(db: Session, piece_labels: list) -> Optional[TrainingSession]:
+    """Find existing training session for the same piece labels."""
+    try:
+        # Sort piece_labels to ensure consistent comparison
+        sorted_labels = sorted(piece_labels)
+        
+        # Find sessions with matching piece labels (incomplete sessions)
+        sessions = db.query(TrainingSession).filter(
+            TrainingSession.is_training == False,
+            
+           
+        ).all()
+        
+        for session in sessions:
+            if session.piece_labels and sorted(session.piece_labels) == sorted_labels:
+                return session
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error finding existing training session: {str(e)}")
         return None
 
 
@@ -63,7 +85,8 @@ def create_training_session(db: Session, piece_labels: list) -> TrainingSession:
             learning_rate=0.0001,
             image_size=640,
             piece_labels=piece_labels,
-            is_training=False  # Will be set to True when training actually starts
+            is_training=False,
+            current_epoch=1  
         )
         
         db.add(training_session)
@@ -77,11 +100,36 @@ def create_training_session(db: Session, piece_labels: list) -> TrainingSession:
         logger.error(f"Error creating training session: {str(e)}")
         raise
 
+def resume_training_session(db: Session, session: TrainingSession, piece_labels: list) -> TrainingSession:
+    """Resume an existing training session."""
+    try:
+        # Update session name to indicate resume
+        current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
+        session.session_name = f"{session.session_name}_resumed_{current_time}"
+        
+        # Reset training state but keep progress
+        session.is_training = False
+        session.completed_at = None
+
+        
+        # Add log entry about resuming
+        session.add_log("INFO", f"Resuming training from epoch {session.current_epoch}")
+        
+        if not safe_commit(db):
+            raise Exception("Failed to update training session for resume")
+        
+        db.refresh(session)
+        return session
+        
+    except Exception as e:
+        logger.error(f"Error resuming training session: {str(e)}")
+        raise
 
 @training_router.post("/train")
 def train_piece_model(request: TrainRequest, db: db_dependency):
     """
     Start training process for specified piece labels.
+    If a previous incomplete session exists for the same pieces, resume from where it left off.
     
     Args:
         request: Training request containing piece labels
@@ -105,15 +153,30 @@ def train_piece_model(request: TrainRequest, db: db_dependency):
                 detail=f"Training session '{active_session.session_name}' is already in progress. Please stop the current training before starting a new one."
             )
         
-        # Create new training session
-        training_session = create_training_session(db, request.piece_labels)
+        # Look for existing incomplete session with same piece labels
+        existing_session = find_existing_training_session(db, request.piece_labels)
         
-        logger.info(f"Created training session: {training_session.session_name} with ID: {training_session.id}")
+        if existing_session:
+            # Resume existing session
+            training_session = resume_training_session(db, existing_session, request.piece_labels)
+            logger.info(f"Resuming training session: {training_session.session_name} with ID: {training_session.id} from epoch {training_session.current_epoch}")
+            
+            action = "resumed"
+            is_resume = True
+            resume_from_epoch = training_session.current_epoch
+        else:
+            # Create new training session
+            training_session = create_training_session(db, request.piece_labels)
+            logger.info(f"Created new training session: {training_session.session_name} with ID: {training_session.id}")
+            
+            action = "created"
+            is_resume = False
+            resume_from_epoch = 1
         
         # Start training in a separate thread to avoid blocking
         training_thread = threading.Thread(
             target=train_model_with_status_updates,
-            args=(request.piece_labels, training_session.id),  # Remove db from args
+            args=(request.piece_labels, training_session.id, is_resume),
             daemon=True
         )
         training_thread.start()
@@ -121,11 +184,13 @@ def train_piece_model(request: TrainRequest, db: db_dependency):
         logger.info("Training thread started successfully")
         
         return {
-            "message": "Training process started successfully", 
+            "message": f"Training process {action} successfully", 
             "piece_labels": request.piece_labels,
             "session_id": training_session.id,
             "session_name": training_session.session_name,
-            "status": "initiated"
+            "status": "initiated",
+            "action": action,
+            "resume_from_epoch": resume_from_epoch
         }
         
     except HTTPException:
@@ -135,7 +200,8 @@ def train_piece_model(request: TrainRequest, db: db_dependency):
         raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
 
 
-def train_model_with_status_updates(piece_labels: list, session_id: int):
+
+def train_model_with_status_updates(piece_labels: list, session_id: int, is_resume: bool = False):
     """
     Wrapper function that calls the actual training function while updating status.
     Creates its own database session to avoid concurrency issues.
@@ -150,8 +216,8 @@ def train_model_with_status_updates(piece_labels: list, session_id: int):
             logger.error(f"Training session {session_id} not found")
             return
         
-        # Start the training session
-        training_session.start_training(piece_labels)
+        # Start the training session (this will set is_training=True)
+        training_session.start_training(piece_labels, is_resume=is_resume)
         if not safe_commit(db):
             logger.error("Failed to commit training session start")
             return
@@ -174,10 +240,6 @@ def train_model_with_status_updates(piece_labels: list, session_id: int):
         # Mark training as failed
         try:
             db.rollback()  # Rollback any pending changes
-            training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
-            if training_session:
-                training_session.fail_training(str(e))
-                safe_commit(db)
         except Exception as update_error:
             logger.error(f"Failed to update training session with error: {str(update_error)}")
     
@@ -499,4 +561,35 @@ def delete_training_session(session_id: int, db: db_dependency):
         raise
     except Exception as e:
         logger.error(f"Failed to delete training session: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
+
+
+@training_router.get("/resumable")
+def get_resumable_sessions(db: db_dependency):
+    """
+    Get list of training sessions that can be resumed.
+    
+    Returns:
+        List of incomplete training sessions
+    """
+    try:
+        # Find sessions that are not completed, failed, or currently running
+        resumable_sessions = db.query(TrainingSession).filter(
+            TrainingSession.is_training == False,
+            TrainingSession.completed_at.is_(None),
+            TrainingSession.failed_at.is_(None)
+        ).order_by(TrainingSession.started_at.desc()).all()
+        
+        sessions_data = [session.to_dict() for session in resumable_sessions]
+        
+        return {
+            "status": "success",
+            "data": {
+                "resumable_sessions": sessions_data,
+                "total_count": len(sessions_data)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get resumable sessions: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An error occurred: {e}")

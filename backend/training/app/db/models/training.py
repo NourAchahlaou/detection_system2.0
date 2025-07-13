@@ -19,7 +19,7 @@ class TrainingSession(Base):
     device_used = Column(String, nullable=True)  # 'cuda' or 'cpu'
     piece_id = Column(Integer, nullable=True)  # Make nullable if not all sessions need a piece
     # Training progress fields
-    current_epoch = Column(Integer, default=0)
+    current_epoch = Column(Integer, default=1)
     progress_percentage = Column(Float, default=0.0)
     is_training = Column(Boolean, default=False)
     
@@ -51,8 +51,7 @@ class TrainingSession(Base):
     # Timing
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    last_updated = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+    last_updated = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)    
     # Results
     final_accuracy = Column(Float, nullable=True)
     final_loss = Column(Float, nullable=True)
@@ -121,14 +120,20 @@ class TrainingSession(Base):
         if momentum is not None:
             self.current_metrics["momentum"] = momentum
     
-    def start_training(self, piece_labels: list):
+    def start_training(self, piece_labels: list, is_resume: bool = False):
         """Start the training session."""
         self.is_training = True
-        self.started_at = datetime.utcnow()
         self.piece_labels = piece_labels
-        self.current_epoch = 0
-        self.progress_percentage = 0.0
-        self.add_log("INFO", f"Training started for pieces: {', '.join(piece_labels)}")
+        
+        if not is_resume:
+            # Only reset these for new training sessions
+            self.started_at = datetime.utcnow()
+            self.current_epoch = 1
+            self.progress_percentage = 0.0
+            self.add_log("INFO", f"Training started for pieces: {', '.join(piece_labels)}")
+        else:
+            # For resumed sessions, keep the existing epoch and progress
+            self.add_log("INFO", f"Training resumed for pieces: {', '.join(piece_labels)} from epoch {self.current_epoch}")
     
     def complete_training(self, final_accuracy=None, final_loss=None):
         """Complete the training session."""
@@ -149,12 +154,7 @@ class TrainingSession(Base):
         self.completed_at = datetime.utcnow()
         self.add_log("INFO", "Training stopped by user request")
     
-    def fail_training(self, error_message: str):
-        """Mark the training session as failed."""
-        self.is_training = False
-        self.completed_at = datetime.utcnow()
-        self.add_log("ERROR", f"Training failed: {error_message}")
-    
+
     def get_recent_logs(self, limit: int = 50):
         """Get recent training logs."""
         if not self.training_logs:
