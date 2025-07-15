@@ -464,18 +464,6 @@ export default function EnhancedDataTable({
     }
   };
 
-  const handleRefreshTraining = async () => {
-    try {
-      // Use the parent's training check function to refresh status
-      if (onTrainingCheck) {
-        await onTrainingCheck();
-        showNotification("Training data refreshed", "info");
-      }
-    } catch (error) {
-      showNotification("Failed to refresh training data", "error");
-    }
-  };
-
   // Filter handlers
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -603,7 +591,7 @@ export default function EnhancedDataTable({
       </Backdrop>
 
       <HeaderBox>
-        <Title>Enhanced Dataset Management</Title>
+     
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <TrainButton 
             variant="contained" 
