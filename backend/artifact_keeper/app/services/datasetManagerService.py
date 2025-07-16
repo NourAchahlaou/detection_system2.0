@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from fastapi import HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, asc, and_, or_
+from sqlalchemy import String, func, desc, asc, and_, or_
 
 from artifact_keeper.app.db.models.piece import Piece
 from artifact_keeper.app.db.models.piece_image import PieceImage
@@ -43,7 +43,7 @@ def get_all_datasets_with_filters(
             query = query.filter(
                 or_(
                     Piece.piece_label.ilike(search_term),
-                    Piece.class_data_id.ilike(search_term)
+                    func.cast(Piece.class_data_id, String).ilike(search_term)
                 )
             )
         
