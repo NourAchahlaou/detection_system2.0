@@ -116,6 +116,23 @@ services:
       - airvision-net
     ports:
       - "5433:5432"
+  detection:
+    container_name: detectionMicroservice
+    build:
+      context: ./backend/detection
+    env_file:
+      - ./.env
+    ports:
+      - "8006:8000"
+    depends_on:
+      databasePostgres:
+        condition: service_healthy
+    networks:
+      - airvision-net
+    volumes:
+      - ./backend/detection:/usr/srv/detection
+      - ./.env:/usr/srv/.env  
+      - models:/app/shared/models
 
   airbus_ui:
     build:
@@ -153,6 +170,9 @@ services:
       - training
       - annotation
       - databasePostgres
+      - detection
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - airvision-net
 
