@@ -1,17 +1,27 @@
 version: "3.9"
 
 services:
+  # Build the shared base image first
+  base_image:
+    container_name: airvision_base  
+    build:
+      context: ./backend/shared
+      dockerfile: dockerfile
+    image: airvision_base:latest
+    command: ["echo", "Base image built successfully"]
+
   user_management:
     container_name: userManagementMicroservice
+    depends_on:
+      - base_image
+      - databasePostgres
     build:
       context: ./backend/user_management
+      dockerfile: Dockerfile
     env_file:
       - ./.env
     ports:
       - "8001:8000"
-    depends_on:
-      databasePostgres:
-        condition: service_healthy
     networks:
       - airvision-net
     volumes:
@@ -20,15 +30,16 @@ services:
 
   artifact_keeper:
     container_name: artifact_keeper
+    depends_on:
+      - base_image
+      - databasePostgres
     build:
       context: ./backend/artifact_keeper
+      dockerfile: Dockerfile
     env_file:
       - ./.env
     ports:
       - "8002:8000"
-    depends_on:
-      databasePostgres:
-        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -36,9 +47,7 @@ services:
     volumes:
       - ./backend/artifact_keeper:/usr/srv/artifact_keeper
       - ./.env:/usr/srv/.env
-      # UPDATED: Single unified dataset volume with read-write access
       - dataset:/app/shared/dataset
-      # Optional: Add backup volume for critical data
       - dataset_backup:/app/shared/backup
     user: "1001:1001"
     environment:
@@ -47,17 +56,17 @@ services:
 
   annotation:
     container_name: annotationMicroservice
+    depends_on:
+      - base_image
+      - databasePostgres
+      - artifact_keeper
     build:
       context: ./backend/annotation
+      dockerfile: Dockerfile
     env_file:
       - ./.env
     ports:
       - "8004:8000"
-    depends_on:
-      databasePostgres:
-        condition: service_healthy
-      artifact_keeper:
-        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -72,17 +81,17 @@ services:
 
   training:
     container_name: trainingMicroservice
+    depends_on:
+      - base_image
+      - databasePostgres
+      - artifact_keeper
     build:
       context: ./backend/training
+      dockerfile: Dockerfile
     env_file:
       - ./.env
     ports:
       - "8005:8000"
-    depends_on:
-      databasePostgres:
-        condition: service_healthy
-      artifact_keeper:
-        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -91,13 +100,35 @@ services:
       - ./backend/training:/usr/srv/training
       - ./.env:/usr/srv/.env
       - dataset:/app/shared/dataset
-      - training_logs:/usr/srv/logs  # Dedicated volume for training logs
-      - models:/app/shared/models  # NEW: Shared models volume
+      - training_logs:/usr/srv/logs
+      - models:/app/shared/models
     user: "1001:1001"
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
-      - LOG_PATH=/usr/srv/logs  # Environment variable for log path
-      - MODELS_BASE_PATH=/app/shared/models  # NEW: Environment variable for models path
+      - LOG_PATH=/usr/srv/logs
+      - MODELS_BASE_PATH=/app/shared/models
+
+  detection:
+      container_name: detectionMicroservice
+      depends_on:
+        - base_image
+        - databasePostgres
+      build:
+        context: ./backend/detection
+        dockerfile: Dockerfile
+      env_file:
+        - ./.env
+      ports:
+        - "8006:8000"
+      networks:
+        - airvision-net
+      volumes:
+        - ./backend/detection:/usr/srv/detection
+        - ./.env:/usr/srv/.env  
+        - models:/app/shared/models  # Only mount models, not dataset
+      user: "1001:1001"
+      environment:
+        - MODELS_BASE_PATH=/app/shared/models
 
   databasePostgres:
     image: postgres:15
@@ -116,23 +147,6 @@ services:
       - airvision-net
     ports:
       - "5433:5432"
-  detection:
-    container_name: detectionMicroservice
-    build:
-      context: ./backend/detection
-    env_file:
-      - ./.env
-    ports:
-      - "8006:8000"
-    depends_on:
-      databasePostgres:
-        condition: service_healthy
-    networks:
-      - airvision-net
-    volumes:
-      - ./backend/detection:/usr/srv/detection
-      - ./.env:/usr/srv/.env  
-      - models:/app/shared/models
 
   airbus_ui:
     build:
@@ -161,7 +175,6 @@ services:
       - "80:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      # UPDATED: Single unified dataset volume for serving images
       - dataset:/app/shared/dataset:ro
     depends_on:
       - user_management
@@ -196,14 +209,14 @@ volumes:
       o: bind
       device: ./shared_data/backup
   
-  training_logs:  # Dedicated volume for training logs
+  training_logs:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: ./shared_data/logs
   
-  models:  # NEW: Shared models volume
+  models:
     driver: local
     driver_opts:
       type: none

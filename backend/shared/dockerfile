@@ -1,0 +1,38 @@
+FROM pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime
+
+WORKDIR /usr/srv
+
+# Set default environment variables
+ENV PYTHONPATH=/usr/srv/app
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    make \
+    libpq-dev \
+    postgresql-client \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the ubuntu user with proper flags
+RUN useradd -m -d /code -s /bin/bash -u 1001 ubuntu
+
+# Copy shared requirements
+COPY ./requirements/ /app/shared/requirements/
+
+# Install lighter requirements first
+RUN pip install --no-cache-dir -r /app/shared/requirements/base.txt
+RUN pip install --no-cache-dir -r /app/shared/requirements/database.txt
+RUN pip install --no-cache-dir -r /app/shared/requirements/development.txt
+RUN pip install --no-cache-dir -r /app/shared/requirements/email.txt
+RUN pip install --no-cache-dir -r /app/shared/requirements/auth.txt
+
+# Install AI/ML requirements separately with increased timeout
+RUN pip install --no-cache-dir --timeout=1000 -r /app/shared/requirements/ai_ml.txt
+
+# Create app directory and set proper ownership
+RUN mkdir -p /usr/srv/app && chown -R ubuntu:ubuntu /usr/srv
