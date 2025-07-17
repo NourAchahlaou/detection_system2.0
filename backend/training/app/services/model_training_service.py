@@ -306,7 +306,7 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
         db.commit()
         
         # Model save path using shared models volume
-        model_save_path = os.path.join(models_base_path, f"yolo8x_model_{piece_label}.pt")
+        model_save_path = os.path.join(models_base_path, f"model.pt")
         
         # Validate dataset for issues (only if not resumed)
         if not is_resumed:
