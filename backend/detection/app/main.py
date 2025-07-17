@@ -6,8 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 def create_application():
     application = FastAPI(
-        title="Artifact Keeper Service",
-        description="Microservice for managing artifacts and cameras",
+        title="detection Service",
+        description="Microservice for managing detections",
         version="1.0.0"
     )
    
