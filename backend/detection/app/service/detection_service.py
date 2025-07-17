@@ -1,7 +1,7 @@
 import cv2
 import torch
 from fastapi import HTTPException
-from detection.service.model_service import load_my_model
+from detection.app.service.model_service import load_my_model
 
 class DetectionSystem:
     def __init__(self, confidence_threshold=0.5):
