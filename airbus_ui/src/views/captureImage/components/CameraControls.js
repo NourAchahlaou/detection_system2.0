@@ -4,15 +4,20 @@ import {
   Stack, 
   TextField, 
   Select, 
-  MenuItem 
+  MenuItem, 
+  Button,
+  CircularProgress
 } from "@mui/material";
+import { Refresh } from "@mui/icons-material";
 
 const CameraControls = ({ 
   targetLabel, 
   onTargetLabelChange, 
   selectedCameraId, 
   onCameraChange, 
-  cameras 
+  cameras,
+  onDetectCameras,
+  isDetecting = false
 }) => {
   return (
     <Stack
@@ -49,6 +54,15 @@ const CameraControls = ({
           </MenuItem>
         ))}
       </Select>
+      <Button
+        variant="outlined"
+        onClick={onDetectCameras}
+        disabled={isDetecting}
+        startIcon={isDetecting ? <CircularProgress size={16} /> : <Refresh />}
+        sx={{ minWidth: 120 }}
+      >
+        {isDetecting ? 'Detecting...' : 'Detect'}
+      </Button>
     </Stack>
   );
 };

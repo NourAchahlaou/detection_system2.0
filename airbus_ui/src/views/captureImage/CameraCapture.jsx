@@ -17,6 +17,7 @@ export default function AppPartLibrary() {
   const [imageRefreshTrigger, setImageRefreshTrigger] = useState(0);
   const [horizontalSliderOpen, setHorizontalSliderOpen] = useState(false);
   const [horizontalSliderInitialIndex, setHorizontalSliderInitialIndex] = useState(0);
+  const [isDetecting, setIsDetecting] = useState(false);
   
   // Add ref to store VideoFeed's image count callback
   const imageCountCallbackRef = useRef(null);
@@ -25,9 +26,11 @@ export default function AppPartLibrary() {
     setHorizontalSliderInitialIndex(imageIndex);
     setHorizontalSliderOpen(true);
   };
+  
   const handleHorizontalSliderClose = () => {
     setHorizontalSliderOpen(false);
   };  
+  
   // Cleanup on component unmount or page unload
   useEffect(() => {
     const handleBeforeUnload = async () => {
@@ -109,6 +112,27 @@ export default function AppPartLibrary() {
     imageCountCallbackRef.current = callback;
   };
 
+  // Handle camera detection
+  const handleDetectCameras = async () => {
+    setIsDetecting(true);
+    try {
+      const detectedCameras = await cameraService.detectCameras();
+      setCameras(detectedCameras);
+      
+      // If the currently selected camera is no longer available, reset selection
+      if (selectedCameraId && !detectedCameras.some(cam => cam.id === selectedCameraId)) {
+        setSelectedCameraId('');
+        setCameraId('');
+      }
+      
+      console.log(`Detected ${detectedCameras.length} cameras`);
+    } catch (error) {
+      console.error("Error detecting cameras:", error);
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
       <Grid
@@ -125,6 +149,8 @@ export default function AppPartLibrary() {
               selectedCameraId={selectedCameraId}
               onCameraChange={handleCameraChange}
               cameras={cameras}
+              onDetectCameras={handleDetectCameras}
+              isDetecting={isDetecting}
             />
             
             <VideoFeed
@@ -146,7 +172,6 @@ export default function AppPartLibrary() {
             refreshTrigger={imageRefreshTrigger}
             onImageCountChange={handleImageCountChange} 
             onImageDoubleClick={handleImageDoubleClick} 
-
           />         
         </Grid>
       </Grid>

@@ -157,6 +157,18 @@ export const cameraService = {
     }
   },
 
+  // Detect cameras - NEW FUNCTION
+  detectCameras: async () => {
+    try {
+      const response = await api.get('/api/artifact_keeper/camera/detect');
+      console.log("Cameras detected:", response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error detecting cameras:', error);
+      return [];
+    }
+  },
+
   // Cleanup temporary photos
   cleanupTempPhotos: async () => {
     try {

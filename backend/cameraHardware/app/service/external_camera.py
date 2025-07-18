@@ -28,6 +28,9 @@ def get_usb_devices() -> List[Dict[str, str]]:
         })
     
     logger.info(f"Found {len(cameras)} USB camera devices")
+    for i, camera in enumerate(cameras):
+        logger.info(f"  Device {i}: {camera['Caption']}")
+    
     return cameras
 
 def detect_camera_type(camera_caption: str) -> str:
@@ -55,13 +58,61 @@ def test_opencv_direct() -> List[Dict]:
                     cameras.append({
                         "type": "opencv",
                         "index": i,
-                        "caption": f"OpenCV Camera Index {i}"
+                        "caption": f"Camera at Index {i}"
                     })
+                else:
+                    logger.info(f"Camera at index {i} opened but cannot read frames")
             cap.release()
         except Exception as e:
-            logger.error(f"Error testing camera {i}: {e}")
+            logger.debug(f"No camera at index {i}: {e}")
     
     return cameras
+
+def match_wmi_to_opencv_cameras(wmi_cameras: List[Dict], opencv_cameras: List[Dict]) -> List[Dict]:
+    """
+    Match WMI camera information with working OpenCV camera indices.
+    This is a best-effort matching since there's no direct way to correlate them.
+    """
+    logger.info("Matching WMI camera info with OpenCV indices...")
+    
+    # Filter out non-camera devices from WMI results
+    camera_devices = [cam for cam in wmi_cameras if detect_camera_type(cam["Caption"]) == "opencv"]
+    
+    matched_cameras = []
+    
+    # If we have the same number of cameras, try to match them
+    if len(camera_devices) == len(opencv_cameras):
+        for i, opencv_cam in enumerate(opencv_cameras):
+            if i < len(camera_devices):
+                matched_cameras.append({
+                    "type": "regular",
+                    "index": opencv_cam["index"],
+                    "caption": camera_devices[i]["Caption"]
+                })
+            else:
+                matched_cameras.append({
+                    "type": "regular",
+                    "index": opencv_cam["index"],
+                    "caption": f"Camera at Index {opencv_cam['index']}"
+                })
+    else:
+        # If counts don't match, use OpenCV detection with generic names
+        logger.warning(f"Mismatch: {len(camera_devices)} WMI cameras vs {len(opencv_cameras)} working OpenCV cameras")
+        for opencv_cam in opencv_cameras:
+            # Try to find a reasonable name from WMI if available
+            caption = f"Camera at Index {opencv_cam['index']}"
+            if camera_devices:
+                # Use the first available WMI camera name as a fallback
+                caption = camera_devices[0]["Caption"]
+                camera_devices.pop(0)  # Remove it so we don't reuse it
+            
+            matched_cameras.append({
+                "type": "regular",
+                "index": opencv_cam["index"],
+                "caption": caption
+            })
+    
+    return matched_cameras
 
 def get_available_cameras() -> List[Dict]:
     """Detect available cameras, including Basler and OpenCV-compatible cameras."""
@@ -79,29 +130,25 @@ def get_available_cameras() -> List[Dict]:
             "caption": device.GetModelName()
         })
     
-    # Try to detect OpenCV cameras via WMI
-    usb_devices = get_usb_devices()
-    opencv_cameras_found = False
+    # Get WMI camera info
+    wmi_cameras = get_usb_devices()
     
-    for index, camera in enumerate(usb_devices):
-        camera_type = detect_camera_type(camera["Caption"])
-        if camera_type == "opencv":
-            opencv_cameras_found = True
-            available_cameras.append({
-                "type": "regular",
-                "index": index,
-                "caption": camera["Caption"]
-            })
+    # Get actually working OpenCV cameras
+    opencv_cameras = test_opencv_direct()
     
-    # If no OpenCV cameras were found via WMI, try direct detection
-    if not opencv_cameras_found:
-        logger.info("No cameras found via WMI, trying direct OpenCV detection...")
-        direct_cameras = test_opencv_direct()
-        available_cameras.extend(direct_cameras)
+    if opencv_cameras:
+        # Match WMI info with working OpenCV cameras
+        matched_cameras = match_wmi_to_opencv_cameras(wmi_cameras, opencv_cameras)
+        available_cameras.extend(matched_cameras)
+        
+        logger.info(f"Successfully matched {len(matched_cameras)} OpenCV cameras")
+    else:
+        logger.warning("No working OpenCV cameras found")
     
     # Log summary
-    for camera in available_cameras:
-        logger.info(f"Detected camera: {camera.get('caption', 'Unknown')}, Type: {camera['type']}")
+    logger.info(f"Total cameras detected: {len(available_cameras)}")
+    for i, camera in enumerate(available_cameras):
+        logger.info(f"  Camera {i+1}: {camera.get('caption', 'Unknown')} (Type: {camera['type']}, Index: {camera.get('index', 'N/A')})")
     
     return available_cameras
 
@@ -109,5 +156,19 @@ def get_available_cameras() -> List[Dict]:
 def diagnose_camera_issues():
     """Run diagnostic tests and return all detected cameras"""
     logger.info("Running camera diagnostics...")
+    
+    # Show what WMI finds
+    wmi_cameras = get_usb_devices()
+    logger.info("WMI Camera Detection Results:")
+    for i, cam in enumerate(wmi_cameras):
+        logger.info(f"  WMI Device {i}: {cam['Caption']}")
+    
+    # Show what OpenCV finds
+    opencv_cameras = test_opencv_direct()
+    logger.info("OpenCV Direct Detection Results:")
+    for cam in opencv_cameras:
+        logger.info(f"  OpenCV Index {cam['index']}: Working")
+    
+    # Show final result
     cameras = get_available_cameras()
     return cameras
