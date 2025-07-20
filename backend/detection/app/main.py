@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from detection.app.api.route.detection_route import detection_router
 
 
 
@@ -10,7 +10,7 @@ def create_application():
         description="Microservice for managing detections",
         version="1.0.0"
     )
-   
+    application.include_router(detection_router)
     return application
 
 app = create_application()

@@ -2,6 +2,7 @@ import { lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 
 import Loadable from "../components/components/load/loadable";
+import PrivateRoute from "./PrivateRoute";
 
 const SignUp = Loadable(lazy(()=> import( '../views/auth/sign-up/SignUp')));
 const Profile = Loadable(lazy(()=> import( '../views/auth/profile-completion/Profile')));
@@ -18,7 +19,7 @@ const SignInSide = Loadable(lazy(() => import('../views/auth/sign-in-side/SignIn
 const Annotation = Loadable(lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion')));
 const PiecesOverview = Loadable(lazy(() => import('../views/imageAnnotaion/PiecesOverview')));
 const Dataset = Loadable(lazy(() => import('../views/dataset/dataset')));
-
+const Detection = Loadable(lazy(() => import('../views/detection/Detection')));
 const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
 const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
 
@@ -33,10 +34,9 @@ const router = createBrowserRouter([
   {
     path: '/',
     element: (
-      <FullLayout />
-      // {/* <PrivateRoute>
-      //   <FullLayout />
-      // </PrivateRoute> */}
+     // <PrivateRoute>
+        <FullLayout />
+     // </PrivateRoute>  
     ),
     children: [
       {
@@ -64,6 +64,10 @@ const router = createBrowserRouter([
         path: 'dataset',
         element: <Dataset />, 
       },  
+      {
+        path: 'detection',
+        element: <Detection />,
+      }
     ],
 
   },

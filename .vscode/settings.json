@@ -1,6 +1,6 @@
 {
     "python.analysis.extraPaths": [
-        "./backend/user_management/app",
-        "./backend/cameraHardware/app",
+
+        "./backend/cameraHardware/venv/Lib/site-packages",
     ]
 }

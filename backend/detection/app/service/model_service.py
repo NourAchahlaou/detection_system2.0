@@ -1,26 +1,35 @@
 import os
 from ultralytics import YOLO
 
- #tthis is the final correct laod model 
+# Use the environment variable that matches your Docker configuration
+MODELS_BASE_PATH = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
+
 def load_my_model():
-    # Get the directory of the script being executed
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    """Load YOLO model from the shared models directory."""
     
-    # Adjust the model directory path
-    model_dir = os.path.join(script_dir, '..', 'models')
-    model_path = os.path.join(model_dir, 'model.pt')
-
-    print(f"Script directory: {script_dir}")
-    print(f"Model directory: {model_dir}")
+    # Use the shared models path from environment variable
+    model_path = os.path.join(MODELS_BASE_PATH, 'model.pt')
+    
+    print(f"Models base path: {MODELS_BASE_PATH}")
     print(f"Model path: {model_path}")
-
+    
     # Check if the model file exists
     if not os.path.isfile(model_path):
         print(f"Model file not found at: {model_path}")
-        return None  # Return None or an appropriate placeholder if model is not found
-
-    # Load the model if the file exists
-    my_path_model = YOLO(model_path)
-
-    print("Model loaded successfully.")
-    return my_path_model
+        # List available files in the models directory for debugging
+        if os.path.exists(MODELS_BASE_PATH):
+            print(f"Available files in {MODELS_BASE_PATH}:")
+            for file in os.listdir(MODELS_BASE_PATH):
+                print(f"  - {file}")
+        else:
+            print(f"Models directory does not exist: {MODELS_BASE_PATH}")
+        return None
+    
+    try:
+        # Load the model if the file exists
+        my_model = YOLO(model_path)
+        print("Model loaded successfully.")
+        return my_model
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        return None
