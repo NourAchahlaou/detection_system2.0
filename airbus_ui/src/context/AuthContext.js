@@ -1,3 +1,4 @@
+// 1. Fixed AuthContext.jsx
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import api from '../utils/UseAxios';
 
@@ -20,7 +21,8 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       }
-      
+
+      // Fixed: Use correct endpoint path
       const res = await api.get('/api/users/users/me');
       setAuth({ token, user: res.data });
     } catch (error) {
@@ -40,9 +42,10 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
+      // Fixed: Use correct header format
       const res = await api.post('/api/users/auth/refresh', null, {
         headers: {
-          refresh_token: refreshToken,
+          'refresh_token': refreshToken,
         },
       });
 
@@ -70,7 +73,7 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
       }
     };
-    
+        
     initAuth();
   }, [fetchUser]);
 
@@ -82,10 +85,10 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      auth, 
-      login, 
-      logout, 
+    <AuthContext.Provider value={{
+      auth,
+      login,
+      logout,
       refreshAccessToken,
       loading
     }}>

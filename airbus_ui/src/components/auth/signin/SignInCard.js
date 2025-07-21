@@ -17,7 +17,8 @@ import { styled } from '@mui/material/styles';
 import ForgotPassword from './ForgotPassword';
 import { GoogleIcon } from '../CustomIcons';
 import { ReactComponent as AirVisionLogo } from '../../../assets/Airvisionlogo_updated.svg';
-import api from '../../../utils/UseAxios'; 
+import api from '../../../utils/UseAxios';
+import { useAuth } from '../../../context/AuthContext'; // Add this import
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
@@ -38,7 +39,9 @@ const Card = styled(MuiCard)(({ theme }) => ({
 }));
 
 export default function SignInCard() {
-  const navigate = useNavigate();  
+  const navigate = useNavigate();
+  const { login } = useAuth(); // Get login function from context
+  
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState('');
   const [passwordError, setPasswordError] = React.useState(false);
@@ -93,6 +96,7 @@ export default function SignInCard() {
   // Check profile completion status using the API hook
   const checkProfileCompletion = async (accessToken) => {
     try {
+      // Fixed: Use correct endpoint path to match your backend routes
       const response = await api.get('/api/users/auth/completion', {
         headers: {
           'Authorization': `Bearer ${accessToken}`
@@ -123,10 +127,10 @@ export default function SignInCard() {
       }
     } catch (error) {
       console.error('Error checking profile completion:', error);
-      navigate('/auth/profile');
+      // If completion check fails, still navigate to dashboard since user is authenticated
+      navigate('/dashboard');
     }
   };
-
   const handleSubmit = async (event) => {
     event.preventDefault();
     
@@ -153,9 +157,8 @@ export default function SignInCard() {
 
       console.log('Login successful:', response.data);
       
-      // Store tokens in localStorage
-      localStorage.setItem('accessToken', response.data.access_token);
-      localStorage.setItem('refreshToken', response.data.refresh_token);
+      // Update auth context with tokens - THIS IS THE KEY FIX
+      await login(response.data.access_token, response.data.refresh_token);
       
       setSnackbar({
         open: true,

@@ -1,4 +1,3 @@
-// src/components/PrivateRoute.jsx
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -6,13 +5,28 @@ const PrivateRoute = ({ children }) => {
   const { auth, loading } = useAuth();
   const location = useLocation();
   
-  // Attendre que le contexte d'authentification finisse de charger
+  // Wait for authentication context to finish loading
   if (loading) {
-    return <div>Chargement de l'authentification...</div>; // Ou un spinner
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh' 
+      }}>
+        Loading authentication...
+      </div>
+    );
   }
   
-  // Vérification de l'authentification une fois le chargement terminé
+  // Check authentication after loading is complete
   const isAuthenticated = !!(auth.token && auth.user);
+  
+  console.log('PrivateRoute - Auth state:', { 
+    token: !!auth.token, 
+    user: !!auth.user, 
+    isAuthenticated 
+  });
   
   if (!isAuthenticated) {
     return <Navigate to="/auth/login" state={{ from: location }} replace />;
