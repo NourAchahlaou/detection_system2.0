@@ -2,6 +2,7 @@ import cv2
 import torch
 from fastapi import HTTPException
 from detection.app.service.model_service import load_my_model
+import numpy as np
 
 class DetectionSystem:
     def __init__(self, confidence_threshold=0.5):
@@ -106,3 +107,8 @@ class DetectionSystem:
             cv2.putText(frame, label, (label_x, label_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
         return frame, detected_target, non_target_count  # Return the frame, target detection status, and non-target count
+    def resize_frame_optimized(frame: np.ndarray, target_size=(640, 480)) -> np.ndarray:
+        """Optimized frame resizing with better interpolation."""
+        if frame.shape[:2] != target_size[::-1]:  # Check if resize is needed
+            return cv2.resize(frame, target_size, interpolation=cv2.INTER_LINEAR)
+        return frame
