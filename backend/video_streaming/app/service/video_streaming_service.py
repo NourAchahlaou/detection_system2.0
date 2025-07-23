@@ -4,11 +4,12 @@ import asyncio
 import logging
 import threading
 import numpy as np
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Dict
 from fastapi import APIRouter
 from sqlalchemy.orm import Session
 import time
 import weakref
+from collections import deque
 
 from video_streaming.app.service.videoStremManager import VideoStreamManager
 from video_streaming.app.service.hardwareServiceClient import CameraClient
@@ -30,8 +31,8 @@ camera_service = CameraService()
 # Global stream manager with improved tracking
 stream_manager = VideoStreamManager()
 
-class StreamState:
-    """Track individual stream state more precisely"""
+class OptimizedStreamState:
+    """Enhanced stream state with frame buffering and single connection management"""
     def __init__(self, camera_id: int):
         self.camera_id = camera_id
         self.is_active = False
@@ -41,15 +42,80 @@ class StreamState:
         self.consecutive_failures = 0
         self.session = None
         
+        # Frame buffering for multiple consumers
+        self.frame_buffer = deque(maxlen=5)  # Keep last 5 frames
+        self.buffer_lock = asyncio.Lock()
+        self.latest_frame = None
+        self.frame_ready_event = asyncio.Event()
+        
+        # Single connection management
+        self.connection_task = None
+        self.consumers = set()  # Track active consumers
+        
+    async def add_consumer(self, consumer_id: str):
+        """Add a consumer to this stream"""
+        self.consumers.add(consumer_id)
+        logger.info(f"Added consumer {consumer_id} to camera {self.camera_id}. Total consumers: {len(self.consumers)}")
+        
+    async def remove_consumer(self, consumer_id: str):
+        """Remove a consumer from this stream"""
+        self.consumers.discard(consumer_id)
+        logger.info(f"Removed consumer {consumer_id} from camera {self.camera_id}. Total consumers: {len(self.consumers)}")
+        
+        # If no consumers left, stop the stream
+        if not self.consumers and self.is_active:
+            logger.info(f"No consumers left for camera {self.camera_id}, stopping stream")
+            await self.cleanup()
+        
+    async def add_frame(self, frame: np.ndarray):
+        """Add a frame to the buffer"""
+        async with self.buffer_lock:
+            # Encode frame once for all consumers
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+            _, buffer = cv2.imencode('.jpg', frame, encode_params)
+            if buffer is not None:
+                frame_bytes = buffer.tobytes()
+                self.frame_buffer.append({
+                    'data': frame_bytes,
+                    'timestamp': time.time()
+                })
+                self.latest_frame = frame_bytes
+                self.frame_ready_event.set()
+                self.frame_count += 1
+                self.last_frame_time = time.time()
+        
+    async def get_latest_frame(self) -> Optional[bytes]:
+        """Get the latest frame for streaming"""
+        if self.latest_frame is not None:
+            return self.latest_frame
+        
+        # Wait for first frame if none available
+        try:
+            await asyncio.wait_for(self.frame_ready_event.wait(), timeout=1.0)
+            return self.latest_frame
+        except asyncio.TimeoutError:
+            return None
+        
     async def cleanup(self):
         """Clean up stream resources"""
         self.is_active = False
         self.stop_event.set()
+        
+        if self.connection_task and not self.connection_task.done():
+            self.connection_task.cancel()
+            try:
+                await self.connection_task
+            except asyncio.CancelledError:
+                pass
+        
         if self.session and not self.session.closed:
             await self.session.close()
+            
+        self.consumers.clear()
+        self.frame_buffer.clear()
 
 # Global stream states tracking
-active_stream_states = {}
+active_stream_states: Dict[int, OptimizedStreamState] = {}
 
 def resize_frame_optimized(frame: np.ndarray, target_size=(640, 480)) -> np.ndarray:
     """Optimized frame resizing with better interpolation."""
@@ -60,7 +126,7 @@ def resize_frame_optimized(frame: np.ndarray, target_size=(640, 480)) -> np.ndar
 async def check_camera_status_safe() -> Optional[dict]:
     """Safely check camera status with proper error handling."""
     try:
-        timeout = aiohttp.ClientTimeout(total=2.0)  # Reduced timeout
+        timeout = aiohttp.ClientTimeout(total=2.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(f"{HARDWARE_SERVICE_URL}/camera/check_camera") as response:
                 if response.status == 200:
@@ -78,9 +144,8 @@ async def check_camera_status_safe() -> Optional[dict]:
 async def start_camera_via_hardware_service(camera_index: int) -> bool:
     """Start camera using the hardware service with better error handling."""
     try:
-        # Cleanup first - FIX: Use sync method in async context properly
+        # Cleanup first
         try:
-            # Since cleanup_temp_photos is synchronous, run it in a thread
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, hardware_client.cleanup_temp_photos)
         except Exception as e:
@@ -112,7 +177,7 @@ async def start_camera_via_hardware_service(camera_index: int) -> bool:
 async def stop_camera_via_hardware_service():
     """Stop camera using the hardware service with immediate response."""
     try:
-        timeout = aiohttp.ClientTimeout(total=3.0)  # Reduced timeout for faster response
+        timeout = aiohttp.ClientTimeout(total=3.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(f"{HARDWARE_SERVICE_URL}/camera/stop") as response:
                 if response.status == 200:
@@ -130,77 +195,94 @@ async def stop_camera_via_hardware_service():
         return False
 
 async def cleanup_resources():
-    """Background cleanup task - FIX: Handle sync method properly"""
+    """Background cleanup task"""
     try:
-        await asyncio.sleep(0.1)  # Small delay
-        # Run synchronous cleanup in executor
+        await asyncio.sleep(0.1)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, hardware_client.cleanup_temp_photos)
     except Exception as e:
         logger.warning(f"Background cleanup failed: {e}")
 
-async def capture_frame_from_hardware_single_request(session: aiohttp.ClientSession, stream_state: StreamState) -> Optional[np.ndarray]:
+async def single_connection_frame_producer(stream_state: OptimizedStreamState):
     """
-    Optimized frame capture using a single persistent session to avoid multiple concurrent requests.
-    This prevents the multiple GET /camera/video_feed requests you're seeing.
+    SINGLE CONNECTION PRODUCER: This replaces multiple GET requests with one persistent connection
+    that continuously reads frames and distributes them to all consumers.
     """
-    if stream_state.stop_event.is_set():
-        return None
-        
+    logger.info(f"Starting single connection frame producer for camera {stream_state.camera_id}")
+    
+    timeout = aiohttp.ClientTimeout(total=None)  # No timeout for persistent connection
+    session = aiohttp.ClientSession(timeout=timeout)
+    stream_state.session = session
+    
     try:
-        # Use the persistent session instead of creating new ones
-        async with session.get(f"{HARDWARE_SERVICE_URL}/camera/video_feed") as response:
-            if response.status != 200:
-                logger.debug(f"Frame request failed with status {response.status}")
-                return None
-                
-            buffer = bytearray()
-            chunk_size = 16384
-            max_read_time = 3.0  # Maximum time to spend reading
-            start_time = time.time()
-            
-            async for chunk in response.content.iter_chunked(chunk_size):
-                if stream_state.stop_event.is_set():
-                    logger.debug("Stop event detected during frame capture")
-                    return None
+        while stream_state.is_active and not stream_state.stop_event.is_set():
+            try:
+                # Single persistent connection for continuous frame reading
+                async with session.get(f"{HARDWARE_SERVICE_URL}/camera/video_feed") as response:
+                    if response.status != 200:
+                        logger.error(f"Frame stream failed with status {response.status}")
+                        await asyncio.sleep(1.0)
+                        continue
                     
-                if time.time() - start_time > max_read_time:
-                    logger.debug("Frame capture timeout")
-                    break
-                    
-                buffer.extend(chunk)
-                
-                # Look for complete JPEG frame
-                jpeg_start = buffer.find(b'\xff\xd8')
-                if jpeg_start != -1:
-                    jpeg_end = buffer.find(b'\xff\xd9', jpeg_start + 2)
-                    if jpeg_end != -1:
-                        # Extract and decode JPEG
-                        jpeg_data = bytes(buffer[jpeg_start:jpeg_end + 2])
+                    buffer = bytearray()
+                    async for chunk in response.content.iter_chunked(8192):
+                        if stream_state.stop_event.is_set():
+                            break
+                            
+                        if not stream_state.consumers:
+                            # No consumers, break and restart connection when needed
+                            break
+                            
+                        buffer.extend(chunk)
                         
-                        try:
-                            nparr = np.frombuffer(jpeg_data, np.uint8)
-                            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        # Process complete JPEG frames
+                        while True:
+                            jpeg_start = buffer.find(b'\xff\xd8')
+                            if jpeg_start == -1:
+                                break
                             
-                            if frame is not None and frame.size > 0:
-                                return frame
-                        except Exception as e:
-                            logger.debug(f"Frame decode error: {e}")
+                            jpeg_end = buffer.find(b'\xff\xd9', jpeg_start + 2)
+                            if jpeg_end == -1:
+                                break
                             
-                        # Remove processed data
-                        buffer = buffer[jpeg_end + 2:]
-                
-                # Prevent excessive memory usage
-                if len(buffer) > 200000:  # 200KB
+                            # Extract complete JPEG frame
+                            jpeg_data = bytes(buffer[jpeg_start:jpeg_end + 2])
+                            buffer = buffer[jpeg_end + 2:]
+                            
+                            try:
+                                # Decode and process frame
+                                nparr = np.frombuffer(jpeg_data, np.uint8)
+                                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                
+                                if frame is not None and frame.size > 0:
+                                    # Resize frame once for all consumers
+                                    frame = resize_frame_optimized(frame, (640, 480))
+                                    
+                                    # Add to buffer for all consumers
+                                    await stream_state.add_frame(frame)
+                                    stream_state.consecutive_failures = 0
+                                    
+                            except Exception as e:
+                                logger.debug(f"Frame decode error: {e}")
+                                
+                        # Prevent buffer overflow
+                        if len(buffer) > 100000:  # 100KB max buffer
+                            buffer = buffer[-50000:]  # Keep last 50KB
+            
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in frame producer: {e}")
+                stream_state.consecutive_failures += 1
+                if stream_state.consecutive_failures > 5:
+                    logger.error("Too many consecutive failures, stopping producer")
                     break
-                    
-    except asyncio.CancelledError:
-        logger.debug("Frame capture cancelled")
-        return None
-    except Exception as e:
-        logger.debug(f"Frame capture error: {e}")
-        
-    return None
+                await asyncio.sleep(1.0)
+    
+    finally:
+        logger.info(f"Frame producer stopped for camera {stream_state.camera_id}")
+        if session and not session.closed:
+            await session.close()
 
 async def wait_for_camera_ready(camera_index: int, max_wait_time: int = 10) -> bool:
     """Wait for camera to be ready with improved checking."""
@@ -225,40 +307,34 @@ async def wait_for_camera_ready(camera_index: int, max_wait_time: int = 10) -> b
     logger.error(f"Camera index {camera_index} not ready after {max_wait_time} seconds")
     return False
 
-async def generate_video_frames(camera_id: int, db: Session) -> AsyncGenerator[bytes, None]:
+async def generate_video_frames_optimized(camera_id: int, db: Session, consumer_id: str = None) -> AsyncGenerator[bytes, None]:
     """
-    Generate high-performance video frames with improved stop handling and 
-    single session to prevent multiple concurrent requests.
+    OPTIMIZED FRAME GENERATOR: Uses shared stream state to eliminate multiple connections.
+    Multiple consumers share the same frame producer.
     """
     
-    # Check if camera is already streaming
-    if camera_id in active_stream_states:
-        logger.warning(f"Camera {camera_id} is already streaming")
-        return
+    if consumer_id is None:
+        consumer_id = f"consumer_{time.time()}_{id(asyncio.current_task())}"
     
-    # Create stream state
-    stream_state = StreamState(camera_id)
-    active_stream_states[camera_id] = stream_state
-    
-    try:
+    # Get or create stream state
+    if camera_id not in active_stream_states:
         # Get camera details
-        camera = camera_service.get_camera_by_id(db, camera_id)
-        camera_index = camera.camera_index
-        logger.info(f"Starting video stream for camera ID {camera_id} with camera index {camera_index}")
-    except Exception as e:
-        logger.error(f"Failed to get camera details for ID {camera_id}: {e}")
-        return
-    
-    # Create persistent session for this stream
-    timeout = aiohttp.ClientTimeout(total=10.0)
-    session = aiohttp.ClientSession(timeout=timeout)
-    stream_state.session = session
-    
-    try:
-        # Start camera
+        try:
+            camera = camera_service.get_camera_by_id(db, camera_id)
+            camera_index = camera.camera_index
+        except Exception as e:
+            logger.error(f"Failed to get camera details for ID {camera_id}: {e}")
+            return
+        
+        # Create new stream state
+        stream_state = OptimizedStreamState(camera_id)
+        active_stream_states[camera_id] = stream_state
+        
+        # Start camera hardware
         camera_started = await start_camera_via_hardware_service(camera_index)
         if not camera_started:
             logger.error("Failed to start camera via hardware service")
+            del active_stream_states[camera_id]
             return
         
         # Wait for camera readiness
@@ -266,57 +342,46 @@ async def generate_video_frames(camera_id: int, db: Session) -> AsyncGenerator[b
         if not camera_ready:
             logger.error("Camera did not become ready in time")
             await stop_camera_via_hardware_service()
+            del active_stream_states[camera_id]
             return
         
-        # Mark stream as active and register with stream manager
+        # Mark stream as active and start the single connection producer
         stream_state.is_active = True
         stream_manager.add_camera_stream(camera_id, stream_state.stop_event)
         
-        # Optimized encoding settings
-        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
-        target_fps = 25  # Slightly reduced for stability
-        frame_time = 1.0 / target_fps
-        max_consecutive_failures = 3  # Reduced threshold
+        # Start the single connection frame producer
+        stream_state.connection_task = asyncio.create_task(
+            single_connection_frame_producer(stream_state)
+        )
         
-        logger.info(f"Starting frame generation loop for camera {camera_id}")
+        logger.info(f"Created new optimized stream for camera {camera_id}")
+    
+    stream_state = active_stream_states[camera_id]
+    
+    # Add this consumer to the stream
+    await stream_state.add_consumer(consumer_id)
+    
+    try:
+        logger.info(f"Starting optimized frame generation for camera {camera_id}, consumer {consumer_id}")
+        
+        target_fps = 25
+        frame_time = 1.0 / target_fps
         
         while stream_state.is_active and not stream_state.stop_event.is_set():
             frame_start_time = time.time()
             
             try:
-                # Use single session for frame capture
-                frame = await capture_frame_from_hardware_single_request(session, stream_state)
-
-                if frame is None:
-                    stream_state.consecutive_failures += 1
-                    logger.debug(f"Frame capture failed {stream_state.consecutive_failures} times")
-                    
-                    if stream_state.consecutive_failures >= max_consecutive_failures:
-                        logger.error("Too many consecutive frame failures, stopping camera")
-                        break
-                        
-                    await asyncio.sleep(0.05)  # Short delay before retry
-                    continue
+                # Get latest frame from shared buffer
+                frame_bytes = await stream_state.get_latest_frame()
+                
+                if frame_bytes is not None:
+                    yield (b'--frame\r\n'
+                          b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                 else:
-                    stream_state.consecutive_failures = 0
+                    # No frame available, small delay
+                    await asyncio.sleep(0.05)
+                    continue
                 
-                # Process frame
-                frame = resize_frame_optimized(frame, (640, 480))
-                
-                # Encode and yield frame
-                if frame is not None and len(frame.shape) == 3:
-                    try:
-                        _, buffer = cv2.imencode('.jpg', frame, encode_params)
-                        if buffer is not None:
-                            frame_bytes = buffer.tobytes()
-                            yield (b'--frame\r\n'
-                                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                            
-                            stream_state.frame_count += 1
-                            stream_state.last_frame_time = time.time()
-                    except Exception as e:
-                        logger.error(f"Error encoding frame: {e}")
-
                 # Frame rate control
                 elapsed = time.time() - frame_start_time
                 sleep_time = max(0, frame_time - elapsed)
@@ -324,36 +389,26 @@ async def generate_video_frames(camera_id: int, db: Session) -> AsyncGenerator[b
                     try:
                         await asyncio.wait_for(asyncio.sleep(sleep_time), timeout=sleep_time + 0.01)
                     except asyncio.TimeoutError:
-                        pass  # Continue if sleep is interrupted
+                        pass
                 
             except asyncio.CancelledError:
-                logger.info(f"Video stream cancelled for camera {camera_id}")
+                logger.info(f"Video stream cancelled for camera {camera_id}, consumer {consumer_id}")
                 break
             except Exception as e:
-                logger.error(f"Error in frame generation loop: {e}")
-                stream_state.consecutive_failures += 1
-                if stream_state.consecutive_failures >= max_consecutive_failures:
-                    break
-                await asyncio.sleep(0.05)
+                logger.error(f"Error in optimized frame generation loop: {e}")
+                await asyncio.sleep(0.1)
 
     except Exception as e:
-        logger.error(f"Error in generate_video_frames: {e}")
+        logger.error(f"Error in generate_video_frames_optimized: {e}")
     finally:
-        # Immediate cleanup
-        logger.info(f"Cleaning up video stream for camera {camera_id}")
-        
-        # Mark as inactive immediately
-        stream_state.is_active = False
-        stream_state.stop_event.set()
-        
-        # Remove from tracking
+        # Remove consumer
         if camera_id in active_stream_states:
-            del active_stream_states[camera_id]
+            await active_stream_states[camera_id].remove_consumer(consumer_id)
         
-        # Close session
-        if session and not session.closed:
-            await session.close()
-        
-        # Stop camera service
-        await stop_camera_via_hardware_service()
-        logger.info(f"Video stream stopped for camera ID {camera_id}")
+        logger.info(f"Optimized video stream stopped for camera ID {camera_id}, consumer {consumer_id}")
+
+# Legacy function for backward compatibility
+async def generate_video_frames(camera_id: int, db: Session) -> AsyncGenerator[bytes, None]:
+    """Legacy wrapper - redirects to optimized version"""
+    async for frame in generate_video_frames_optimized(camera_id, db):
+        yield frame
