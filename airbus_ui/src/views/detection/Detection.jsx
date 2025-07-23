@@ -21,11 +21,9 @@ export default function AppDetection() {
   useEffect(() => {
     const loadModel = async () => {
       try {
-        const success = await detectionService.loadModel();
-        setIsModelLoaded(success);
-        if (!success) {
-          setModelLoadError("Failed to load detection model. Please refresh the page.");
-        }
+        const result = await detectionService.loadModel();
+        setIsModelLoaded(true);
+        console.log("Model loaded:", result.message);
       } catch (error) {
         console.error("Error loading model:", error);
         setModelLoadError("Error loading detection model. Please refresh the page.");

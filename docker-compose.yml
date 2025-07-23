@@ -169,7 +169,26 @@ services:
     environment:
       - CHOKIDAR_USEPOLLING=true
       - WDS_SOCKET_PORT=3000
-
+  video_streaming:
+    container_name: video_streaming
+    depends_on:
+      - base_image
+      - databasePostgres
+    build:
+      context: ./backend/video_streaming
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    ports:
+      - "8007:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - airvision-net
+    volumes:
+      - ./backend/video_streaming:/usr/srv/video_streaming
+      - ./.env:/usr/srv/.env
+      
   nginx:
     image: nginx:latest
     container_name: nginx_gateway

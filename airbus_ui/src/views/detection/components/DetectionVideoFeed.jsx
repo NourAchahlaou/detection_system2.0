@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
@@ -25,7 +24,7 @@ const DetectionVideoFeed = ({
   // Update video URL when detection state changes
   useEffect(() => {
     if (isDetectionActive && targetLabel && cameraId) {
-      const url = `/api/detection/detection/video_feed?camera_id=${cameraId}&target_label=${encodeURIComponent(targetLabel)}`;
+      const url = `/api/video_streaming/video/stream/${cameraId}?target_label=${encodeURIComponent(targetLabel)}`;
       setVideoUrl(url);
     } else {
       setVideoUrl("");
@@ -64,7 +63,8 @@ const DetectionVideoFeed = ({
 
   const handleStopDetection = async () => {
     try {
-      await detectionService.stopDetectionFeed();
+      
+      await detectionService.stopVideoStream(cameraId);
       setVideoUrl("");
       setDetectionStats({
         objectDetected: false,
