@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from detection.app.api.route.detection_route import detection_router
+
 from detection.app.api.route.detection_router import detection_router
 
 
