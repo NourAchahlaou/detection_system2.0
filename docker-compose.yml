@@ -10,6 +10,24 @@ services:
     image: airvision_base:latest
     command: ["echo", "Base image built successfully"]
 
+  # Redis for frame distribution
+  redis:
+    image: redis:7-alpine
+    container_name: airvision_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1
+    networks:
+      - airvision-net
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   user_management:
     container_name: userManagementMicroservice
     depends_on:
@@ -170,24 +188,27 @@ services:
       - CHOKIDAR_USEPOLLING=true
       - WDS_SOCKET_PORT=3000
   video_streaming:
-    container_name: video_streaming
-    depends_on:
-      - base_image
-      - databasePostgres
-    build:
-      context: ./backend/video_streaming
-      dockerfile: Dockerfile
-    env_file:
-      - ./.env
-    ports:
-      - "8007:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - airvision-net
-    volumes:
-      - ./backend/video_streaming:/usr/srv/video_streaming
-      - ./.env:/usr/srv/.env
+      container_name: video_streaming
+      depends_on:
+        - base_image
+        - databasePostgres
+        - redis  # Add Redis as a dependency
+      build:
+        context: ./backend/video_streaming
+        dockerfile: Dockerfile
+      env_file:
+        - ./.env
+      ports:
+        - "8007:8000"
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      networks:
+        - airvision-net
+      volumes:
+        - ./backend/video_streaming:/usr/srv/video_streaming
+        - ./.env:/usr/srv/.env
+      environment:
+        - REDIS_URL=redis://airvision_redis:6379 
       
   nginx:
     image: nginx:latest
@@ -215,6 +236,7 @@ networks:
 
 volumes:
   user_postgres_data:
+  redis_data:  # Added this missing volume
   
   dataset:
     driver: local
@@ -232,7 +254,7 @@ volumes:
   
   training_logs:
     driver: local
-    driver_opts:
+    driver_opts:  
       type: none
       o: bind
       device: ./shared_data/logs

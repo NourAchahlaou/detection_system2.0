@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from video_streaming.app.api.route.videoStreamRouter import video_router
-
+from  video_streaming.app.api.route.videoStream_detection import detection_streaming_router
 
 
 def create_application():
@@ -11,6 +11,7 @@ def create_application():
         version="1.0.0"
     )
     application.include_router(video_router)
+    application.include_router(detection_streaming_router)
     return application
 
 app = create_application()
