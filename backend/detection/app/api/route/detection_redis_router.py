@@ -2,6 +2,8 @@
 import asyncio
 import logging
 from datetime import datetime
+import pickle
+import time
 from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -268,3 +270,49 @@ async def reset_processor():
             "status": "reset_with_errors",
             "timestamp": datetime.now().isoformat()
         }
+# Add this to your detection router/API file
+@redis_router.get("/pubsub/diagnostic/{camera_id}")
+async def diagnostic_pubsub(camera_id: int):
+    """Diagnostic endpoint to test pubsub communication"""
+    try:
+        import redis.asyncio as redis
+        
+        # Create test Redis client
+        redis_client = redis.Redis(
+            host='redis',
+            port=6379,
+            db=0,
+            decode_responses=False
+        )
+        
+        # Test basic connection
+        await redis_client.ping()
+        
+        # Test publishing
+        test_message = {
+            'camera_id': camera_id,
+            'test': True,
+            'timestamp': time.time(),
+            'message': 'Diagnostic test message'
+        }
+        
+        channel = f"detection_results:{camera_id}"
+        serialized_message = pickle.dumps(test_message)
+        
+        subscribers = await redis_client.publish(channel, serialized_message)
+        
+        await redis_client.aclose()
+        
+        return {
+            "status": "success",
+            "message": f"Published test message to {channel}",
+            "subscribers": subscribers,
+            "camera_id": camera_id
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "camera_id": camera_id
+        }    
