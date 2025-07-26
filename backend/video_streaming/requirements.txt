@@ -1,1 +1,4 @@
 aiohttp>=3.8.0
+redis>=4.5.0
+redis[hiredis]>=4.5.0  # For better performance
+aioredis>=2.0.0

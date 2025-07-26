@@ -131,6 +131,7 @@ services:
       depends_on:
         - base_image
         - databasePostgres
+        - redis
       build:
         context: ./backend/detection
         dockerfile: Dockerfile
@@ -149,6 +150,7 @@ services:
       user: "1001:1001"
       environment:
         - MODELS_BASE_PATH=/app/shared/models
+        - REDIS_URL=redis://airvision_redis:6379  # Use Redis for optimized detection
 
   databasePostgres:
     image: postgres:15

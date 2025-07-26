@@ -1,8 +1,6 @@
 {
-    "python.analysis.extraPaths": [
+    "python.defaultInterpreterPath": "./backend/cameraHardware/venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true,
 
-        "./backend/cameraHardware/venv/Lib/site-packages",
-    ],
-    "python-envs.pythonProjects": [],
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python.terminal.activateEnvInCurrentTerminal": true
 }

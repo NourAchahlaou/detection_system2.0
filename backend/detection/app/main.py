@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from detection.app.api.route.detection_router import detection_router
+from detection.app.api.route.detection_redis_router import redis_router
 
 
 def create_application():
@@ -11,6 +12,7 @@ def create_application():
         version="1.0.0"
     )
     application.include_router(detection_router)
+    application.include_router(redis_router)
     return application
 
 app = create_application()
