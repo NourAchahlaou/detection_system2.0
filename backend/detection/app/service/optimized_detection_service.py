@@ -3,6 +3,7 @@ import cv2
 import asyncio
 import logging
 import redis.asyncio as redis
+import redis as sync_redis
 import redis.exceptions as redis_exceptions
 import pickle
 import numpy as np
@@ -65,6 +66,7 @@ class OptimizedDetectionProcessor:
         self.redis_host = redis_host
         self.redis_port = redis_port
         self.redis_client = None
+        self.sync_redis_client = None  # Add dedicated sync client
         
         # Processing configuration
         self.max_workers = max_workers
@@ -83,8 +85,8 @@ class OptimizedDetectionProcessor:
             'timeouts': 0,
             'overlays_created': 0,
             'frames_stored': 0,
-            'pubsub_messages_sent': 0,  # NEW: Track pubsub messages
-            'detection_results_published': 0  # NEW: Track published results
+            'pubsub_messages_sent': 0,
+            'detection_results_published': 0
         }
         
         # Thread pool for CPU-bound operations
@@ -162,6 +164,7 @@ class OptimizedDetectionProcessor:
         
         for attempt in range(max_retries):
             try:
+                # Async Redis client
                 self.redis_client = redis.Redis(
                     host=self.redis_host,
                     port=self.redis_port,
@@ -171,15 +174,27 @@ class OptimizedDetectionProcessor:
                     health_check_interval=30,
                     decode_responses=False,
                     socket_connect_timeout=5,
-                    socket_timeout=10,  # Increased timeout
-                    max_connections=20  # Connection pooling
+                    socket_timeout=10,
+                    max_connections=20
                 )
                 
-                # Test connection
-                await self.redis_client.ping()
-                logger.info("✅ Async Redis connection established successfully")
+                # FIXED: Create dedicated sync Redis client for pubsub operations
+                self.sync_redis_client = sync_redis.Redis(
+                    host=self.redis_host,
+                    port=self.redis_port,
+                    db=0,
+                    decode_responses=False,
+                    socket_keepalive=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=10
+                )
                 
-                # CRITICAL FIX: Test pubsub functionality
+                # Test both connections
+                await self.redis_client.ping()
+                self.sync_redis_client.ping()  # Sync ping
+                logger.info("✅ Async and sync Redis connections established successfully")
+                
+                # Test pubsub functionality
                 await self._test_pubsub_connection()
                 return
                 
@@ -196,8 +211,8 @@ class OptimizedDetectionProcessor:
             test_channel = "test_pubsub_connection"
             test_message = b"test_message"
             
-            # Publish a test message
-            subscribers = await self.redis_client.publish(test_channel, test_message)
+            # FIXED: Use sync client for pubsub operations
+            subscribers = self.sync_redis_client.publish(test_channel, test_message)
             logger.info(f"✅ Pubsub test: published message to {subscribers} subscribers")
             
         except Exception as e:
@@ -217,13 +232,20 @@ class OptimizedDetectionProcessor:
                 except asyncio.CancelledError:
                     pass
         
-        # Close Redis connection
+        # Close Redis connections
         if self.redis_client:
             try:
                 await self.redis_client.aclose()
             except:
                 pass
             self.redis_client = None
+            
+        if self.sync_redis_client:
+            try:
+                self.sync_redis_client.close()
+            except:
+                pass
+            self.sync_redis_client = None
         
         # Shutdown executor
         if self.executor:
@@ -389,7 +411,7 @@ class OptimizedDetectionProcessor:
         return None
     
     def _process_frame_sync(self, request: FrameProcessingRequest) -> DetectionResult:
-        """Synchronously process a single frame with optimizations - FIXED OVERLAY PROCESSING"""
+        """Synchronously process a single frame with optimizations"""
         start_time = time.time()
         
         try:
@@ -417,7 +439,7 @@ class OptimizedDetectionProcessor:
             if torch.cuda.is_available() and self.processing_stats['frames_processed'] % 50 == 0:
                 torch.cuda.empty_cache()
             
-            # CRITICAL FIX: Perform detection and get frame with overlays
+            # Perform detection and get frame with overlays
             logger.debug(f"🔍 Processing frame for camera {request.camera_id}, target: '{request.target_label}'")
             
             detection_results = self.detection_system.detect_and_contour(frame, request.target_label)
@@ -434,8 +456,7 @@ class OptimizedDetectionProcessor:
             else:
                 # If single return value, it's the processed frame
                 processed_frame = detection_results
-                # Need to check if detection occurred based on frame analysis
-                detected_target = False  # Will be determined by overlay presence
+                detected_target = False
             
             processing_time = (time.time() - start_time) * 1000
             
@@ -471,7 +492,7 @@ class OptimizedDetectionProcessor:
                 non_target_count=non_target_count,
                 processing_time_ms=processing_time,
                 timestamp=time.time(),
-                processed_frame_data=processed_frame_data,  # Include processed frame
+                processed_frame_data=processed_frame_data,
                 frame_processed=overlay_created
             )
             
@@ -495,11 +516,37 @@ class OptimizedDetectionProcessor:
                 timestamp=time.time()
             )
     
+    def _wait_for_subscribers_sync(self, channel: str, timeout: float = 5.0) -> int:
+        """FIXED: Synchronous method to wait for subscribers using sync Redis client"""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                # Use sync Redis client for pubsub_numsub
+                subscribers_result = self.sync_redis_client.pubsub_numsub(channel)
+                
+                if subscribers_result and len(subscribers_result) > 0:
+                    subscriber_count = subscribers_result[0][1] if len(subscribers_result[0]) > 1 else 0
+                    
+                    if subscriber_count > 0:
+                        logger.info(f"✅ Found {subscriber_count} subscribers on {channel}")
+                        return subscriber_count
+                
+                # Wait a bit before checking again
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"❌ Error checking subscribers on {channel}: {e}")
+                time.sleep(0.5)
+        
+        logger.warning(f"⚠️ No subscribers found on {channel} after {timeout}s timeout")
+        return 0
+
     async def _send_result_to_redis(self, result: DetectionResult):
-        """CRITICAL FIX: Enhanced result sending with guaranteed pubsub delivery"""
+        """ENHANCED: Result sending with subscriber verification and retry logic"""
         try:
-            if not self.redis_client:
-                logger.error("❌ Redis client not initialized")
+            if not self.redis_client or not self.sync_redis_client:
+                logger.error("❌ Redis clients not initialized")
                 return
             
             # Create result dict for serialization
@@ -520,70 +567,125 @@ class OptimizedDetectionProcessor:
             # Store processed frame first (if available)
             if result.processed_frame_data:
                 processed_frame_key = f"processed_frame:{result.camera_id}:{result.session_id}"
-                await self.redis_client.setex(processed_frame_key, 10, result.processed_frame_data)
+                await self.redis_client.setex(processed_frame_key, 30, result.processed_frame_data)
                 self.processing_stats['frames_stored'] += 1
                 
                 logger.info(f"📦 STORED processed frame in Redis: {processed_frame_key}, size: {len(result.processed_frame_data)} bytes")
             
             # Store result with TTL
             result_key = f"detection_result:{result.camera_id}:{result.session_id}"
-            await self.redis_client.setex(result_key, 10, serialized_result)
+            await self.redis_client.setex(result_key, 30, serialized_result)
             
-            # CRITICAL FIX: Publish to ALL relevant channels and verify delivery
-            channels_to_publish = [
-                f"detection_results:{result.camera_id}",  # Specific camera channel
-                "detection_results:all",  # Global channel (optional)
-            ]
+            # CRITICAL FIX: Check for subscribers before publishing
+            channel = f"detection_results:{result.camera_id}"
+            
+            # FIXED: Use sync method to check subscribers
+            subscriber_count = await asyncio.get_event_loop().run_in_executor(
+                None, 
+                self._wait_for_subscribers_sync, 
+                channel, 
+                3.0
+            )
             
             total_subscribers = 0
-            for channel in channels_to_publish:
-                try:
-                    # Publish with retry mechanism
-                    max_publish_retries = 3
-                    for attempt in range(max_publish_retries):
-                        try:
-                            subscribers = await asyncio.wait_for(
-                                self.redis_client.publish(channel, serialized_result),
-                                timeout=2.0
-                            )
-                            total_subscribers += subscribers
-                            
-                            if subscribers > 0:
-                                logger.info(f"📡 PUBLISHED detection result to {channel}: {subscribers} subscribers received")
-                            else:
-                                logger.warning(f"⚠️ No subscribers for channel {channel}")
-                            
-                            break  # Success, exit retry loop
-                            
-                        except asyncio.TimeoutError:
-                            logger.warning(f"⚠️ Publish timeout for {channel}, attempt {attempt + 1}")
-                            if attempt == max_publish_retries - 1:
-                                logger.error(f"❌ Failed to publish to {channel} after {max_publish_retries} attempts")
-                        except Exception as pub_error:
-                            logger.error(f"❌ Error publishing to {channel}: {pub_error}")
-                            if attempt == max_publish_retries - 1:
-                                raise
-                            await asyncio.sleep(0.1)
-                            
-                except Exception as e:
-                    logger.error(f"❌ Failed to publish to channel {channel}: {e}")
+            if subscriber_count > 0:
+                # Publish with enhanced retry mechanism
+                published_count = await self._publish_with_retry(channel, serialized_result, max_retries=3)
+                total_subscribers += published_count
+                
+                if published_count > 0:
+                    logger.info(f"📡 PUBLISHED detection result to {channel}: {published_count} subscribers received")
+                else:
+                    logger.warning(f"⚠️ Failed to publish to {channel} despite {subscriber_count} subscribers")
+            else:
+                logger.warning(f"⚠️ Skipping publish to {channel} - no subscribers available")
             
             # Update stats
-            self.processing_stats['pubsub_messages_sent'] += len(channels_to_publish)
+            self.processing_stats['pubsub_messages_sent'] += 1
             self.processing_stats['detection_results_published'] += 1
             
             # Log success with subscriber count
             if total_subscribers > 0:
                 logger.info(f"✅ Detection result delivered to {total_subscribers} total subscribers for camera {result.camera_id}")
             else:
-                logger.warning(f"⚠️ Detection result processed but no active subscribers for camera {result.camera_id}")
+                logger.warning(f"⚠️ Detection result processed and stored but no active subscribers for camera {result.camera_id}")
+                
+                # DIAGNOSTIC: Log detailed info when no subscribers
+                logger.info(f"🔍 DIAGNOSTIC - Camera {result.camera_id}: "
+                        f"frame_stored={result.processed_frame_data is not None}, "
+                        f"result_stored=True, "
+                        f"target_detected={result.detected_target}")
             
             # DIAGNOSTIC: Log pubsub stats periodically
-            if self.processing_stats['detection_results_published'] % 10 == 0:
-                logger.info(f"📊 Pubsub Stats: {self.processing_stats['detection_results_published']} results published, {self.processing_stats['pubsub_messages_sent']} messages sent")
+            if self.processing_stats['detection_results_published'] % 5 == 0:
+                logger.info(f"📊 Pubsub Stats: {self.processing_stats['detection_results_published']} results published, "
+                        f"{self.processing_stats['pubsub_messages_sent']} messages sent")
             
         except Exception as e:
             logger.error(f"❌ Failed to send result to Redis: {e}")
+
+    async def _publish_with_retry(self, channel: str, message: bytes, max_retries: int = 3) -> int:
+        """Publish message with retry logic and return subscriber count"""
+        for attempt in range(max_retries):
+            try:
+                # Publish with timeout
+                subscribers = await asyncio.wait_for(
+                    self.redis_client.publish(channel, message),
+                    timeout=3.0
+                )
+                
+                if subscribers > 0:
+                    return subscribers
+                else:
+                    logger.warning(f"⚠️ Published to {channel} but 0 subscribers received (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.5)  # Brief delay before retry
+                        
+            except asyncio.TimeoutError:
+                logger.warning(f"⚠️ Publish timeout for {channel}, attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.error(f"❌ Error publishing to {channel} on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+        
+        logger.error(f"❌ Failed to publish to {channel} after {max_retries} attempts")
+        return 0
+
+    async def check_subscribers_for_camera(self, camera_id: int) -> Dict[str, Any]:
+        """Check subscriber status for a specific camera"""
+        try:
+            channel = f"detection_results:{camera_id}"
+            
+            # FIXED: Use sync Redis client to check subscribers
+            result = self.sync_redis_client.pubsub_numsub(channel)
+            subscriber_count = result[0][1] if result and len(result) > 0 and len(result[0]) > 1 else 0
+            
+            # Test publish
+            test_message = pickle.dumps({
+                'camera_id': camera_id,
+                'test': True,
+                'timestamp': time.time()
+            })
+            
+            published_count = await self.redis_client.publish(channel, test_message)
+            
+            return {
+                'camera_id': camera_id,
+                'channel': channel,
+                'subscriber_count': subscriber_count,
+                'test_published_to': published_count,
+                'redis_connected': True,
+                'status': 'success'
+            }
+            
+        except Exception as e:
+            return {
+                'camera_id': camera_id,
+                'error': str(e),
+                'status': 'error'
+            }
     
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get current performance statistics"""
@@ -604,8 +706,8 @@ class OptimizedDetectionProcessor:
             'frames_processed': frames_processed,
             'overlays_created': self.processing_stats['overlays_created'],
             'frames_stored': self.processing_stats['frames_stored'],
-            'pubsub_messages_sent': self.processing_stats['pubsub_messages_sent'],  # NEW
-            'detection_results_published': self.processing_stats['detection_results_published'],  # NEW
+            'pubsub_messages_sent': self.processing_stats['pubsub_messages_sent'],
+            'detection_results_published': self.processing_stats['detection_results_published'],
             'avg_processing_time_ms': round(avg_processing_time, 2),
             'queue_overflows': self.processing_stats['queue_overflows'],
             'timeouts': self.processing_stats['timeouts'],
@@ -614,6 +716,7 @@ class OptimizedDetectionProcessor:
             'device': str(self.device) if self.device else "unknown",
             'is_running': self.is_running,
             'redis_connected': self.redis_client is not None,
+            'sync_redis_connected': self.sync_redis_client is not None,
             'result_queue_size': self._result_queue.qsize() if self._result_queue else 0
         }
     
@@ -647,14 +750,22 @@ class OptimizedDetectionProcessor:
             self.executor.shutdown(wait=True)
             self.executor = None
         
-        # Close Redis connection
+        # Close Redis connections
         if self.redis_client:
             try:
                 await self.redis_client.aclose()
             except Exception as e:
-                logger.warning(f"⚠️ Error closing Redis connection: {e}")
+                logger.warning(f"⚠️ Error closing async Redis connection: {e}")
             finally:
                 self.redis_client = None
+        
+        if self.sync_redis_client:
+            try:
+                self.sync_redis_client.close()
+            except Exception as e:
+                logger.warning(f"⚠️ Error closing sync Redis connection: {e}")
+            finally:
+                self.sync_redis_client = None
         
         # Clear queues
         with self.queue_lock:

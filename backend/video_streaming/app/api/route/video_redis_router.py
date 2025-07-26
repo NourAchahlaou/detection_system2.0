@@ -8,6 +8,7 @@ import asyncio
 from typing import Optional
 
 # Import your existing services
+from video_streaming.app.service.redis_pubsub_diagnostic import diagnose_redis_pubsub_issues
 from video_streaming.app.db.session import get_session
 from video_streaming.app.service.camera import CameraService
 from video_streaming.app.service.videoStremManager import VideoStreamManager
@@ -410,3 +411,71 @@ async def shutdown_optimized_streaming():
         logger.info("Optimized streaming service shutdown complete")
     except Exception as e:
         logger.error(f"Error during optimized streaming shutdown: {e}")
+
+@optimized_router.get("/pubsub/{camera_id}")
+async def diagnose_pubsub_for_camera(camera_id: int):
+    """Diagnose Redis pubsub issues for a specific camera"""
+    try:
+        results = await diagnose_redis_pubsub_issues(
+            camera_id=camera_id,
+            redis_host="redis",  # Adjust if different
+            redis_port=6379
+        )
+        return {
+            "status": "success",
+            "camera_id": camera_id,
+            "diagnostic_results": results,
+            "summary": {
+                "total_tests": len(results['tests']),
+                "passed_tests": sum(1 for test in results['tests'].values() if test.get('status') == 'success'),
+                "failed_tests": sum(1 for test in results['tests'].values() if test.get('status') == 'error'),
+                "recommendations_count": len(results['recommendations'])
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Diagnostic failed: {str(e)}")
+
+@optimized_router.post("/pubsub/{camera_id}/fix")
+async def attempt_pubsub_fix(camera_id: int):
+    """Attempt to fix pubsub issues for a specific camera"""
+    try:
+        from video_streaming.app.service.videoStreamingRedis import optimized_stream_manager
+        
+        # First run diagnostics
+        results = await diagnose_redis_pubsub_issues(camera_id)
+        
+        fixes_attempted = []
+        
+        # Find the stream for this camera
+        stream_found = False
+        for stream_key, stream_state in optimized_stream_manager.active_streams.items():
+            if stream_state.config.camera_id == camera_id:
+                stream_found = True
+                
+                # Attempt to reconnect pubsub
+                try:
+                    await stream_state._reconnect_pubsub()
+                    fixes_attempted.append("Reconnected pubsub connection")
+                except Exception as e:
+                    fixes_attempted.append(f"Failed to reconnect pubsub: {e}")
+                
+                # Clear any stale overlay data
+                async with stream_state.frame_lock:
+                    stream_state.has_recent_detection = False
+                    stream_state.latest_frame_with_overlay = None
+                    fixes_attempted.append("Cleared stale overlay data")
+                
+                break
+        
+        if not stream_found:
+            fixes_attempted.append("No active stream found for this camera")
+        
+        return {
+            "status": "success",
+            "camera_id": camera_id,
+            "fixes_attempted": fixes_attempted,
+            "diagnostic_results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fix attempt failed: {str(e)}")
