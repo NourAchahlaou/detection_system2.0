@@ -15,10 +15,12 @@ from video_streaming.app.service.videoStremManager import VideoStreamManager
 
 # Import the new optimized services
 from video_streaming.app.service.videoStreamingRedis import (
+    generate_enhanced_video_frames_with_detection,
     optimized_stream_manager,
-    generate_optimized_video_frames_with_detection,
+    generate_enhanced_video_frames_with_detection,
     StreamConfig
 )
+from video_streaming.app.service.service_readiness_manager import service_readiness_manager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO,
@@ -37,21 +39,23 @@ optimized_router = APIRouter(
 )
 
 @optimized_router.get("/stream_with_detection/{camera_id}")
-async def optimized_video_stream_with_detection(
+async def enhanced_video_stream_with_detection(
     camera_id: int, 
     target_label: str = Query(..., description="Target object to detect"),
     detection_fps: float = Query(5.0, description="Detection processing FPS", ge=1.0, le=25.0),
     stream_quality: int = Query(85, description="JPEG quality", ge=50, le=95),
+    wait_for_service: bool = Query(True, description="Wait for detection service to be ready"),
     db: Session = Depends(get_session)
 ):
     """
-    Optimized video streaming endpoint with Redis-based real-time detection
+    ENHANCED video streaming with service readiness pattern and circuit breaker
     
     Features:
-    - Non-blocking frame processing via Redis queues
-    - Adaptive frame skipping for optimal performance
-    - Intelligent quality adjustment based on load
-    - Efficient memory usage with frame pooling
+    - Service readiness verification before starting streams
+    - Circuit breaker pattern to prevent cascading failures
+    - Graceful degradation when detection service is unavailable
+    - Automatic service recovery when detection service comes back online
+    - Enhanced error handling and diagnostics
     """
     try:
         # Validate camera exists
@@ -59,13 +63,43 @@ async def optimized_video_stream_with_detection(
         if not camera:
             raise HTTPException(status_code=404, detail=f"Camera {camera_id} not found")
         
-        # Generate unique consumer ID
-        consumer_id = f"optimized_consumer_{uuid.uuid4().hex[:8]}_{camera_id}"
+        # Check detection service readiness BEFORE starting stream
+        if wait_for_service and target_label:
+            logger.info(f"🔍 Checking detection service readiness for camera {camera_id}...")
+            
+            service_ready = await service_readiness_manager.is_detection_service_ready()
+            
+            if not service_ready:
+                # Get detailed service status for error message
+                service_status = service_readiness_manager.get_service_status()
+                
+                if service_status['circuit_breaker']['is_open']:
+                    raise HTTPException(
+                        status_code=503, 
+                        detail={
+                            "error": "Detection service circuit breaker is open",
+                            "retry_after_seconds": service_status['circuit_breaker']['time_until_retry'],
+                            "service_status": service_status,
+                            "suggestion": "Try again later or set wait_for_service=false for streaming without detection"
+                        }
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=503, 
+                        detail={
+                            "error": "Detection service is not ready", 
+                            "service_status": service_status,
+                            "suggestion": "Set wait_for_service=false to stream without detection, or try /enhanced/force_recovery"
+                        }
+                    )
         
-        logger.info(f"Starting optimized detection stream for camera {camera_id}")
+        # Generate unique consumer ID
+        consumer_id = f"enhanced_consumer_{uuid.uuid4().hex[:8]}_{camera_id}"
+        
+        logger.info(f"Starting ENHANCED detection stream for camera {camera_id} with readiness pattern")
         
         return StreamingResponse(
-            generate_optimized_video_frames_with_detection(
+            generate_enhanced_video_frames_with_detection(
                 camera_id=camera_id,
                 target_label=target_label,
                 consumer_id=consumer_id
@@ -78,9 +112,10 @@ async def optimized_video_stream_with_detection(
                 "Connection": "close",
                 "X-Consumer-ID": consumer_id,
                 "X-Detection-Target": target_label,
-                "X-Stream-Type": "optimized-redis",
+                "X-Stream-Type": "enhanced-service-readiness",
                 "X-Detection-FPS": str(detection_fps),
-                "X-Stream-Quality": str(stream_quality)
+                "X-Stream-Quality": str(stream_quality),
+                "X-Service-Pattern": "circuit-breaker-with-graceful-degradation"
             }
         )
         
@@ -124,7 +159,7 @@ async def optimized_video_stream_without_detection(
         )
         
         return StreamingResponse(
-            generate_optimized_video_frames_with_detection(
+            generate_enhanced_video_frames_with_detection(
                 camera_id=camera_id,
                 target_label="",  # No detection
                 consumer_id=consumer_id

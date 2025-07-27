@@ -1,9 +1,10 @@
-# redis_video_streaming_service.py - FIXED PubSub Connection Issues
+# enhanced_redis_video_streaming_service.py - FIXED with Service Readiness Pattern
 import cv2
 import asyncio
 import logging
 import redis.asyncio as async_redis
-import redis
+import redis as sync_redis
+import redis.exceptions as redis_exceptions
 import pickle
 import numpy as np
 import aiohttp
@@ -14,6 +15,9 @@ from dataclasses import dataclass, field
 from collections import deque
 import threading
 from datetime import datetime
+
+# Import the service readiness manager
+from video_streaming.app.service.service_readiness_manager import service_readiness_manager
 
 logger = logging.getLogger(__name__)
 
@@ -99,22 +103,22 @@ class AdaptiveFrameProcessor:
         
         return self.current_quality
 
-class OptimizedStreamManager:
-    """Manages optimized video streams with Redis-based detection"""
+class GlobalStreamManager:
+    """ENHANCED global stream manager with service readiness pattern"""
     
     def __init__(self):
         # Redis connection with connection pooling (sync for stats)
-        self.redis_pool = redis.ConnectionPool(
+        self.redis_pool = sync_redis.ConnectionPool(
             host=REDIS_HOST,
             port=REDIS_PORT,
             db=0,
             max_connections=20,
             retry_on_timeout=True
         )
-        self.redis_client = redis.Redis(connection_pool=self.redis_pool)
+        self.redis_client = sync_redis.Redis(connection_pool=self.redis_pool)
         
         # Active streams
-        self.active_streams: Dict[str, 'OptimizedStreamState'] = {}
+        self.active_streams: Dict[str, 'StreamState'] = {}
         self.stream_lock = asyncio.Lock()
         
         # Performance monitoring
@@ -122,21 +126,49 @@ class OptimizedStreamManager:
             'total_frames_streamed': 0,
             'total_frames_detected': 0,
             'active_streams_count': 0,
-            'redis_operations': 0
+            'redis_operations': 0,
+            'detection_service_ready_checks': 0,
+            'detection_connections_established': 0,
+            'detection_connections_failed': 0
         }
+        
+        # Service readiness tracking
+        self.detection_service_ready = False
+        self.last_readiness_check = 0
     
-    async def create_stream(self, config: StreamConfig) -> str:
-        """Create a new optimized stream"""
+    async def create_stream_with_readiness_check(self, config: StreamConfig) -> str:
+        """Create a new stream with service readiness verification"""
         stream_key = f"{config.camera_id}_{config.session_id}"
         
         async with self.stream_lock:
             if stream_key not in self.active_streams:
-                stream_state = OptimizedStreamState(config, self.redis_client)
+                # CRITICAL: Check detection service readiness before creating detection-enabled streams
+                if config.detection_enabled:
+                    logger.info(f"🔍 Checking detection service readiness for camera {config.camera_id}...")
+                    
+                    self.stats['detection_service_ready_checks'] += 1
+                    
+                    # Use service readiness manager to check if detection service is ready
+                    detection_ready = await service_readiness_manager.is_detection_service_ready()
+                    
+                    if detection_ready:
+                        logger.info(f"✅ Detection service is ready for camera {config.camera_id}")
+                        self.stats['detection_connections_established'] += 1
+                        self.detection_service_ready = True
+                    else:
+                        logger.warning(f"⚠️ Detection service not ready for camera {config.camera_id}, disabling detection")
+                        self.stats['detection_connections_failed'] += 1
+                        # Graceful degradation: disable detection but continue streaming
+                        config.detection_enabled = False
+                        self.detection_service_ready = False
+                
+                # Create stream state
+                stream_state = StreamState(config, self.redis_client)
                 await stream_state.initialize()
                 self.active_streams[stream_key] = stream_state
                 self.stats['active_streams_count'] = len(self.active_streams)
                 
-                logger.info(f"Created optimized stream: {stream_key}")
+                logger.info(f"✅ Created enhanced stream: {stream_key} (detection: {config.detection_enabled})")
             
             return stream_key
     
@@ -150,50 +182,59 @@ class OptimizedStreamManager:
                 
                 logger.info(f"Removed stream: {stream_key}")
     
-    def get_stream(self, stream_key: str) -> Optional['OptimizedStreamState']:
+    def get_stream(self, stream_key: str) -> Optional['StreamState']:
         """Get stream by key"""
         return self.active_streams.get(stream_key)
     
     def get_performance_stats(self) -> Dict[str, Any]:
-        """Get overall performance statistics"""
+        """Get comprehensive service health status"""
         try:
-            # Get Redis connection pool info safely
+            # Get service readiness status
+            readiness_status = service_readiness_manager.get_service_status()
+            
+            # Get Redis connection pool info
             redis_pool_info = self._get_redis_pool_info()
+            
+            # Count streams by type
+            detection_enabled_streams = 0
+            detection_disabled_streams = 0
+            
+            for stream_state in self.active_streams.values():
+                if stream_state.config.detection_enabled:
+                    detection_enabled_streams += 1
+                else:
+                    detection_disabled_streams += 1
             
             return {
                 **self.stats,
                 **redis_pool_info,
+                'detection_enabled_streams': detection_enabled_streams,
+                'detection_disabled_streams': detection_disabled_streams,
+                'service_readiness': readiness_status,
                 'timestamp': datetime.now().isoformat()
             }
         except Exception as e:
-            logger.error(f"Error getting performance stats: {e}")
+            logger.error(f"Error getting service health status: {e}")
             return {
                 **self.stats,
-                'redis_pool_available': 0,
-                'redis_pool_created': 0,
-                'redis_pool_max': 20,
-                'timestamp': datetime.now().isoformat(),
-                'stats_error': str(e)
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
             }
     
     def _get_redis_pool_info(self) -> Dict[str, Any]:
         """Safely get Redis connection pool information"""
         try:
-            # Get connection pool stats safely
             pool = self.redis_pool
             max_connections = pool.connection_kwargs.get('max_connections', 20)
             
-            # Get current pool state
             created_connections = getattr(pool, '_created_connections', 0)
             available_connections = getattr(pool, '_available_connections', [])
             
-            # Handle different types of available_connections
             if hasattr(available_connections, '__len__'):
                 available_count = len(available_connections)
             else:
                 available_count = 0
             
-            # Handle different types of created_connections
             if isinstance(created_connections, int):
                 created_count = created_connections
             elif hasattr(created_connections, '__len__'):
@@ -217,16 +258,16 @@ class OptimizedStreamManager:
                 'redis_pool_in_use': 0
             }
 
-class OptimizedStreamState:
-    """FIXED stream state with reliable pubsub connection management"""
+class StreamState:
+    """ENHANCED stream state with service readiness integration"""
     
-    def __init__(self, config: StreamConfig, redis_client: redis.Redis):
+    def __init__(self, config: StreamConfig, redis_client: sync_redis.Redis):
         self.config = config
-        self.redis_client = redis_client  # Sync Redis client for sending detection requests
+        self.redis_client = redis_client
         
         # Create ASYNC Redis clients with proper connection management
         self.async_redis_client = None
-        self.pubsub_redis_client = None  # Dedicated client for pubsub
+        self.pubsub_redis_client = None
         
         # Stream management
         self.is_active = False
@@ -235,71 +276,94 @@ class OptimizedStreamState:
         
         # Frame processing
         self.frame_processor = AdaptiveFrameProcessor(config)
-        self.latest_frame_original = None  # Store original frame
-        self.latest_frame_with_overlay = None  # Store processed frame with overlays
+        self.latest_frame_original = None
+        self.latest_frame_with_overlay = None
         self.frame_lock = asyncio.Lock()
         
         # Detection state
         self.last_detection_result = None
         self.detection_subscriber_task = None
-        self.has_recent_detection = False  # Track if we have recent detection overlay
-        self.overlay_last_updated = 0  # Track when overlay was last updated
-        self.connection_monitor_task = None  # NEW: Monitor pubsub connection
+        self.has_recent_detection = False
+        self.overlay_last_updated = 0
+        self.connection_monitor_task = None
         
         # Performance tracking
         self.frame_count = 0
         self.detection_count = 0
         self.last_frame_time = 0
-        self.overlay_served_count = 0  # Track how many overlay frames served
-        self.original_served_count = 0  # Track how many original frames served
+        self.overlay_served_count = 0
+        self.original_served_count = 0
         
         # HTTP session for camera communication
         self.session = None
         self.frame_producer_task = None
         
-        # DEBUG: Connection tracking
+        # Enhanced connection tracking
         self.pubsub_connected = False
         self.detection_messages_received = 0
         self.processed_frames_retrieved = 0
         self.connection_attempts = 0
         self.last_connection_attempt = 0
         
-        # NEW: Connection health monitoring
+        # Service readiness integration
+        self.detection_service_ready = False
+        self.readiness_check_count = 0
+        self.graceful_degradation_active = False
+        
+        # Connection health monitoring
         self.pubsub = None
         self.subscription_confirmed = False
         self.last_heartbeat = 0
         
     async def initialize(self):
-        """Initialize stream state with robust connection management"""
+        """Initialize stream state with service readiness checks"""
         try:
-            logger.info(f"🚀 Initializing stream for camera {self.config.camera_id}")
-            
-            # Create dedicated async Redis clients
-            await self._create_redis_clients()
+            logger.info(f"🚀 Initializing enhanced stream for camera {self.config.camera_id}")
             
             # Create HTTP session
             timeout = aiohttp.ClientTimeout(total=None)
             self.session = aiohttp.ClientSession(timeout=timeout)
             
-            # Start detection result subscriber FIRST and wait for confirmation
+            # CRITICAL: Only initialize detection if service is ready
             if self.config.detection_enabled:
-                await self._start_pubsub_with_confirmation()
+                logger.info(f"🔍 Verifying detection service readiness for camera {self.config.camera_id}")
                 
-            # Start connection monitor
-            self.connection_monitor_task = asyncio.create_task(
-                self._connection_monitor()
-            )
+                # Double-check detection service readiness
+                detection_ready = await service_readiness_manager.is_detection_service_ready()
+                
+                if detection_ready:
+                    logger.info(f"✅ Detection service confirmed ready, initializing pubsub for camera {self.config.camera_id}")
+                    
+                    # Create dedicated async Redis clients
+                    await self._create_redis_clients()
+                    
+                    # Start detection result subscriber with confirmation
+                    await self._start_pubsub_with_confirmation()
+                    
+                    # Start connection monitor
+                    self.connection_monitor_task = asyncio.create_task(
+                        self._connection_monitor()
+                    )
+                    
+                    self.detection_service_ready = True
+                    
+                else:
+                    logger.warning(f"⚠️ Detection service not ready, enabling graceful degradation for camera {self.config.camera_id}")
+                    self.config.detection_enabled = False
+                    self.graceful_degradation_active = True
+                    self.detection_service_ready = False
             
-            # Start frame producer
+            # Start frame producer (always needed for streaming)
             self.frame_producer_task = asyncio.create_task(
                 self._frame_producer()
             )
             
             self.is_active = True
-            logger.info(f"✅ Initialized optimized stream for camera {self.config.camera_id} (detection: {self.config.detection_enabled})")
+            logger.info(f"✅ Enhanced stream initialized for camera {self.config.camera_id} "
+                       f"(detection: {self.config.detection_enabled}, degradation: {self.graceful_degradation_active})")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize stream: {e}")
+            logger.error(f"❌ Failed to initialize enhanced stream: {e}")
             await self.cleanup()
             raise
     
@@ -317,7 +381,8 @@ class OptimizedStreamState:
                 health_check_interval=30,
                 retry_on_timeout=True,
                 socket_connect_timeout=10,
-                socket_timeout=30
+                socket_timeout=30,
+                max_connections=20
             )
             
             # Dedicated pubsub client with optimized settings
@@ -328,11 +393,11 @@ class OptimizedStreamState:
                 decode_responses=False,
                 socket_keepalive=True,
                 socket_keepalive_options={},
-                health_check_interval=15,  # More frequent health checks for pubsub
+                health_check_interval=15,
                 retry_on_timeout=True,
                 socket_connect_timeout=10,
-                socket_timeout=60,  # Longer timeout for pubsub
-                max_connections=5  # Limit connections for pubsub client
+                socket_timeout=60,
+                max_connections=5
             )
             
             # Test both connections
@@ -346,7 +411,7 @@ class OptimizedStreamState:
             raise
     
     async def _start_pubsub_with_confirmation(self):
-        """Start pubsub connection and wait for confirmation"""
+        """Start pubsub connection with enhanced readiness verification"""
         max_attempts = 5
         
         for attempt in range(max_attempts):
@@ -355,6 +420,10 @@ class OptimizedStreamState:
                 self.last_connection_attempt = time.time()
                 
                 logger.info(f"🔄 Attempting pubsub connection #{attempt + 1} for camera {self.config.camera_id}")
+                
+                # CRITICAL: Re-verify detection service is still ready
+                if not await service_readiness_manager.is_detection_service_ready():
+                    raise Exception("Detection service no longer ready during pubsub setup")
                 
                 # Create pubsub connection
                 self.pubsub = self.pubsub_redis_client.pubsub()
@@ -392,7 +461,7 @@ class OptimizedStreamState:
                     # Give a moment for the subscriber to be ready
                     await asyncio.sleep(0.5)
                     
-                    # Test the connection by publishing a test message
+                    # Test the connection by checking subscriber count
                     await self._test_pubsub_connection()
                     
                     logger.info(f"🎉 Pubsub connection ESTABLISHED for camera {self.config.camera_id}")
@@ -409,7 +478,11 @@ class OptimizedStreamState:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
         
         logger.error(f"❌ Failed to establish pubsub connection after {max_attempts} attempts for camera {self.config.camera_id}")
-        raise Exception("Could not establish pubsub connection")
+        
+        # Enable graceful degradation instead of failing completely
+        logger.warning(f"🔄 Enabling graceful degradation for camera {self.config.camera_id}")
+        self.config.detection_enabled = False
+        self.graceful_degradation_active = True
     
     async def _test_pubsub_connection(self):
         """Test pubsub connection by checking subscriber count"""
@@ -423,7 +496,6 @@ class OptimizedStreamState:
                 channel
             )
             
-            # pubsub_numsub returns [(channel, count), ...]
             if subscriber_count and len(subscriber_count) > 0:
                 count = subscriber_count[0][1] if len(subscriber_count[0]) > 1 else 0
                 if count > 0:
@@ -438,10 +510,10 @@ class OptimizedStreamState:
             return False
     
     async def _connection_monitor(self):
-        """Monitor pubsub connection health and reconnect if needed"""
-        logger.info(f"🔍 Starting connection monitor for camera {self.config.camera_id}")
+        """Monitor pubsub connection health with service readiness integration"""
+        logger.info(f"🔍 Starting enhanced connection monitor for camera {self.config.camera_id}")
         
-        reconnect_interval = 30  # Check every 30 seconds
+        reconnect_interval = 30
         
         while self.is_active and not self.stop_event.is_set():
             try:
@@ -450,38 +522,50 @@ class OptimizedStreamState:
                 if not self.is_active:
                     break
                 
-                # Check if pubsub is still healthy
-                if self.pubsub_connected and self.pubsub:
+                # Check if detection service is still ready
+                if self.config.detection_enabled and self.pubsub_connected:
                     try:
-                        # Test connection health
+                        # Quick service readiness check
+                        service_ready = await service_readiness_manager.is_detection_service_ready()
+                        
+                        if not service_ready:
+                            logger.warning(f"⚠️ Detection service no longer ready for camera {self.config.camera_id}, enabling graceful degradation")
+                            self.config.detection_enabled = False
+                            self.graceful_degradation_active = True
+                            await self._cleanup_pubsub()
+                            continue
+                        
+                        # Test pubsub connection health
                         await asyncio.wait_for(
                             self.pubsub_redis_client.ping(),
                             timeout=5.0
                         )
                         
-                        # Update heartbeat
                         self.last_heartbeat = time.time()
                         
-                        # Check if we're receiving messages
-                        if (time.time() - self.last_connection_attempt > 60 and 
-                            self.detection_messages_received == 0):
-                            logger.warning(f"⚠️ No detection messages received for camera {self.config.camera_id}, connection may be stale")
-                        
                     except Exception as e:
-                        logger.warning(f"⚠️ Pubsub health check failed for camera {self.config.camera_id}: {e}")
+                        logger.warning(f"⚠️ Connection health check failed for camera {self.config.camera_id}: {e}")
                         await self._reconnect_pubsub()
                 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"❌ Error in connection monitor: {e}")
+                logger.error(f"❌ Error in enhanced connection monitor: {e}")
         
-        logger.info(f"🛑 Connection monitor stopped for camera {self.config.camera_id}")
+        logger.info(f"🛑 Enhanced connection monitor stopped for camera {self.config.camera_id}")
     
     async def _reconnect_pubsub(self):
-        """Attempt to reconnect pubsub"""
+        """Attempt to reconnect pubsub with service readiness verification"""
         try:
-            logger.info(f"🔄 Attempting pubsub reconnection for camera {self.config.camera_id}")
+            logger.info(f"🔄 Attempting enhanced pubsub reconnection for camera {self.config.camera_id}")
+            
+            # CRITICAL: Check if detection service is still ready before reconnecting
+            if not await service_readiness_manager.is_detection_service_ready():
+                logger.warning(f"⚠️ Detection service not ready during reconnect attempt, enabling graceful degradation")
+                self.config.detection_enabled = False
+                self.graceful_degradation_active = True
+                await self._cleanup_pubsub()
+                return
             
             # Cancel existing subscriber task
             if self.detection_subscriber_task and not self.detection_subscriber_task.done():
@@ -504,10 +588,13 @@ class OptimizedStreamState:
             # Restart pubsub connection
             await self._start_pubsub_with_confirmation()
             
-            logger.info(f"✅ Pubsub reconnection successful for camera {self.config.camera_id}")
+            logger.info(f"✅ Enhanced pubsub reconnection successful for camera {self.config.camera_id}")
             
         except Exception as e:
-            logger.error(f"❌ Pubsub reconnection failed for camera {self.config.camera_id}: {e}")
+            logger.error(f"❌ Enhanced pubsub reconnection failed for camera {self.config.camera_id}: {e}")
+            # Enable graceful degradation on reconnection failure
+            self.config.detection_enabled = False
+            self.graceful_degradation_active = True
     
     async def _cleanup_pubsub(self):
         """Clean up pubsub resources"""
@@ -515,7 +602,7 @@ class OptimizedStreamState:
             if self.pubsub:
                 try:
                     await self.pubsub.unsubscribe()
-                    await asyncio.sleep(0.1)  # Give time for unsubscribe
+                    await asyncio.sleep(0.1)
                 except:
                     pass
                 try:
@@ -531,8 +618,8 @@ class OptimizedStreamState:
             logger.debug(f"Error cleaning up pubsub: {e}")
     
     async def _detection_result_subscriber(self):
-        """FIXED: Robust detection result subscriber with proper error handling"""
-        logger.info(f"🔊 Starting detection result subscriber for camera {self.config.camera_id}")
+        """Enhanced detection result subscriber with better error handling"""
+        logger.info(f"🔊 Starting enhanced detection result subscriber for camera {self.config.camera_id}")
         
         try:
             while self.is_active and not self.stop_event.is_set():
@@ -570,18 +657,18 @@ class OptimizedStreamState:
                         logger.warning(f"⚠️ No messages received for 30s on camera {self.config.camera_id}")
                     continue
                 except Exception as e:
-                    logger.error(f"❌ Error in detection subscriber: {e}")
+                    logger.error(f"❌ Error in enhanced detection subscriber: {e}")
                     await asyncio.sleep(1.0)
                     
         except asyncio.CancelledError:
-            logger.info(f"🛑 Detection subscriber cancelled for camera {self.config.camera_id}")
+            logger.info(f"🛑 Enhanced detection subscriber cancelled for camera {self.config.camera_id}")
         except Exception as e:
-            logger.error(f"❌ Fatal error in detection subscriber: {e}")
+            logger.error(f"❌ Fatal error in enhanced detection subscriber: {e}")
         finally:
-            logger.info(f"🛑 Detection subscriber stopped for camera {self.config.camera_id}")
+            logger.info(f"🛑 Enhanced detection subscriber stopped for camera {self.config.camera_id}")
     
     async def _handle_detection_result(self, result_data: Dict[str, Any]):
-        """ENHANCED: Handle incoming detection result and create/update overlay with debugging"""
+        """Handle incoming detection result with enhanced overlay management"""
         try:
             # Convert dict to DetectionResult
             result = DetectionResult(
@@ -602,11 +689,10 @@ class OptimizedStreamState:
             self.last_detection_result = result
             self.detection_count += 1
             
-            # ENHANCED: More aggressive overlay retrieval with multiple attempts
+            # Retrieve processed frame with multiple attempts
             processed_frame_data = None
             cache_key = f"processed_frame:{result.camera_id}:{result.session_id}"
             
-            # Try multiple times to get the processed frame
             max_attempts = 3
             for attempt in range(max_attempts):
                 try:
@@ -617,7 +703,6 @@ class OptimizedStreamState:
                     if processed_frame_data:
                         break
                         
-                    # If no data, wait a bit and try again
                     if attempt < max_attempts - 1:
                         await asyncio.sleep(0.1)
                         
@@ -634,53 +719,31 @@ class OptimizedStreamState:
                     
                     if overlay_frame is not None:
                         async with self.frame_lock:
-                            # CRITICAL FIX: Always update overlay frame regardless of detection status
-                            self.latest_frame_with_overlay = overlay_frame.copy()  # Make a copy
+                            self.latest_frame_with_overlay = overlay_frame.copy()
                             self.has_recent_detection = True
                             self.overlay_last_updated = time.time()
                             self.processed_frames_retrieved += 1
                             
                         logger.info(f"🎨 OVERLAY UPDATED for camera {self.config.camera_id} - "
                                 f"Target detected: {result.detected_target}, "
-                                f"Frame size: {overlay_frame.shape}, "
                                 f"Total overlays: {self.processed_frames_retrieved}")
-                        
-                        # DEBUGGING: Log frame characteristics
-                        if result.detected_target:
-                            unique_colors = len(np.unique(overlay_frame.reshape(-1, overlay_frame.shape[2]), axis=0))
-                            logger.info(f"🎯 TARGET OVERLAY - Unique colors: {unique_colors}, "
-                                    f"Mean brightness: {np.mean(overlay_frame):.1f}")
                     else:
                         logger.error(f"❌ Failed to decode processed frame for camera {self.config.camera_id}")
                 except Exception as e:
                     logger.error(f"❌ Error decoding processed frame: {e}")
             else:
-                logger.warning(f"⚠️ No processed frame found in cache: {cache_key} after {max_attempts} attempts")
-                
-                # DEBUGGING: Check if key exists with different session_id
-                try:
-                    pattern = f"processed_frame:{result.camera_id}:*"
-                    keys = await asyncio.get_event_loop().run_in_executor(
-                        None, self.redis_client.keys, pattern
-                    )
-                    if keys:
-                        logger.info(f"🔍 Found {len(keys)} processed frame keys for camera {result.camera_id}: "
-                                f"{[k.decode() if isinstance(k, bytes) else k for k in keys[:3]]}")
-                except Exception as e:
-                    logger.error(f"❌ Error checking for alternative keys: {e}")
+                logger.warning(f"⚠️ No processed frame found in cache: {cache_key}")
             
-            # Log detection events with more detail
+            # Log detection events
             if result.detected_target:
-                logger.info(f"🎯 TARGET '{self.config.target_label}' DETECTED in camera {self.config.camera_id}! "
-                        f"Overlay available: {self.has_recent_detection}")
+                logger.info(f"🎯 TARGET '{self.config.target_label}' DETECTED in camera {self.config.camera_id}!")
             
         except Exception as e:
             logger.error(f"❌ Error handling detection result: {e}")
-
     
     async def _frame_producer(self):
-        """Produce frames from camera and optionally send for detection"""
-        logger.info(f"🎥 Starting frame producer for camera {self.config.camera_id}")
+        """Enhanced frame producer with graceful degradation support"""
+        logger.info(f"🎥 Starting enhanced frame producer for camera {self.config.camera_id}")
         
         consecutive_failures = 0
         
@@ -705,8 +768,7 @@ class OptimizedStreamState:
                                 break
                                 
                             buffer.extend(chunk)
-                            
-                            # Process complete JPEG frames
+# Process complete JPEG frames
                             while True:
                                 jpeg_start = buffer.find(b'\xff\xd8')
                                 if jpeg_start == -1:
@@ -741,7 +803,7 @@ class OptimizedStreamState:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.error(f"Error in frame producer: {e}")
+                    logger.error(f"Error in enhanced frame producer: {e}")
                     consecutive_failures += 1
                     if consecutive_failures > 10:
                         logger.error("Too many consecutive failures, stopping producer")
@@ -749,10 +811,10 @@ class OptimizedStreamState:
                     await asyncio.sleep(1.0)
         
         finally:
-            logger.info(f"🛑 Frame producer stopped for camera {self.config.camera_id}")
+            logger.info(f"🛑 Enhanced frame producer stopped for camera {self.config.camera_id}")
     
     async def _process_frame(self, frame: np.ndarray):
-        """Process frame and optionally send for detection"""
+        """Enhanced frame processing with service readiness checks"""
         try:
             # Always update the latest original frame for streaming
             current_quality = self.frame_processor.get_current_quality()
@@ -765,24 +827,70 @@ class OptimizedStreamState:
                     self.frame_count += 1
                     self.last_frame_time = time.time()
             
-            # Send for detection if enabled and conditions are met
+            # Send for detection only if enabled and service is ready
             if (self.config.detection_enabled and 
+                not self.graceful_degradation_active and
                 self.frame_processor.should_process_for_detection()):
                 
-                await self._send_frame_for_detection(frame)
+                # Double-check detection service readiness before sending frames
+                if self.detection_service_ready and self.pubsub_connected:
+                    await self._send_frame_for_detection(frame)
+                else:
+                    # Service might have become unavailable, check occasionally
+                    if self.frame_count % 50 == 0:  # Check every 50 frames
+                        logger.debug(f"🔍 Periodic service readiness check for camera {self.config.camera_id}")
+                        await self._attempt_detection_service_recovery()
                 
         except Exception as e:
-            logger.error(f"Error processing frame: {e}")
+            logger.error(f"Error in enhanced frame processing: {e}")
+    
+    async def _attempt_detection_service_recovery(self):
+        """Attempt to recover detection service connection"""
+        try:
+            self.readiness_check_count += 1
+            
+            # Check if detection service is now ready
+            service_ready = await service_readiness_manager.is_detection_service_ready()
+            
+            if service_ready and self.graceful_degradation_active:
+                logger.info(f"🔄 Detection service recovered, attempting to re-enable detection for camera {self.config.camera_id}")
+                
+                # Try to re-enable detection
+                self.config.detection_enabled = True
+                self.graceful_degradation_active = False
+                
+                # Recreate Redis clients and pubsub connection
+                try:
+                    await self._create_redis_clients()
+                    await self._start_pubsub_with_confirmation()
+                    
+                    # Restart connection monitor
+                    if self.connection_monitor_task is None or self.connection_monitor_task.done():
+                        self.connection_monitor_task = asyncio.create_task(
+                            self._connection_monitor()
+                        )
+                    
+                    self.detection_service_ready = True
+                    logger.info(f"✅ Detection service recovery successful for camera {self.config.camera_id}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Detection service recovery failed: {e}")
+                    self.config.detection_enabled = False
+                    self.graceful_degradation_active = True
+                    self.detection_service_ready = False
+            
+        except Exception as e:
+            logger.error(f"❌ Error during detection service recovery attempt: {e}")
     
     async def _send_frame_for_detection(self, frame: np.ndarray):
-        """Send frame to Redis queue for detection processing with subscriber verification"""
+        """Enhanced frame sending with service readiness verification"""
         try:
-            # CRITICAL FIX: Check if we have active subscribers before sending
+            # CRITICAL: Verify pubsub connection before sending
             if not self.pubsub_connected or not self.subscription_confirmed:
                 logger.debug(f"⏸️ Skipping detection for camera {self.config.camera_id} - no active pubsub connection")
                 return
             
-            # Encode frame as bytes (no base64 overhead)
+            # Encode frame as bytes
             success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if not success:
                 return
@@ -790,14 +898,14 @@ class OptimizedStreamState:
             # Create detection request
             request_data = {
                 'camera_id': self.config.camera_id,
-                'frame_data': buffer.tobytes(),  # Raw bytes, no base64
+                'frame_data': buffer.tobytes(),
                 'target_label': self.config.target_label,
                 'timestamp': time.time(),
                 'session_id': self.config.session_id,
-                'priority': 1  # Normal priority
+                'priority': 1
             }
             
-            # Send to Redis queue (non-blocking) using sync client
+            # Send to Redis queue using sync client
             serialized_request = pickle.dumps(request_data)
             queue_length = await asyncio.get_event_loop().run_in_executor(
                 None, 
@@ -812,10 +920,14 @@ class OptimizedStreamState:
             # Log detection requests periodically
             if self.frame_count % 25 == 0:
                 subscriber_count = await self._get_subscriber_count()
-                logger.info(f"📤 Sent frame #{self.frame_count} for detection (camera {self.config.camera_id}, queue: {queue_length}, subscribers: {subscriber_count})")
+                logger.info(f"📤 Sent frame #{self.frame_count} for detection "
+                           f"(camera {self.config.camera_id}, queue: {queue_length}, subscribers: {subscriber_count})")
             
         except Exception as e:
             logger.error(f"Error sending frame for detection: {e}")
+            # Check if this might be a service readiness issue
+            if "connection" in str(e).lower() or "redis" in str(e).lower():
+                logger.warning(f"⚠️ Connection issue detected, may need to check service readiness")
     
     async def _get_subscriber_count(self) -> int:
         """Get current subscriber count for this camera's channel"""
@@ -836,18 +948,14 @@ class OptimizedStreamState:
             return 0
     
     async def add_consumer(self, consumer_id: str):
-        """Add a consumer to this stream with pubsub connection verification"""
+        """Add a consumer with enhanced readiness verification"""
         self.consumers.add(consumer_id)
         logger.info(f"👤 Added consumer {consumer_id} to camera {self.config.camera_id}. Total: {len(self.consumers)}")
         
-        # CRITICAL FIX: Ensure pubsub is connected when first consumer joins
-        if len(self.consumers) == 1 and self.config.detection_enabled:
-            if not self.pubsub_connected:
-                logger.info(f"🔄 First consumer joined, ensuring pubsub connection for camera {self.config.camera_id}")
-                try:
-                    await self._reconnect_pubsub()
-                except Exception as e:
-                    logger.error(f"❌ Failed to establish pubsub on consumer join: {e}")
+        # ENHANCED: Ensure detection is available when first consumer joins
+        if len(self.consumers) == 1 and self.graceful_degradation_active:
+            logger.info(f"🔄 First consumer joined, attempting detection service recovery for camera {self.config.camera_id}")
+            await self._attempt_detection_service_recovery()
     
     async def remove_consumer(self, consumer_id: str):
         """Remove a consumer from this stream"""
@@ -860,28 +968,29 @@ class OptimizedStreamState:
             await self.cleanup()
     
     async def get_latest_frame(self) -> Optional[bytes]:
-        """ENHANCED: Get the latest frame with improved overlay prioritization"""
+        """Enhanced frame retrieval with graceful degradation status"""
         async with self.frame_lock:
             current_time = time.time()
             
-            # ENHANCED: More lenient overlay freshness check
-            overlay_freshness_limit = 10.0  # Increased from 5.0 to 10.0 seconds
+            # Enhanced overlay freshness check
+            overlay_freshness_limit = 10.0
             
-            # Check if we have a recent detection overlay
-            if (self.has_recent_detection and 
+            # Check if we have a recent detection overlay (only if detection is enabled)
+            if (not self.graceful_degradation_active and
+                self.has_recent_detection and 
                 self.latest_frame_with_overlay is not None and
                 self.last_detection_result and
                 current_time - self.overlay_last_updated < overlay_freshness_limit):
                 
                 try:
-                    # ENHANCED: Use higher quality for overlay frames
-                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95]  # Increased quality
+                    # Use higher quality for overlay frames
+                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95]
                     success, buffer = cv2.imencode('.jpg', self.latest_frame_with_overlay, encode_params)
                     if success:
                         self.overlay_served_count += 1
                         
-                        # More frequent logging for debugging
-                        if self.overlay_served_count % 10 == 1:  # Log every 10 frames instead of 50
+                        # Log overlay serving
+                        if self.overlay_served_count % 10 == 1:
                             overlay_age = current_time - self.overlay_last_updated
                             logger.info(f"📺 SERVING OVERLAY frame #{self.overlay_served_count} "
                                     f"for camera {self.config.camera_id} "
@@ -895,11 +1004,13 @@ class OptimizedStreamState:
             if self.latest_frame_original is not None:
                 self.original_served_count += 1
                 
-                # More frequent logging for debugging
-                if self.original_served_count % 25 == 1:  # Log every 25 frames instead of 100
+                # Log original frame serving with degradation status
+                if self.original_served_count % 25 == 1:
                     total_served = self.overlay_served_count + self.original_served_count
                     overlay_ratio = (self.overlay_served_count / total_served * 100) if total_served > 0 else 0
-                    logger.info(f"📺 SERVING ORIGINAL frame for camera {self.config.camera_id} "
+                    degradation_msg = " (GRACEFUL DEGRADATION)" if self.graceful_degradation_active else ""
+                    
+                    logger.info(f"📺 SERVING ORIGINAL frame for camera {self.config.camera_id}{degradation_msg} "
                             f"- Overlay ratio: {overlay_ratio:.1f}% "
                             f"({self.overlay_served_count}/{total_served})")
                 
@@ -908,7 +1019,7 @@ class OptimizedStreamState:
             return None
     
     def get_performance_stats(self) -> Dict[str, Any]:
-        """Get performance statistics for this stream"""
+        """Enhanced performance statistics with service readiness info"""
         current_time = time.time()
         overlay_age = current_time - self.overlay_last_updated if self.overlay_last_updated > 0 else 0
         
@@ -933,16 +1044,21 @@ class OptimizedStreamState:
             'overlay_frames_served': self.overlay_served_count,
             'original_frames_served': self.original_served_count,
             'pubsub_connected': self.pubsub_connected,
-            'subscription_confirmed': self.subscription_confirmed,  # NEW
+            'subscription_confirmed': self.subscription_confirmed,
             'detection_messages_received': self.detection_messages_received,
             'processed_frames_retrieved': self.processed_frames_retrieved,
             'connection_attempts': self.connection_attempts,
-            'last_heartbeat': self.last_heartbeat
+            'last_heartbeat': self.last_heartbeat,
+            # Enhanced service readiness fields
+            'detection_service_ready': self.detection_service_ready,
+            'graceful_degradation_active': self.graceful_degradation_active,
+            'readiness_check_count': self.readiness_check_count,
+            'detection_enabled': self.config.detection_enabled
         }
     
     async def cleanup(self):
-        """Clean up stream resources"""
-        logger.info(f"🧹 Cleaning up stream for camera {self.config.camera_id}")
+        """Enhanced cleanup with service readiness manager integration"""
+        logger.info(f"🧹 Cleaning up enhanced stream for camera {self.config.camera_id}")
         
         self.is_active = False
         self.stop_event.set()
@@ -984,61 +1100,57 @@ class OptimizedStreamState:
             self.latest_frame_with_overlay = None
             self.has_recent_detection = False
         
-        logger.info(f"✅ Stream cleanup complete for camera {self.config.camera_id}")
+        logger.info(f"✅ Enhanced stream cleanup complete for camera {self.config.camera_id}")
 
-# Global optimized stream manager
-optimized_stream_manager = OptimizedStreamManager()
+# Global enhanced stream manager - FIXED instantiation
+optimized_stream_manager = GlobalStreamManager()
 
-async def generate_optimized_video_frames_with_detection(
+async def generate_enhanced_video_frames_with_detection(
     camera_id: int,
     target_label: str,
     consumer_id: str = None
 ) -> AsyncGenerator[bytes, None]:
-    """Generate video frames using the optimized Redis-based architecture with FIXED pubsub"""
+    """
+    Generate video frames using the enhanced Redis-based architecture with service readiness pattern
+    """
     
     if consumer_id is None:
-        consumer_id = f"consumer_{uuid.uuid4().hex[:8]}"
+        consumer_id = f"enhanced_consumer_{uuid.uuid4().hex[:8]}"
     
     # Create stream configuration
     config = StreamConfig(
         camera_id=camera_id,
         target_label=target_label,
-        detection_enabled=bool(target_label),  # Enable detection only if target_label is provided
-        detection_frequency=5.0,  # 5 FPS detection
+        detection_enabled=bool(target_label),
+        detection_frequency=5.0,
         session_id=str(uuid.uuid4())
     )
     
     stream_key = None
     
     try:
-        # CRITICAL FIX: Add startup delay to ensure detection service is ready
-        logger.info(f"🚀 Starting optimized stream for camera {camera_id}, target: '{target_label}', consumer: {consumer_id}")
+        logger.info(f"🚀 Starting ENHANCED stream for camera {camera_id}, target: '{target_label}', consumer: {consumer_id}")
         
-        # Create or get existing stream
-        stream_key = await optimized_stream_manager.create_stream(config)
+        # CRITICAL: Wait for detection service to be ready if detection is enabled
+        if config.detection_enabled:
+            logger.info(f"⏳ Waiting for detection service readiness...")
+            service_ready = await service_readiness_manager.wait_for_service_ready(timeout_seconds=30)
+            
+            if not service_ready:
+                logger.warning(f"⚠️ Detection service not ready after 30s, continuing with graceful degradation")
+                # Don't fail completely, just disable detection
+                config.detection_enabled = False
+        
+        # Create stream with readiness check
+        stream_key = await optimized_stream_manager.create_stream_with_readiness_check(config)
         stream_state = optimized_stream_manager.get_stream(stream_key)
         
         if not stream_state:
-            logger.error(f"❌ Failed to create stream for camera {camera_id}")
+            logger.error(f"❌ Failed to create enhanced stream for camera {camera_id}")
             return
         
-        # Add consumer (this will trigger pubsub connection if needed)
+        # Add consumer
         await stream_state.add_consumer(consumer_id)
-        
-        # CRITICAL FIX: Wait for pubsub connection to be established
-        if config.detection_enabled:
-            connection_timeout = 10  # 10 second timeout
-            start_time = time.time()
-            
-            while (time.time() - start_time < connection_timeout and 
-                   not stream_state.subscription_confirmed):
-                await asyncio.sleep(0.5)
-                logger.info(f"⏳ Waiting for pubsub connection for camera {camera_id}...")
-            
-            if stream_state.subscription_confirmed:
-                logger.info(f"✅ Pubsub connection confirmed for camera {camera_id}")
-            else:
-                logger.warning(f"⚠️ Pubsub connection timeout for camera {camera_id}, proceeding anyway")
         
         # Stream frames
         target_fps = config.target_fps
@@ -1047,9 +1159,9 @@ async def generate_optimized_video_frames_with_detection(
         frame_count = 0
         overlay_count = 0
         no_frame_count = 0
-        max_no_frame = 100  # Max consecutive frames with no data
+        max_no_frame = 100
         
-        logger.info(f"🎬 Starting frame streaming for camera {camera_id}")
+        logger.info(f"🎬 Starting ENHANCED frame streaming for camera {camera_id}")
         
         while stream_state.is_active and not stream_state.stop_event.is_set():
             frame_start_time = time.time()
@@ -1058,34 +1170,38 @@ async def generate_optimized_video_frames_with_detection(
                 frame_bytes = await stream_state.get_latest_frame()
                 
                 if frame_bytes is not None:
-                    no_frame_count = 0  # Reset counter
+                    no_frame_count = 0
                     
                     yield (b'--frame\r\n'
                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                     frame_count += 1
                     
-                    # Count overlay frames (check if this was an overlay)
-                    if (stream_state.has_recent_detection and 
+                    # Count overlay frames
+                    if (not stream_state.graceful_degradation_active and
+                        stream_state.has_recent_detection and 
                         stream_state.last_detection_result and
                         time.time() - stream_state.last_detection_result.timestamp < 3.0):
                         overlay_count += 1
                     
                     # Update manager stats
                     optimized_stream_manager.stats['total_frames_streamed'] += 1
-                    if config.detection_enabled:
+                    if config.detection_enabled and not stream_state.graceful_degradation_active:
                         optimized_stream_manager.stats['total_frames_detected'] += 1
                         
-                    # DEBUG: Log streaming progress and pubsub status
+                    # Enhanced logging with service status
                     if frame_count % 100 == 0:
                         overlay_ratio = (overlay_count / frame_count * 100) if frame_count > 0 else 0
                         subscriber_count = await stream_state._get_subscriber_count()
-                        logger.info(f"📊 Stream stats - Camera {camera_id}: frames={frame_count}, overlays={overlay_count}, "
+                        degradation_status = "DEGRADATION" if stream_state.graceful_degradation_active else "NORMAL"
+                        
+                        logger.info(f"📊 ENHANCED Stream stats - Camera {camera_id}: "
+                                   f"frames={frame_count}, overlays={overlay_count}, "
                                    f"overlay_ratio={overlay_ratio:.1f}%, subscribers={subscriber_count}, "
-                                   f"pubsub_connected={stream_state.pubsub_connected}")
+                                   f"status={degradation_status}, detection_ready={stream_state.detection_service_ready}")
                 else:
                     no_frame_count += 1
                     if no_frame_count > max_no_frame:
-                        logger.error(f"❌ No frames received for {max_no_frame} attempts, stopping stream for camera {camera_id}")
+                        logger.error(f"❌ No frames received for {max_no_frame} attempts, stopping enhanced stream for camera {camera_id}")
                         break
                     await asyncio.sleep(0.05)
                     continue
@@ -1097,26 +1213,33 @@ async def generate_optimized_video_frames_with_detection(
                     await asyncio.sleep(sleep_time)
                 
             except asyncio.CancelledError:
-                logger.info(f"🛑 Stream cancelled for camera {camera_id}, consumer {consumer_id}")
+                logger.info(f"🛑 Enhanced stream cancelled for camera {camera_id}, consumer {consumer_id}")
                 break
             except Exception as e:
-                logger.error(f"❌ Error in frame generation: {e}")
+                logger.error(f"❌ Error in enhanced frame generation: {e}")
                 await asyncio.sleep(0.1)
 
     except Exception as e:
-        logger.error(f"❌ Error in generate_optimized_video_frames_with_detection: {e}")
+        logger.error(f"❌ Error in generate_enhanced_video_frames_with_detection: {e}")
     finally:
         # Cleanup
         if stream_key and stream_state:
             await stream_state.remove_consumer(consumer_id)
         
-        logger.info(f"🏁 Optimized video stream stopped for camera {camera_id}, consumer {consumer_id} "
-                   f"(streamed {frame_count} frames, {overlay_count} with overlays)")
+        # Get final service readiness status for logging
+        service_status = service_readiness_manager.get_service_status()
+        
+        logger.info(f"🏁 ENHANCED video stream stopped for camera {camera_id}, consumer {consumer_id} "
+                   f"(streamed {frame_count} frames, {overlay_count} with overlays, "
+                   f"service_ready: {service_status['detection_service']['is_ready']})")
 
-# NEW: Add diagnostic functions to help debug pubsub issues
-async def diagnose_pubsub_connection(camera_id: int) -> Dict[str, Any]:
-    """Diagnostic function to check pubsub connection health"""
+# Enhanced diagnostic functions
+async def diagnose_enhanced_pubsub_connection(camera_id: int) -> Dict[str, Any]:
+    """Enhanced diagnostic function with service readiness integration"""
     try:
+        # Get service readiness status
+        readiness_status = service_readiness_manager.get_service_status()
+        
         # Create test Redis client
         redis_client = async_redis.Redis(
             host=REDIS_HOST,
@@ -1138,7 +1261,7 @@ async def diagnose_pubsub_connection(camera_id: int) -> Dict[str, Any]:
             'camera_id': camera_id,
             'test': True,
             'timestamp': time.time(),
-            'message': 'Diagnostic test message'
+            'message': 'Enhanced diagnostic test message'
         })
         
         published_count = await redis_client.publish(channel, test_message)
@@ -1152,6 +1275,9 @@ async def diagnose_pubsub_connection(camera_id: int) -> Dict[str, Any]:
             'subscriber_count': subscriber_count,
             'published_to_subscribers': published_count,
             'redis_connected': True,
+            'service_readiness': readiness_status,
+            'detection_service_ready': readiness_status['detection_service']['is_ready'],
+            'circuit_breaker_open': readiness_status['circuit_breaker']['is_open'],
             'timestamp': time.time()
         }
         
@@ -1161,35 +1287,53 @@ async def diagnose_pubsub_connection(camera_id: int) -> Dict[str, Any]:
             'camera_id': camera_id,
             'error': str(e),
             'redis_connected': False,
+            'service_readiness': service_readiness_manager.get_service_status(),
             'timestamp': time.time()
         }
 
-async def force_pubsub_reconnect(camera_id: int) -> Dict[str, Any]:
-    """Force reconnection of pubsub for a specific camera"""
+async def force_enhanced_service_recovery(camera_id: int = None) -> Dict[str, Any]:
+    """Force service recovery with circuit breaker reset"""
     try:
-        # Find the stream
-        for stream_key, stream_state in optimized_stream_manager.active_streams.items():
-            if stream_state.config.camera_id == camera_id:
-                logger.info(f"🔄 Forcing pubsub reconnect for camera {camera_id}")
-                await stream_state._reconnect_pubsub()
-                
-                return {
-                    'status': 'success',
-                    'message': f'Forced reconnect for camera {camera_id}',
-                    'camera_id': camera_id,
-                    'pubsub_connected': stream_state.pubsub_connected,
-                    'subscription_confirmed': stream_state.subscription_confirmed
-                }
+        logger.info(f"🔄 Forcing enhanced service recovery (camera: {camera_id or 'all'})")
+        
+        # Reset circuit breaker
+        await service_readiness_manager.force_circuit_breaker_reset()
+        
+        # Force readiness check
+        service_ready = await service_readiness_manager.is_detection_service_ready(force_check=True)
+        
+        recovery_actions = ["Circuit breaker reset", "Forced readiness check"]
+        
+        if camera_id:
+            # Find and recover specific camera stream
+            for stream_key, stream_state in optimized_stream_manager.active_streams.items():
+                if stream_state.config.camera_id == camera_id:
+                    await stream_state._attempt_detection_service_recovery()
+                    recovery_actions.append(f"Attempted recovery for camera {camera_id}")
+                    break
+        else:
+            # Recover all streams
+            recovery_count = 0
+            for stream_state in optimized_stream_manager.active_streams.values():
+                try:
+                    await stream_state._attempt_detection_service_recovery()
+                    recovery_count += 1
+                except Exception as e:
+                    logger.error(f"Error recovering stream for camera {stream_state.config.camera_id}: {e}")
+            
+            recovery_actions.append(f"Attempted recovery for {recovery_count} streams")
         
         return {
-            'status': 'error',
-            'message': f'No active stream found for camera {camera_id}',
-            'camera_id': camera_id
+            'status': 'success',
+            'service_ready': service_ready,
+            'recovery_actions': recovery_actions,
+            'service_readiness': service_readiness_manager.get_service_status(),
+            'timestamp': time.time()
         }
         
     except Exception as e:
         return {
             'status': 'error',
             'error': str(e),
-            'camera_id': camera_id
+            'timestamp': time.time()
         }

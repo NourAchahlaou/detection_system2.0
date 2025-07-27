@@ -316,3 +316,147 @@ async def diagnostic_pubsub(camera_id: int):
             "message": str(e),
             "camera_id": camera_id
         }    
+
+@redis_router.get("/ready")
+async def detection_service_ready():
+    """
+    Service readiness endpoint for circuit breaker pattern.
+    Returns 200 only when detection service is fully operational.
+    """
+    global _processor_initialized
+    
+    try:
+        # Check 1: Processor initialized
+        if not _processor_initialized:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "processor_initialized": False,
+                    "redis_connected": False,
+                    "pubsub_ready": False,
+                    "error": "Detection processor not initialized",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # Check 2: Get processor stats to verify it's running
+        try:
+            stats = detection_processor.get_performance_stats()
+            is_running = stats.get('is_running', False)
+            redis_connected = stats.get('redis_connected', False)
+            sync_redis_connected = stats.get('sync_redis_connected', False)
+        except Exception as e:
+            logger.error(f"Error getting processor stats: {e}")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "processor_initialized": _processor_initialized,
+                    "redis_connected": False,
+                    "pubsub_ready": False,
+                    "error": f"Cannot get processor stats: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # Check 3: Redis connections
+        if not redis_connected or not sync_redis_connected:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "processor_initialized": _processor_initialized,
+                    "redis_connected": redis_connected,
+                    "sync_redis_connected": sync_redis_connected,
+                    "pubsub_ready": False,
+                    "error": "Redis connections not established",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # Check 4: Pubsub functionality
+        pubsub_ready = False
+        pubsub_error = None
+        
+        try:
+            # Test pubsub by checking if we can publish a test message
+            test_channel = "readiness_test"
+            test_message = b"readiness_check"
+            
+            # Use the processor's sync Redis client
+            if hasattr(detection_processor, 'sync_redis_client') and detection_processor.sync_redis_client:
+                subscribers = detection_processor.sync_redis_client.publish(test_channel, test_message)
+                pubsub_ready = True  # Publishing worked, even if no subscribers
+            else:
+                pubsub_error = "Sync Redis client not available"
+                
+        except Exception as e:
+            pubsub_error = f"Pubsub test failed: {str(e)}"
+            logger.error(f"Pubsub readiness test failed: {e}")
+        
+        # Check 5: Processor is running
+        if not is_running:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "processor_initialized": _processor_initialized,
+                    "redis_connected": redis_connected,
+                    "sync_redis_connected": sync_redis_connected,
+                    "pubsub_ready": pubsub_ready,
+                    "processor_running": False,
+                    "error": "Detection processor is not running",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # All checks passed
+        if pubsub_ready:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "ready",
+                    "processor_initialized": True,
+                    "redis_connected": True,
+                    "sync_redis_connected": True,
+                    "pubsub_ready": True,
+                    "processor_running": True,
+                    "stats": {
+                        "frames_processed": stats.get('frames_processed', 0),
+                        "avg_processing_time_ms": stats.get('avg_processing_time_ms', 0),
+                        "queue_depth": stats.get('queue_depth', 0),
+                        "memory_usage_mb": stats.get('memory_usage_mb', 0),
+                        "device": stats.get('device', 'unknown')
+                    },
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready", 
+                    "processor_initialized": _processor_initialized,
+                    "redis_connected": redis_connected,
+                    "sync_redis_connected": sync_redis_connected,
+                    "pubsub_ready": False,
+                    "processor_running": is_running,
+                    "error": pubsub_error or "Pubsub not ready",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in readiness check: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "processor_initialized": _processor_initialized,
+                "redis_connected": False,
+                "pubsub_ready": False,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+        )    
