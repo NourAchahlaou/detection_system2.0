@@ -1135,7 +1135,8 @@ async def generate_enhanced_video_frames_with_detection(
     """
     Generate video frames using the enhanced Redis-based architecture with service readiness pattern
     """
-    
+    frame_count = 0
+    overlay_count = 0
     if consumer_id is None:
         consumer_id = f"enhanced_consumer_{uuid.uuid4().hex[:8]}"
     
@@ -1178,8 +1179,7 @@ async def generate_enhanced_video_frames_with_detection(
         target_fps = config.target_fps
         frame_time = 1.0 / target_fps
         
-        frame_count = 0
-        overlay_count = 0
+
         no_frame_count = 0
         max_no_frame = 100
         

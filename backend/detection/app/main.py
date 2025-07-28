@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from detection.app.api.route.detection_router import detection_router
 from detection.app.api.route.detection_redis_router import redis_router
-
+from detection.app.api.route.graceful_shutdown_endpoints import detection_shutdown_router   
 
 def create_application():
     application = FastAPI(
@@ -13,6 +13,7 @@ def create_application():
     )
     application.include_router(detection_router)
     application.include_router(redis_router)
+    application.include_router(detection_shutdown_router)
     return application
 
 app = create_application()

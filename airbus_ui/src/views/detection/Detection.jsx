@@ -1,4 +1,4 @@
-// pages/AppDetection.jsx - Fixed to pass setIsModelLoaded prop
+// pages/AppDetection.jsx - Fixed with smart health checking
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -56,11 +56,13 @@ export default function AppDetection() {
     memoryUsage: 0
   });
 
-  // Refs for cleanup and intervals
+  // FIXED: Smart health checking refs
   const healthCheckInterval = useRef(null);
   const statsInterval = useRef(null);
   const cleanupRef = useRef(false);
   const initializationAttempted = useRef(false);
+  const lastHealthCheck = useRef(null);
+  const isShuttingDown = useRef(false);
 
   // Initialize system on component mount
   useEffect(() => {
@@ -74,7 +76,7 @@ export default function AppDetection() {
       try {
         console.log("Starting system initialization...");
         
-        // Step 1: Initialize detection processor (your enhanced service handles this)
+        // Step 1: Initialize detection processor
         setInitializationStatus('Loading detection model...');
         const modelResult = await detectionService.loadModel();
         
@@ -86,13 +88,12 @@ export default function AppDetection() {
           throw new Error(modelResult.message || 'Failed to load detection model');
         }
         
-        // Step 2: Check system health
+        // Step 2: Check system health ONCE during initialization
         setInitializationStatus('Checking system health...');
-        await checkSystemHealth();
+        await performSingleHealthCheck();
         
-        // Step 3: Start monitoring
+        // Step 3: FIXED - Only start stats monitoring, no continuous health checks
         setInitializationStatus('Starting system monitoring...');
-        startHealthMonitoring();
         startStatsMonitoring();
         
         setInitializationStatus('System ready');
@@ -115,13 +116,56 @@ export default function AppDetection() {
     };
   }, []);
 
+  // FIXED: Single health check function (not continuous)
+  const performSingleHealthCheck = useCallback(async () => {
+    if (isShuttingDown.current) {
+      console.log("⏭️ Skipping health check - system is shutting down");
+      return;
+    }
+
+    try {
+      console.log("🩺 Performing single health check...");
+      const health = await detectionService.checkOptimizedHealth();
+      setSystemHealth(health);
+      lastHealthCheck.current = Date.now();
+      
+      if (!health.overall) {
+        console.warn("System health check failed:", health);
+        
+        // If detection service is unhealthy, try to re-initialize
+        if (health.detection.status === 'unhealthy' && !isShuttingDown.current) {
+          console.log("Detection service unhealthy, attempting re-initialization...");
+          try {
+            await detectionService.ensureInitialized();
+            // Retry health check after re-initialization
+            const retryHealth = await detectionService.checkOptimizedHealth();
+            setSystemHealth(retryHealth);
+            lastHealthCheck.current = Date.now();
+          } catch (reinitError) {
+            console.error("Re-initialization failed:", reinitError);
+          }
+        }
+      }
+      
+      console.log("✅ Health check completed:", health.overall ? "Healthy" : "Issues found");
+    } catch (error) {
+      console.error("Health check error:", error);
+      setSystemHealth({
+        streaming: { status: 'unhealthy', error: error.message },
+        detection: { status: 'unhealthy', error: error.message },
+        overall: false
+      });
+      lastHealthCheck.current = Date.now();
+    }
+  }, []);
+
   // Manual retry initialization
   const retryInitialization = useCallback(async () => {
     initializationAttempted.current = false;
     setModelLoadError(null);
     setIsModelLoaded(false);
+    isShuttingDown.current = false; // Reset shutdown flag
     
-    // Reset initialization state
     const initializeSystem = async () => {
       setIsInitializing(true);
       setInitializationStatus('Retrying initialization...');
@@ -129,7 +173,6 @@ export default function AppDetection() {
       try {
         console.log("Retrying system initialization...");
         
-        // Force re-initialization
         const modelResult = await detectionService.loadModel();
         
         if (modelResult.success) {
@@ -140,8 +183,7 @@ export default function AppDetection() {
           throw new Error(modelResult.message || 'Failed to load detection model');
         }
         
-        await checkSystemHealth();
-        startHealthMonitoring();
+        await performSingleHealthCheck();
         startStatsMonitoring();
         
         setInitializationStatus('System ready');
@@ -158,56 +200,22 @@ export default function AppDetection() {
     };
 
     await initializeSystem();
-  }, []);
+  }, [performSingleHealthCheck]);
 
-  // System health check with better error handling
-  const checkSystemHealth = useCallback(async () => {
-    try {
-      const health = await detectionService.checkOptimizedHealth();
-      setSystemHealth(health);
-      
-      if (!health.overall) {
-        console.warn("System health check failed:", health);
-        
-        // If detection service is unhealthy, try to re-initialize
-        if (health.detection.status === 'unhealthy') {
-          console.log("Detection service unhealthy, attempting re-initialization...");
-          try {
-            await detectionService.ensureInitialized();
-            // Retry health check after re-initialization
-            const retryHealth = await detectionService.checkOptimizedHealth();
-            setSystemHealth(retryHealth);
-          } catch (reinitError) {
-            console.error("Re-initialization failed:", reinitError);
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Health check error:", error);
-      setSystemHealth({
-        streaming: { status: 'unhealthy', error: error.message },
-        detection: { status: 'unhealthy', error: error.message },
-        overall: false
-      });
-    }
-  }, []);
+  // REMOVED: Continuous health monitoring - now only on-demand
 
-  // Start health monitoring
-  const startHealthMonitoring = useCallback(() => {
-    if (healthCheckInterval.current) {
-      clearInterval(healthCheckInterval.current);
-    }
-    
-    healthCheckInterval.current = setInterval(checkSystemHealth, 30000); // Every 30 seconds
-  }, [checkSystemHealth]);
-
-  // Start global stats monitoring
+  // FIXED: Only stats monitoring (much less frequent)
   const startStatsMonitoring = useCallback(() => {
     if (statsInterval.current) {
       clearInterval(statsInterval.current);
     }
     
     const updateGlobalStats = async () => {
+      if (isShuttingDown.current) {
+        console.log("⏭️ Skipping stats update - system is shutting down");
+        return;
+      }
+
       try {
         const stats = await detectionService.getAllStreamingStats();
         
@@ -224,11 +232,15 @@ export default function AppDetection() {
     };
 
     updateGlobalStats();
-    statsInterval.current = setInterval(updateGlobalStats, 5000); // Every 5 seconds
+    // FIXED: Reduced frequency - only every 10 seconds instead of 5
+    statsInterval.current = setInterval(updateGlobalStats, 10000);
   }, []);
 
   // Stop all monitoring
   const stopMonitoring = useCallback(() => {
+    console.log("🛑 Stopping all monitoring...");
+    isShuttingDown.current = true;
+    
     if (healthCheckInterval.current) {
       clearInterval(healthCheckInterval.current);
       healthCheckInterval.current = null;
@@ -239,14 +251,18 @@ export default function AppDetection() {
     }
   }, []);
 
-  // Comprehensive cleanup on unmount or page navigation
+  // FIXED: Enhanced cleanup with proper shutdown signaling
   useEffect(() => {
     const handleBeforeUnload = async (event) => {
       if (cleanupRef.current) return;
       cleanupRef.current = true;
+      isShuttingDown.current = true;
       
       try {
         console.log("Performing cleanup...");
+        
+        // Stop all monitoring first
+        stopMonitoring();
         
         // Stop all detection services
         if (isDetectionActive) {
@@ -257,19 +273,14 @@ export default function AppDetection() {
         await cameraService.stopCamera();
         await cameraService.cleanupTempPhotos();
         
-        // Stop monitoring
-        stopMonitoring();
-        
         console.log("Cleanup completed");
       } catch (error) {
         console.error("Error during cleanup:", error);
       }
     };
     
-    // Handle page unload
     window.addEventListener("beforeunload", handleBeforeUnload);
     
-    // Handle React unmount
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       handleBeforeUnload();
@@ -297,7 +308,6 @@ export default function AppDetection() {
     const selectedCameraId = event.target.value;
     console.log("Camera selection changed:", selectedCameraId);
     
-    // Validate camera exists
     const cameraExists = cameras.some(cam => cam.id.toString() === selectedCameraId.toString());
     if (cameraExists || selectedCameraId === '') {
       setSelectedCameraId(selectedCameraId);
@@ -308,7 +318,7 @@ export default function AppDetection() {
     }
   }, [cameras]);
   
-  // Enhanced detection start with validation and auto-initialization
+  // FIXED: Enhanced detection start with health check
   const handleStartDetection = useCallback(async () => {
     // Comprehensive validation
     if (!cameraId || cameraId === '') {
@@ -326,14 +336,9 @@ export default function AppDetection() {
       return;
     }
     
-    // Auto-ensure initialization before starting
-    try {
-      await detectionService.ensureInitialized();
-    } catch (error) {
-      console.error("Failed to ensure initialization:", error);
-      alert(`Initialization check failed: ${error.message}. Please try again.`);
-      return;
-    }
+    // FIXED: Perform health check before starting detection
+    console.log("🩺 Checking system health before starting detection...");
+    await performSingleHealthCheck();
     
     if (!systemHealth.overall) {
       const proceed = window.confirm(
@@ -350,19 +355,27 @@ export default function AppDetection() {
     }
     
     console.log("Starting detection with options:", detectionOptions);
+    isShuttingDown.current = false; // Reset shutdown flag when starting
     setIsDetectionActive(true);
-  }, [cameraId, targetLabel, isModelLoaded, systemHealth.overall, cameras, detectionOptions]);
+  }, [cameraId, targetLabel, isModelLoaded, systemHealth.overall, cameras, detectionOptions, performSingleHealthCheck]);
   
-  // Enhanced detection stop
+  // FIXED: Enhanced detection stop with post-shutdown health check
   const handleStopDetection = useCallback(async () => {
     console.log("Stopping detection...");
+    isShuttingDown.current = true;
     setIsDetectionActive(false);
-  }, []);
+    
+    // FIXED: Perform health check after shutdown to verify clean state
+    setTimeout(async () => {
+      console.log("🩺 Checking system health after detection stop...");
+      isShuttingDown.current = false; // Allow health check after shutdown
+      await performSingleHealthCheck();
+    }, 2000); // Wait 2 seconds for shutdown to complete
+  }, [performSingleHealthCheck]);
 
   // Handle target label changes with validation
   const handleTargetLabelChange = useCallback((event) => {
     const value = event.target.value;
-    // Basic validation - no special characters that might break detection
     const sanitizedValue = value.replace(/[<>"/\\&]/g, '');
     setTargetLabel(sanitizedValue);
   }, []);
@@ -375,7 +388,6 @@ export default function AppDetection() {
       const detectedCameras = await cameraService.detectCameras();
       setCameras(detectedCameras);
       
-      // Handle camera selection persistence
       if (selectedCameraId && !detectedCameras.some(cam => cam.id.toString() === selectedCameraId.toString())) {
         console.log("Previously selected camera no longer available, resetting selection");
         setSelectedCameraId('');
@@ -405,11 +417,27 @@ export default function AppDetection() {
     console.log("Detection options updated:", newOptions);
   }, []);
 
+  // FIXED: Manual health check button handler
+  const handleManualHealthCheck = useCallback(async () => {
+    console.log("🩺 Manual health check requested...");
+    await performSingleHealthCheck();
+  }, [performSingleHealthCheck]);
+
   // Performance status color helper
   const getPerformanceColor = (value, thresholds) => {
     if (value < thresholds.good) return 'success';
     if (value < thresholds.warning) return 'warning';
     return 'error';
+  };
+
+  // Helper to show when last health check was performed
+  const getHealthCheckAge = () => {
+    if (!lastHealthCheck.current) return 'Never';
+    const ageMs = Date.now() - lastHealthCheck.current;
+    const ageSeconds = Math.floor(ageMs / 1000);
+    if (ageSeconds < 60) return `${ageSeconds}s ago`;
+    const ageMinutes = Math.floor(ageSeconds / 60);
+    return `${ageMinutes}m ago`;
   };
 
   return (
@@ -464,15 +492,17 @@ export default function AppDetection() {
           <br />
           <small>
             Streaming: {systemHealth.streaming.status} | 
-            Detection: {systemHealth.detection.status}
+            Detection: {systemHealth.detection.status} | 
+            Last checked: {getHealthCheckAge()}
           </small>
           <Box sx={{ mt: 1 }}>
             <Button 
               variant="outlined" 
               size="small" 
-              onClick={checkSystemHealth}
+              onClick={handleManualHealthCheck}
+              disabled={isShuttingDown.current}
             >
-              Recheck Health
+              {isShuttingDown.current ? 'System Shutting Down...' : 'Check Health Now'}
             </Button>
           </Box>
         </Alert>
@@ -506,7 +536,7 @@ export default function AppDetection() {
               cameraId={cameraId}
               targetLabel={targetLabel}
               isModelLoaded={isModelLoaded && !isInitializing}
-              setIsModelLoaded={setIsModelLoaded} // FIXED: Add this prop
+              setIsModelLoaded={setIsModelLoaded}
               detectionOptions={detectionOptions}
             />
           </Stack>
@@ -537,23 +567,38 @@ export default function AppDetection() {
                   </Box>
                 )}
 
-                {/* System Health */}
+                {/* FIXED: System Health with last check time */}
                 <Box>
                   <Typography variant="subtitle2" color="textSecondary">
                     System Health
                   </Typography>
-                  <Chip
-                    label={
-                      isInitializing ? "Initializing" : 
-                      systemHealth.overall ? "Healthy" : "Issues Detected"
-                    }
-                    color={
-                      isInitializing ? "warning" :
-                      systemHealth.overall ? "success" : "error"
-                    }
-                    size="small"
-                    sx={{ mt: 0.5 }}
-                  />
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                    <Chip
+                      label={
+                        isInitializing ? "Initializing" : 
+                        isShuttingDown.current ? "Shutting Down" :
+                        systemHealth.overall ? "Healthy" : "Issues Detected"
+                      }
+                      color={
+                        isInitializing ? "warning" :
+                        isShuttingDown.current ? "info" :
+                        systemHealth.overall ? "success" : "error"
+                      }
+                      size="small"
+                    />
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={handleManualHealthCheck}
+                      disabled={isShuttingDown.current || isInitializing}
+                      sx={{ fontSize: '0.7rem', minWidth: 'auto', p: 0.5 }}
+                    >
+                      Check Now
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="textSecondary">
+                    Last checked: {getHealthCheckAge()}
+                  </Typography>
                 </Box>
 
                 <Divider />

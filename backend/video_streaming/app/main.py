@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from video_streaming.app.api.route.videoStreamRouter import video_router
 from video_streaming.app.api.route.videoStream_detection import detection_streaming_router
 from video_streaming.app.api.route.video_redis_router import optimized_router
-
+from video_streaming.app.api.route.graceful_shutdown_endpoints import streaming_shutdown_router
 def create_application():
     application = FastAPI(
         title="video streaming Service",
@@ -13,6 +13,7 @@ def create_application():
     application.include_router(video_router)
     application.include_router(detection_streaming_router)
     application.include_router(optimized_router)
+    application.include_router(streaming_shutdown_router)
     return application
 
 app = create_application()

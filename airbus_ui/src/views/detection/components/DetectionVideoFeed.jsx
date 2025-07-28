@@ -1,10 +1,19 @@
-// DetectionVideoFeed.jsx - Enhanced component with auto-initialization
+// DetectionVideoFeed.jsx - FIXED: Single initialization only
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Alert, CircularProgress, Typography, Chip } from "@mui/material";
 import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
 import LiveDetectionView from "../LiveDetectionView";
 import { detectionService } from "../detectionService";
+
+// GLOBAL state to prevent multiple initializations across all components
+let globalInitializationState = {
+  isInitialized: false,
+  isInitializing: false,
+  initializationPromise: null,
+  error: null,
+  modelLoaded: false
+};
 
 const DetectionVideoFeed = ({
   isDetectionActive,
@@ -13,7 +22,7 @@ const DetectionVideoFeed = ({
   cameraId,
   targetLabel,
   isModelLoaded,
-  onModelLoadedChange = () => {}, // Add fallback function to prevent errors
+  onModelLoadedChange = () => {},
   detectionOptions = {}
 }) => {
   const [videoUrl, setVideoUrl] = useState("");
@@ -34,141 +43,172 @@ const DetectionVideoFeed = ({
     error: null,
     isConnected: false
   });
+  
+  // Use global state for initialization
   const [initializationStatus, setInitializationStatus] = useState({
-    isInitializing: false,
-    initializationError: null,
+    isInitializing: globalInitializationState.isInitializing,
+    initializationError: globalInitializationState.error,
     initializationAttempts: 0
   });
-  const [performanceMetrics, setPerformanceMetrics] = useState(null);
   
   const videoRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const healthCheckIntervalRef = useRef(null);
-  const initializationAttemptedRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  // Initialize detection processor when component mounts or when model loading is attempted
-  useEffect(() => {
-    const initializeDetectionSystem = async () => {
-      // Prevent multiple initialization attempts
-      if (initializationAttemptedRef.current || initializationStatus.isInitializing) {
-        return;
+  // SINGLE initialization function that runs only once globally
+  const initializeDetectionSystemOnce = useCallback(async () => {
+    // If already initialized or initializing, don't do anything
+    if (globalInitializationState.isInitialized || globalInitializationState.isInitializing) {
+      console.log('🔄 Detection system already initialized or initializing, skipping...');
+      
+      // If initialization is in progress, wait for it
+      if (globalInitializationState.initializationPromise) {
+        try {
+          await globalInitializationState.initializationPromise;
+        } catch (error) {
+          console.error('Waiting for existing initialization failed:', error);
+        }
       }
+      
+      // Update local state to match global state
+      if (mountedRef.current) {
+        setInitializationStatus({
+          isInitializing: globalInitializationState.isInitializing,
+          initializationError: globalInitializationState.error,
+          initializationAttempts: 0
+        });
+        
+        onModelLoadedChange(globalInitializationState.modelLoaded);
+      }
+      return;
+    }
 
-      initializationAttemptedRef.current = true;
+    console.log('🚀 Starting SINGLE detection system initialization...');
+    
+    // Set global state
+    globalInitializationState.isInitializing = true;
+    globalInitializationState.error = null;
+    
+    // Update local state
+    if (mountedRef.current) {
       setInitializationStatus(prev => ({ 
         ...prev, 
         isInitializing: true, 
         initializationError: null 
       }));
+    }
 
+    // Create initialization promise
+    globalInitializationState.initializationPromise = (async () => {
       try {
-        console.log("Initializing detection system...");
+        console.log("🔧 Initializing detection processor...");
         
-        // First ensure the processor is initialized
+        // Initialize processor (this should be idempotent)
         const initResult = await detectionService.ensureInitialized();
-        console.log("Processor initialization result:", initResult);
+        console.log("✅ Processor initialization result:", initResult);
 
-        // Then load/check the model
+        // Load model (this should also be idempotent)
+        console.log("🤖 Loading detection model...");
         const modelResult = await detectionService.loadModel();
-        console.log("Model loading result:", modelResult);
+        console.log("✅ Model loading result:", modelResult);
         
-        // Notify parent component about model loading status
-        if (typeof onModelLoadedChange === 'function') {
+        // Update global state
+        globalInitializationState.isInitialized = true;
+        globalInitializationState.modelLoaded = modelResult.success;
+        globalInitializationState.isInitializing = false;
+        globalInitializationState.error = null;
+        
+        // Update local state if component is still mounted
+        if (mountedRef.current) {
+          setInitializationStatus({
+            isInitializing: false,
+            initializationError: null,
+            initializationAttempts: 0
+          });
+          
+          // Notify parent component
           onModelLoadedChange(modelResult.success);
         }
         
-        setInitializationStatus(prev => ({ 
-          ...prev, 
-          isInitializing: false,
-          initializationError: null
-        }));
-
-        console.log("Detection system initialized successfully");
+        console.log("✅ SINGLE detection system initialization completed successfully");
+        return { success: true };
 
       } catch (error) {
-        console.error("Failed to initialize detection system:", error);
+        console.error("❌ SINGLE detection system initialization failed:", error);
         
-        setInitializationStatus(prev => ({ 
-          ...prev, 
-          isInitializing: false,
-          initializationError: error.message,
-          initializationAttempts: prev.initializationAttempts + 1
-        }));
+        // Update global state
+        globalInitializationState.isInitializing = false;
+        globalInitializationState.error = error.message;
+        globalInitializationState.isInitialized = false;
+        globalInitializationState.modelLoaded = false;
         
-        // Notify parent component about failure
-        if (typeof onModelLoadedChange === 'function') {
+        // Update local state if component is still mounted
+        if (mountedRef.current) {
+          setInitializationStatus(prev => ({ 
+            ...prev, 
+            isInitializing: false,
+            initializationError: error.message,
+            initializationAttempts: prev.initializationAttempts + 1
+          }));
+          
+          // Notify parent component about failure
           onModelLoadedChange(false);
         }
         
-        // Reset the attempt flag to allow retry
-        initializationAttemptedRef.current = false;
+        throw error;
+      } finally {
+        // Clear the promise reference when done
+        globalInitializationState.initializationPromise = null;
       }
-    };
+    })();
 
-    // Initialize on component mount
-    initializeDetectionSystem();
-  }, []); // Empty dependency array - run once on mount
+    // Wait for initialization to complete
+    try {
+      await globalInitializationState.initializationPromise;
+    } catch (error) {
+      // Error already handled above
+    }
+  }, [onModelLoadedChange]);
 
-  // Retry initialization function
-  const retryInitialization = useCallback(async () => {
-    console.log("Retrying detection system initialization...");
-    initializationAttemptedRef.current = false;
-    setInitializationStatus(prev => ({ 
-      ...prev, 
-      initializationError: null 
-    }));
+  // Initialize ONLY ONCE when component mounts
+  useEffect(() => {
+    mountedRef.current = true;
     
-    // Re-run initialization
-    const initializeDetectionSystem = async () => {
-      if (initializationAttemptedRef.current || initializationStatus.isInitializing) {
-        return;
-      }
-
-      initializationAttemptedRef.current = true;
-      setInitializationStatus(prev => ({ 
-        ...prev, 
-        isInitializing: true 
-      }));
-
-      try {
-        const initResult = await detectionService.ensureInitialized();
-        const modelResult = await detectionService.loadModel();
-        
-        // Notify parent component
-        if (typeof onModelLoadedChange === 'function') {
-          onModelLoadedChange(modelResult.success);
-        }
-        
-        setInitializationStatus(prev => ({ 
-          ...prev, 
-          isInitializing: false,
-          initializationError: null
-        }));
-
-      } catch (error) {
-        console.error("Retry failed:", error);
-        
-        setInitializationStatus(prev => ({ 
-          ...prev, 
-          isInitializing: false,
-          initializationError: error.message,
-          initializationAttempts: prev.initializationAttempts + 1
-        }));
-        
-        // Notify parent component about failure
-        if (typeof onModelLoadedChange === 'function') {
-          onModelLoadedChange(false);
-        }
-        
-        initializationAttemptedRef.current = false;
-      }
+    // Initialize detection system (will only happen once globally)
+    initializeDetectionSystemOnce();
+    
+    return () => {
+      mountedRef.current = false;
     };
+  }, []); // Empty dependency array - run ONLY once on mount
 
-    await initializeDetectionSystem();
-  }, [initializationStatus.isInitializing, onModelLoadedChange]);
+  // Reset global state function (for manual retry)
+  const resetAndRetryInitialization = useCallback(async () => {
+    console.log("🔄 Manually resetting and retrying detection system initialization...");
+    
+    // Reset global state completely
+    globalInitializationState = {
+      isInitialized: false,
+      isInitializing: false,
+      initializationPromise: null,
+      error: null,
+      modelLoaded: false
+    };
+    
+    // Reset local state
+    setInitializationStatus({
+      isInitializing: false,
+      initializationError: null,
+      initializationAttempts: 0
+    });
+    
+    // Try initialization again
+    await initializeDetectionSystemOnce();
+  }, [initializeDetectionSystemOnce]);
 
   // Stats listener callback
   const handleStatsUpdate = useCallback((newStats) => {
+    if (!mountedRef.current) return;
+    
     setDetectionStats(prevStats => ({
       ...prevStats,
       ...newStats,
@@ -177,58 +217,6 @@ const DetectionVideoFeed = ({
         : (newStats.detectionCount || prevStats.detectionCount)
     }));
   }, []);
-
-  // Monitor video stream health
-  const monitorStreamHealth = useCallback(() => {
-    if (videoRef.current && isDetectionActive) {
-      const video = videoRef.current;
-      
-      const checkVideoHealth = () => {
-        if (video.readyState >= 2) {
-          setStreamStatus(prev => ({ ...prev, isConnected: true, error: null }));
-        } else if (video.networkState === 3) {
-          setStreamStatus(prev => ({ 
-            ...prev, 
-            isConnected: false, 
-            error: "Stream connection lost" 
-          }));
-        }
-      };
-
-      video.addEventListener('loadstart', () => {
-        setStreamStatus(prev => ({ ...prev, isLoading: true }));
-      });
-
-      video.addEventListener('loadeddata', () => {
-        setStreamStatus(prev => ({ ...prev, isLoading: false, isConnected: true }));
-      });
-
-      video.addEventListener('error', (e) => {
-        console.error("Video stream error:", e);
-        setStreamStatus(prev => ({ 
-          ...prev, 
-          isLoading: false, 
-          isConnected: false, 
-          error: "Stream error occurred" 
-        }));
-      });
-
-      video.addEventListener('stalled', () => {
-        setStreamStatus(prev => ({ ...prev, error: "Stream stalled" }));
-      });
-
-      const healthInterval = setInterval(checkVideoHealth, 5000);
-      healthCheckIntervalRef.current = healthInterval;
-
-      return () => {
-        clearInterval(healthInterval);
-        video.removeEventListener('loadstart', () => {});
-        video.removeEventListener('loadeddata', () => {});
-        video.removeEventListener('error', () => {});
-        video.removeEventListener('stalled', () => {});
-      };
-    }
-  }, [isDetectionActive]);
 
   // Enhanced detection start with proper initialization check
   const handleStartDetection = async () => {
@@ -242,26 +230,26 @@ const DetectionVideoFeed = ({
       return;
     }
 
-    // Check if initialization is in progress
-    if (initializationStatus.isInitializing) {
+    // Check global initialization state
+    if (globalInitializationState.isInitializing) {
       alert("Detection system is still initializing. Please wait...");
       return;
     }
 
     // If there's an initialization error, offer to retry
-    if (initializationStatus.initializationError) {
+    if (globalInitializationState.error) {
       const shouldRetry = window.confirm(
-        `Detection system initialization failed: ${initializationStatus.initializationError}\n\nWould you like to retry initialization?`
+        `Detection system initialization failed: ${globalInitializationState.error}\n\nWould you like to retry initialization?`
       );
       if (shouldRetry) {
-        await retryInitialization();
-        return; // Exit here, user can try starting detection again after retry
+        await resetAndRetryInitialization();
+        return;
       } else {
         return;
       }
     }
     
-    if (!isModelLoaded) {
+    if (!globalInitializationState.modelLoaded) {
       alert("Detection model is not loaded. Please wait for initialization to complete or try refreshing the page.");
       return;
     }
@@ -269,9 +257,6 @@ const DetectionVideoFeed = ({
     setStreamStatus({ isLoading: true, error: null, isConnected: false });
 
     try {
-      // Double-check that the system is properly initialized before starting
-      await detectionService.ensureInitialized();
-
       const streamUrl = await detectionService.startOptimizedDetectionFeed(
         parseInt(cameraId), 
         targetLabel, 
@@ -281,6 +266,8 @@ const DetectionVideoFeed = ({
           priority: detectionOptions.priority || 1
         }
       );
+
+      if (!mountedRef.current) return;
 
       setVideoUrl(streamUrl);
       detectionService.addStatsListener(parseInt(cameraId), handleStatsUpdate);
@@ -300,38 +287,33 @@ const DetectionVideoFeed = ({
       setStreamStatus({ isLoading: false, error: null, isConnected: true });
       onStartDetection();
 
-      console.log(`Started optimized detection for camera ${cameraId} with target: ${targetLabel}`);
+      console.log(`✅ Started optimized detection for camera ${cameraId} with target: ${targetLabel}`);
 
     } catch (error) {
-      console.error("Error starting optimized detection:", error);
+      console.error("❌ Error starting optimized detection:", error);
       
-      // If the error suggests the processor isn't initialized, try to reinitialize
-      if (error.message.includes('not initialized') || error.message.includes('503')) {
-        console.log("Processor seems uninitialized, attempting reinitialization...");
-        try {
-          await retryInitialization();
-          alert("Detection system was reinitialized. Please try starting detection again.");
-        } catch (reinitError) {
-          alert(`Failed to reinitialize detection system: ${reinitError.message}`);
-        }
-      } else {
-        setStreamStatus({ 
-          isLoading: false, 
-          error: error.message || "Failed to start detection", 
-          isConnected: false 
-        });
-        alert(`Failed to start detection: ${error.message}`);
-      }
+      if (!mountedRef.current) return;
+      
+      setStreamStatus({ 
+        isLoading: false, 
+        error: error.message || "Failed to start detection", 
+        isConnected: false 
+      });
+      alert(`Failed to start detection: ${error.message}`);
     }
   };
 
   // Handle stopping detection
   const handleStopDetection = async () => {
+    if (!mountedRef.current) return;
+    
     setStreamStatus(prev => ({ ...prev, isLoading: true }));
 
     try {
       detectionService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
-      await detectionService.stopOptimizedDetectionFeed(parseInt(cameraId));
+      await detectionService.stopOptimizedDetectionFeed(parseInt(cameraId), false); // Don't shutdown system
+      
+      if (!mountedRef.current) return;
       
       setVideoUrl("");
       setDetectionStats({
@@ -349,69 +331,26 @@ const DetectionVideoFeed = ({
       setStreamStatus({ isLoading: false, error: null, isConnected: false });
       onStopDetection();
 
-      console.log(`Stopped optimized detection for camera ${cameraId}`);
+      console.log(`✅ Stopped optimized detection for camera ${cameraId}`);
 
     } catch (error) {
-      console.error("Error stopping optimized detection:", error);
+      console.error("❌ Error stopping optimized detection:", error);
+      
+      if (!mountedRef.current) return;
+      
       setStreamStatus(prev => ({ ...prev, isLoading: false, error: "Failed to stop detection" }));
       alert(`Failed to stop detection: ${error.message}`);
     }
   };
 
-  // Load performance metrics periodically
-  useEffect(() => {
-    if (isDetectionActive) {
-      const loadPerformanceMetrics = async () => {
-        try {
-          const metrics = await detectionService.getPerformanceComparison();
-          setPerformanceMetrics(metrics);
-        } catch (error) {
-          console.debug("Error loading performance metrics:", error);
-        }
-      };
-
-      loadPerformanceMetrics();
-      const metricsInterval = setInterval(loadPerformanceMetrics, 10000);
-      return () => clearInterval(metricsInterval);
-    }
-  }, [isDetectionActive]);
-
-  // Setup video health monitoring
-  useEffect(() => {
-    return monitorStreamHealth();
-  }, [monitorStreamHealth]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (healthCheckIntervalRef.current) {
-        clearInterval(healthCheckIntervalRef.current);
-      }
       if (cameraId) {
         detectionService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
       }
     };
   }, [cameraId, handleStatsUpdate]);
-
-  // Auto-reconnect on stream failure
-  useEffect(() => {
-    if (streamStatus.error && isDetectionActive && !streamStatus.isLoading) {
-      console.log("Stream error detected, attempting reconnection...");
-      
-      reconnectTimeoutRef.current = setTimeout(() => {
-        handleStartDetection();
-      }, 3000);
-    }
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [streamStatus.error, isDetectionActive, streamStatus.isLoading]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -422,7 +361,7 @@ const DetectionVideoFeed = ({
           sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
           icon={<CircularProgress size={20} />}
         >
-          Initializing detection system... This may take a few moments.
+          Initializing detection system... This happens only once when you open the page.
         </Alert>
       )}
 
@@ -432,7 +371,7 @@ const DetectionVideoFeed = ({
           sx={{ mb: 2, width: '100%' }}
           action={
             <button 
-              onClick={retryInitialization}
+              onClick={resetAndRetryInitialization}
               style={{ 
                 background: 'none', 
                 border: '1px solid currentColor', 
@@ -447,9 +386,6 @@ const DetectionVideoFeed = ({
           }
         >
           Detection system initialization failed: {initializationStatus.initializationError}
-          {initializationStatus.initializationAttempts > 1 && 
-            ` (Attempt ${initializationStatus.initializationAttempts})`
-          }
         </Alert>
       )}
 
@@ -457,7 +393,6 @@ const DetectionVideoFeed = ({
       {streamStatus.error && (
         <Alert severity="warning" sx={{ mb: 2, width: '100%' }}>
           {streamStatus.error}
-          {isDetectionActive && " - Attempting to reconnect..."}
         </Alert>
       )}
 
@@ -469,37 +404,6 @@ const DetectionVideoFeed = ({
         >
           {isDetectionActive ? "Connecting to optimized detection stream..." : "Stopping stream..."}
         </Alert>
-      )}
-
-      {/* Performance Metrics Display */}
-      {performanceMetrics && isDetectionActive && (
-        <Box sx={{ mb: 2, width: '100%' }}>
-          <Typography variant="caption" color="textSecondary">
-            Performance Metrics:
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
-            <Chip 
-              label={`Avg Processing: ${detectionStats.avgProcessingTime.toFixed(1)}ms`} 
-              size="small" 
-              color={detectionStats.avgProcessingTime < 100 ? "success" : "warning"}
-            />
-            <Chip 
-              label={`Detection FPS: ${detectionStats.detectionFps.toFixed(1)}`} 
-              size="small" 
-              color="info"
-            />
-            <Chip 
-              label={`Queue Depth: ${detectionStats.queueDepth}`} 
-              size="small" 
-              color={detectionStats.queueDepth < 3 ? "success" : "warning"}
-            />
-            <Chip 
-              label={`Quality: ${detectionStats.streamQuality}%`} 
-              size="small" 
-              color="default"
-            />
-          </Box>
-        </Box>
       )}
 
       <VideoCard
@@ -516,7 +420,6 @@ const DetectionVideoFeed = ({
             detectionStats={detectionStats}
             targetLabel={targetLabel}
             streamStatus={streamStatus}
-            performanceMetrics={performanceMetrics}
           />
         ) : (
           <CameraPlaceholder 
@@ -535,38 +438,27 @@ const DetectionVideoFeed = ({
               !targetLabel || 
               !cameraId || 
               streamStatus.isLoading ||
-              (!isModelLoaded && !initializationStatus.initializationError)
+              (!globalInitializationState.modelLoaded && !initializationStatus.initializationError)
             }
             isLoading={initializationStatus.isInitializing || streamStatus.isLoading}
           />
         )}
       </VideoCard>
 
-      {/* Debug Information (Development only) */}
-      {process.env.NODE_ENV === 'development' && (
-        <Box sx={{ mt: 2, p: 2, backgroundColor: 'grey.100', borderRadius: 1, width: '100%' }}>
-          <Typography variant="caption" color="textSecondary">
-            Debug Info:
-          </Typography>
-          <pre style={{ fontSize: '0.7rem', margin: 0 }}>
-            {JSON.stringify({
-              cameraId: parseInt(cameraId),
-              targetLabel,
-              isModelLoaded,
-              initializationStatus: {
-                isInitializing: initializationStatus.isInitializing,
-                hasError: !!initializationStatus.initializationError,
-                attempts: initializationStatus.initializationAttempts
-              },
-              streamConnected: streamStatus.isConnected,
-              detectionStats: {
-                detected: detectionStats.objectDetected,
-                count: detectionStats.detectionCount,
-                avgTime: detectionStats.avgProcessingTime,
-                queueDepth: detectionStats.queueDepth
-              }
-            }, null, 2)}
-          </pre>
+      {/* Initialization Status Info */}
+      {globalInitializationState.isInitialized && (
+        <Box sx={{ mt: 1, width: '100%' }}>
+          <Chip 
+            label="Detection System Ready" 
+            size="small" 
+            color="success"
+            sx={{ mr: 1 }}
+          />
+          <Chip 
+            label={`Model: ${globalInitializationState.modelLoaded ? 'Loaded' : 'Not Loaded'}`} 
+            size="small" 
+            color={globalInitializationState.modelLoaded ? 'success' : 'warning'}
+          />
         </Box>
       )}
     </div>

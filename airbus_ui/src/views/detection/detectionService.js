@@ -1,4 +1,3 @@
-// detectionService.js - Fixed service with camera startup integration
 import api from "../../utils/UseAxios";
 
 class DetectionService {
@@ -8,28 +7,64 @@ class DetectionService {
     this.wsConnections = new Map();
     this.eventListeners = new Map();
     
-    // Fixed initialization state management
     this.initializationPromise = null;
     this.isInitializing = false;
     this.isInitialized = false;
     this.isModelLoaded = false;
+    this.isShuttingDown = false;
+    this.lastHealthCheck = null;
+    this.healthCheckInProgress = false;
     
-    // Add timeout handling
-    this.INITIALIZATION_TIMEOUT = 30000; // 30 seconds
-    this.HEALTH_CHECK_TIMEOUT = 10000; // 10 seconds
-    this.CAMERA_START_TIMEOUT = 15000; // 15 seconds for camera startup
+    this.INITIALIZATION_TIMEOUT = 30000;
+    this.HEALTH_CHECK_TIMEOUT = 10000;
+    this.CAMERA_START_TIMEOUT = 15000;
+    this.SHUTDOWN_TIMEOUT = 35000;
+    this.HEALTH_CHECK_COOLDOWN = 5000;
   }
 
-  // Auto-initialize detection processor with proper error handling
+  resetAllState() {
+    this.isInitialized = false;
+    this.isModelLoaded = false;
+    this.isInitializing = false;
+    this.isShuttingDown = false;
+    this.initializationPromise = null;
+    this.lastHealthCheck = null;
+    this.healthCheckInProgress = false;
+    console.log('🔄 Detection service state completely reset');
+  }
+
+  setShuttingDown(isShuttingDown) {
+    this.isShuttingDown = isShuttingDown;
+    console.log(`🔄 Shutdown state set to: ${isShuttingDown}`);
+  }
+
+  shouldSkipHealthCheck() {
+    if (this.isShuttingDown) {
+      console.log('⏭️ Skipping health check - system is shutting down');
+      return true;
+    }
+
+    if (this.healthCheckInProgress) {
+      console.log('⏭️ Skipping health check - already in progress');
+      return true;
+    }
+
+    if (this.lastHealthCheck && (Date.now() - this.lastHealthCheck) < this.HEALTH_CHECK_COOLDOWN) {
+      console.log('⏭️ Skipping health check - too soon since last check');
+      return true;
+    }
+
+    return false;
+  }
+
   async ensureInitialized() {
-    // If already initialized, return immediately
     if (this.isInitialized && this.isModelLoaded) {
       return { success: true, message: 'Already initialized' };
     }
 
-    // If initialization is in progress, wait for it with timeout
     if (this.initializationPromise) {
       try {
+        console.log('⏳ Waiting for existing initialization to complete...');
         return await Promise.race([
           this.initializationPromise,
           new Promise((_, reject) => 
@@ -37,29 +72,26 @@ class DetectionService {
           )
         ]);
       } catch (error) {
-        // Reset on timeout/error so retry is possible
-        this.initializationPromise = null;
-        this.isInitializing = false;
+        console.error('❌ Existing initialization failed or timed out:', error.message);
+        this.resetAllState();
         throw error;
       }
     }
 
-    // Start initialization
     this.initializationPromise = this.initializeProcessor();
     return await this.initializationPromise;
   }
 
-  // Initialize the detection processor with timeout
   async initializeProcessor() {
     if (this.isInitializing) {
       throw new Error('Initialization already in progress');
     }
 
     this.isInitializing = true;
-    console.log('Initializing detection processor...');
+    this.isShuttingDown = false;
+    console.log('🚀 Initializing detection processor...');
 
     try {
-      // Add timeout to the initialization request
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.INITIALIZATION_TIMEOUT);
 
@@ -72,8 +104,8 @@ class DetectionService {
       
       if (response.data.status === 'initialized' || response.data.status === 'already_running') {
         this.isInitialized = true;
-        this.isModelLoaded = true; // Set model as loaded when processor is initialized
-        console.log('Detection processor initialized successfully:', response.data.message);
+        this.isModelLoaded = true;
+        console.log('✅ Detection processor initialized successfully:', response.data.message);
         return {
           success: true,
           message: response.data.message,
@@ -83,14 +115,9 @@ class DetectionService {
         throw new Error(`Unexpected initialization status: ${response.data.status}`);
       }
     } catch (error) {
-      console.error('Error initializing detection processor:', error);
-      this.isInitialized = false;
-      this.isModelLoaded = false;
+      console.error('❌ Error initializing detection processor:', error);
+      this.resetAllState();
       
-      // Reset promises so retry is possible
-      this.initializationPromise = null;
-      
-      // Handle different error types
       if (error.name === 'AbortError') {
         throw new Error('Initialization timed out. Please check if the detection service is running.');
       } else if (error.code === 'ECONNREFUSED') {
@@ -100,19 +127,27 @@ class DetectionService {
       }
     } finally {
       this.isInitializing = false;
+      if (this.isInitialized) {
+        this.initializationPromise = null;
+      }
     }
   }
 
-  // Enhanced model loading with better error handling
   async loadModel() {
     try {
-      // First, ensure the processor is initialized
       const initResult = await this.ensureInitialized();
       if (!initResult.success) {
         throw new Error(initResult.message || 'Failed to initialize processor');
       }
 
-      // Then check health with timeout
+      if (this.shouldSkipHealthCheck()) {
+        return {
+          success: false,
+          message: 'Health check skipped due to system state'
+        };
+      }
+
+      this.healthCheckInProgress = true;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.HEALTH_CHECK_TIMEOUT);
 
@@ -121,20 +156,14 @@ class DetectionService {
       });
       
       clearTimeout(timeoutId);
+      this.lastHealthCheck = Date.now();
       
       if (!response.ok) {
-        // If health check fails, try to initialize again
         if (response.status === 503) {
-          console.log('Health check failed, attempting re-initialization...');
-          
-          // Reset initialization state for retry
-          this.isInitialized = false;
-          this.isModelLoaded = false;
-          this.initializationPromise = null;
-          
+          console.log('🔄 Health check failed, attempting re-initialization...');
+          this.resetAllState();
           await this.initializeProcessor();
           
-          // Retry health check
           const retryController = new AbortController();
           const retryTimeoutId = setTimeout(() => retryController.abort(), this.HEALTH_CHECK_TIMEOUT);
           
@@ -166,16 +195,16 @@ class DetectionService {
       console.error('Error loading detection model:', error);
       this.isModelLoaded = false;
       
-      // Handle timeout errors specifically
       if (error.name === 'AbortError') {
         throw new Error('Health check timed out. Please check if the detection service is responding.');
       }
       
       throw new Error(`Failed to load detection model: ${error.message}`);
+    } finally {
+      this.healthCheckInProgress = false;
     }
   }
 
-  // Ensure camera is started and ready
   async ensureCameraStarted(cameraId) {
     try {
       const numericCameraId = parseInt(cameraId, 10);
@@ -183,9 +212,8 @@ class DetectionService {
         throw new Error(`Invalid camera ID: ${cameraId}`);
       }
 
-      console.log(`Starting camera ${numericCameraId} for detection...`);
+      console.log(`📹 Starting camera ${numericCameraId} for detection...`);
 
-      // Start camera via artifact keeper (handles hardware initialization)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.CAMERA_START_TIMEOUT);
 
@@ -198,9 +226,8 @@ class DetectionService {
         });
         
         clearTimeout(timeoutId);
-        console.log("Camera started for detection:", cameraResponse.data.message);
+        console.log("✅ Camera started for detection:", cameraResponse.data.message);
 
-        // Wait a moment for camera to fully initialize
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         return {
@@ -215,9 +242,8 @@ class DetectionService {
           throw new Error(`Camera startup timed out after ${this.CAMERA_START_TIMEOUT / 1000} seconds`);
         }
         
-        // If camera is already running, that's okay
         if (error.response?.status === 409 || error.response?.data?.detail?.includes('already running')) {
-          console.log(`Camera ${numericCameraId} is already running`);
+          console.log(`📹 Camera ${numericCameraId} is already running`);
           return {
             success: true,
             message: 'Camera already running'
@@ -228,19 +254,26 @@ class DetectionService {
       }
 
     } catch (error) {
-      console.error(`Error starting camera ${cameraId}:`, error);
+      console.error(`❌ Error starting camera ${cameraId}:`, error);
       throw new Error(`Failed to start camera ${cameraId}: ${error.message}`);
     }
   }
 
-  // Enhanced health check with proper timeout handling
   async checkOptimizedHealth() {
+    if (this.shouldSkipHealthCheck()) {
+      return {
+        streaming: { status: 'skipped', message: 'Health check skipped' },
+        detection: { status: 'skipped', message: 'Health check skipped' },
+        overall: false
+      };
+    }
+
+    this.healthCheckInProgress = true;
+
     try {
-      // Ensure processor is initialized before health checks
       await this.ensureInitialized();
 
       const healthCheckPromises = [
-        // Streaming health check
         Promise.race([
           api.get('/api/video_streaming/video/optimized/health'),
           new Promise((_, reject) => 
@@ -250,7 +283,6 @@ class DetectionService {
           data: { status: 'unhealthy', error: error.message }
         })),
         
-        // Detection health check
         Promise.race([
           api.get('/api/detection/redis/health'),
           new Promise((_, reject) => 
@@ -262,6 +294,7 @@ class DetectionService {
       ];
 
       const [streamingHealth, detectionHealth] = await Promise.all(healthCheckPromises);
+      this.lastHealthCheck = Date.now();
 
       const streamingHealthy = streamingHealth.data.status === 'healthy';
       const detectionHealthy = detectionHealth.data.status === 'healthy';
@@ -273,65 +306,93 @@ class DetectionService {
       };
     } catch (error) {
       console.error("Error checking optimized service health:", error);
+      this.lastHealthCheck = Date.now();
       return {
         streaming: { status: 'unhealthy', error: error.message },
         detection: { status: 'unhealthy', error: error.message },
         overall: false
       };
+    } finally {
+      this.healthCheckInProgress = false;
     }
   }
 
-  // Force reset initialization state (for manual retry)
+  async gracefulShutdown() {
+    try {
+      console.log('🛑 Initiating graceful detection shutdown...');
+      this.setShuttingDown(true);
+      
+      if (!this.isInitialized && !this.isInitializing) {
+        console.log('ℹ️ Detection service already shut down');
+        this.resetAllState();
+        return {
+          success: true,
+          message: 'Detection service was already shut down'
+        };
+      }
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.SHUTDOWN_TIMEOUT);
+
+      const response = await api.post('/api/detection/detection/shutdown/graceful', {}, {
+        signal: controller.signal,
+        timeout: this.SHUTDOWN_TIMEOUT
+      });
+      
+      clearTimeout(timeoutId);
+      this.resetAllState();
+      
+      console.log('✅ Graceful detection shutdown completed:', response.data);
+      
+      return {
+        success: true,
+        message: 'Detection service shutdown completed',
+        details: response.data
+      };
+      
+    } catch (error) {
+      console.error('❌ Error during graceful shutdown:', error);
+      this.resetAllState();
+      
+      if (error.name === 'AbortError') {
+        throw new Error('Graceful shutdown timed out. Detection service may still be running.');
+      }
+      
+      throw new Error(`Graceful shutdown failed: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async getShutdownStatus() {
+    try {
+      const response = await api.get('/api/detection/detection/shutdown/status');
+      return response.data;
+    } catch (error) {
+      console.error('Error getting shutdown status:', error);
+      throw new Error(`Failed to get shutdown status: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
   resetInitialization() {
-    this.isInitialized = false;
-    this.isModelLoaded = false;
-    this.isInitializing = false;
-    this.initializationPromise = null;
-    console.log('Detection service initialization state reset');
+    this.resetAllState();
+    console.log('🔄 Detection service initialization state manually reset');
   }
 
-  // Check if service is ready for operations
   isReady() {
-    return this.isInitialized && this.isModelLoaded && !this.isInitializing;
+    return this.isInitialized && this.isModelLoaded && !this.isInitializing && !this.isShuttingDown;
   }
 
-  // Get current initialization status
   getInitializationStatus() {
     return {
       isInitialized: this.isInitialized,
       isModelLoaded: this.isModelLoaded,
       isInitializing: this.isInitializing,
-      isReady: this.isReady()
+      isShuttingDown: this.isShuttingDown,
+      isReady: this.isReady(),
+      hasInitializationPromise: !!this.initializationPromise,
+      lastHealthCheck: this.lastHealthCheck
     };
   }
 
-  // Shutdown processor
-  async shutdownProcessor() {
-    try {
-      const response = await api.post('/api/detection/redis/shutdown');
-      this.isInitialized = false;
-      this.isModelLoaded = false;
-      this.initializationPromise = null;
-      console.log('Detection processor shutdown:', response.data.message);
-      return response.data;
-    } catch (error) {
-      console.error('Error shutting down detection processor:', error);
-      throw error;
-    }
-  }
-
-  // Get processor status
-  async getProcessorStatus() {
-    try {
-      const response = await api.get('/api/detection/redis/status');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting processor status:', error);
-      throw error;
-    }
-  }
-
-  // Enhanced detection feed start with camera startup integration
   async startOptimizedDetectionFeed(cameraId, targetLabel, options = {}) {
     const {
       detectionFps = 5.0,
@@ -340,30 +401,25 @@ class DetectionService {
     } = options;
 
     try {
-      console.log(`Starting optimized detection feed for camera ${cameraId} with target: ${targetLabel}`);
+      console.log(`🎯 Starting optimized detection feed for camera ${cameraId} with target: ${targetLabel}`);
 
-      // Step 1: Ensure processor is initialized
       const initResult = await this.ensureInitialized();
       if (!initResult.success) {
         throw new Error(`Cannot start detection: ${initResult.message}`);
       }
 
-      // Step 2: Verify service is ready
       if (!this.isReady()) {
         throw new Error('Detection service is not ready. Please wait for initialization to complete.');
       }
 
-      // Step 3: Start camera hardware (this was missing!)
       try {
         await this.ensureCameraStarted(cameraId);
       } catch (cameraError) {
         throw new Error(`Camera startup failed: ${cameraError.message}`);
       }
 
-      // Step 4: Stop any existing stream for this camera first
       await this.stopOptimizedDetectionFeed(cameraId);
 
-      // Step 5: Start the optimized detection stream
       const params = new URLSearchParams({
         target_label: targetLabel,
         detection_fps: detectionFps.toString(),
@@ -372,7 +428,6 @@ class DetectionService {
 
       const streamUrl = `/api/video_streaming/video/optimized/stream_with_detection/${cameraId}?${params}`;
       
-      // Step 6: Initialize stats tracking
       const streamKey = `${cameraId}_${targetLabel}`;
       this.detectionStats.set(streamKey, {
         objectDetected: false,
@@ -392,16 +447,14 @@ class DetectionService {
         isActive: true
       });
 
-      // Step 7: Start real-time stats monitoring
       this.startStatsMonitoring(cameraId, streamKey);
 
-      console.log(`Successfully started optimized detection feed for camera ${cameraId}`);
+      console.log(`✅ Successfully started optimized detection feed for camera ${cameraId}`);
       return streamUrl;
 
     } catch (error) {
-      console.error("Error starting optimized detection feed:", error);
+      console.error("❌ Error starting optimized detection feed:", error);
       
-      // Cleanup on failure
       try {
         await this.stopOptimizedDetectionFeed(cameraId);
       } catch (cleanupError) {
@@ -412,24 +465,20 @@ class DetectionService {
     }
   }
 
-  // Enhanced stream start with camera startup
   startOptimizedStream = async (cameraId, options = {}) => {
     const { streamQuality = 85 } = options;
 
     try {
-      console.log(`Starting optimized stream for camera ${cameraId}`);
+      console.log(`📺 Starting optimized stream for camera ${cameraId}`);
 
-      // Step 1: Start camera hardware
       try {
         await this.ensureCameraStarted(cameraId);
       } catch (cameraError) {
         throw new Error(`Camera startup failed: ${cameraError.message}`);
       }
 
-      // Step 2: Stop existing stream
       await this.stopOptimizedStream(cameraId);
 
-      // Step 3: Start new stream
       const params = new URLSearchParams({
         stream_quality: streamQuality.toString()
       });
@@ -444,42 +493,54 @@ class DetectionService {
         isActive: true
       });
 
-      console.log(`Successfully started optimized stream for camera ${cameraId}`);
+      console.log(`✅ Successfully started optimized stream for camera ${cameraId}`);
       return streamUrl;
 
     } catch (error) {
-      console.error("Error starting optimized stream:", error);
+      console.error("❌ Error starting optimized stream:", error);
       throw new Error(`Failed to start stream: ${error.message}`);
     }
   };
 
-  // Enhanced stop methods with camera cleanup
-  stopOptimizedDetectionFeed = async (cameraId) => {
+  stopOptimizedDetectionFeed = async (cameraId, performShutdown = false) => {
     try {
+      this.setShuttingDown(true);
       const stream = this.currentStreams.get(cameraId);
       if (stream) {
-        console.log(`Stopping optimized detection feed for camera ${cameraId}`);
+        console.log(`⏹️ Stopping optimized detection feed for camera ${cameraId}`);
         
-        // Stop stats monitoring
         this.stopStatsMonitoring(cameraId);
         
-        // Stop stream
         try {
           await api.post(`/api/video_streaming/video/optimized/stream/${cameraId}/stop`);
         } catch (error) {
-          console.warn(`Error stopping stream API for camera ${cameraId}:`, error.message);
+          console.warn(`⚠️ Error stopping stream API for camera ${cameraId}:`, error.message);
         }
         
-        // Clean up local state
         this.currentStreams.delete(cameraId);
         if (stream.streamKey) {
           this.detectionStats.delete(stream.streamKey);
         }
         
-        console.log(`Successfully stopped detection feed for camera ${cameraId}`);
+        if (performShutdown || this.currentStreams.size === 0) {
+          try {
+            console.log('🔄 Performing graceful detection shutdown...');
+            await this.gracefulShutdown();
+            console.log('✅ Detection service gracefully shut down');
+          } catch (shutdownError) {
+            console.error('⚠️ Graceful shutdown failed, but stream stopped:', shutdownError.message);
+          }
+        } else {
+          this.setShuttingDown(false);
+        }
+        
+        console.log(`✅ Successfully stopped detection feed for camera ${cameraId}`);
+      } else {
+        this.setShuttingDown(false);
       }
     } catch (error) {
-      console.error("Error stopping optimized detection feed:", error);
+      console.error("❌ Error stopping optimized detection feed:", error);
+      this.setShuttingDown(false);
       throw error;
     }
   };
@@ -488,37 +549,84 @@ class DetectionService {
     try {
       const stream = this.currentStreams.get(cameraId);
       if (stream) {
-        console.log(`Stopping optimized stream for camera ${cameraId}`);
+        console.log(`⏹️ Stopping optimized stream for camera ${cameraId}`);
         
         try {
           await api.post(`/api/video_streaming/video/optimized/stream/${cameraId}/stop`);
         } catch (error) {
-          console.warn(`Error stopping stream API for camera ${cameraId}:`, error.message);
+          console.warn(`⚠️ Error stopping stream API for camera ${cameraId}:`, error.message);
         }
         
         this.currentStreams.delete(cameraId);
-        console.log(`Successfully stopped stream for camera ${cameraId}`);
+        console.log(`✅ Successfully stopped stream for camera ${cameraId}`);
       }
     } catch (error) {
-      console.error("Error stopping optimized stream:", error);
+      console.error("❌ Error stopping optimized stream:", error);
       throw error;
     }
   };
 
-  // Rest of the methods remain the same...
+  stopAllStreams = async (performShutdown = true) => {
+    try {
+      console.log('🛑 Stopping all optimized streams...');
+      this.setShuttingDown(true);
+      
+      const stopPromises = Array.from(this.currentStreams.keys()).map(cameraId => 
+        this.stopOptimizedDetectionFeed(cameraId, false)
+      );
+      
+      await Promise.allSettled(stopPromises);
+      
+      try {
+        await api.post('/api/video_streaming/video/optimized/streams/stop_all');
+      } catch (error) {
+        console.warn('⚠️ Error calling stop_all API:', error.message);
+      }
+      
+      this.currentStreams.clear();
+      this.detectionStats.clear();
+      for (const cameraId of this.eventListeners.keys()) {
+        this.stopStatsMonitoring(cameraId);
+      }
+      
+      if (performShutdown) {
+        try {
+          console.log('🔄 Performing graceful detection shutdown after stopping all streams...');
+          await this.gracefulShutdown();
+          console.log('✅ All streams stopped and detection service gracefully shut down');
+        } catch (shutdownError) {
+          console.error('⚠️ Graceful shutdown failed, but all streams stopped:', shutdownError.message);
+        }
+      } else {
+        this.setShuttingDown(false);
+      }
+      
+      console.log("✅ Stopped all optimized streams");
+    } catch (error) {
+      console.error("❌ Error stopping all streams:", error);
+      this.setShuttingDown(false);
+      throw error;
+    }
+  };
+
   reloadModel = async () => {
     try {
       const response = await api.post("/api/detection/detection/model/reload");
-      console.log("Model reloaded successfully:", response.data.message);
+      console.log("✅ Model reloaded successfully:", response.data.message);
       return response.data;
     } catch (error) {
-      console.error("Error reloading model:", error.response?.data?.detail || error.message);
+      console.error("❌ Error reloading model:", error.response?.data?.detail || error.message);
       throw error;
     }
   };
 
   startStatsMonitoring = (cameraId, streamKey) => {
     const pollInterval = setInterval(async () => {
+      if (this.isShuttingDown) {
+        console.log(`⏭️ Skipping stats update for camera ${cameraId} - system shutting down`);
+        return;
+      }
+
       try {
         const response = await api.get(`/api/video_streaming/video/optimized/stats/${cameraId}`);
         const streamStats = response.data.streams?.[0];
@@ -543,7 +651,9 @@ class DetectionService {
           this.notifyStatsListeners(cameraId, updatedStats);
         }
       } catch (error) {
-        console.debug("Error polling detection stats:", error);
+        if (!this.isShuttingDown) {
+          console.debug("Error polling detection stats:", error);
+        }
       }
     }, 2000);
 
@@ -610,12 +720,21 @@ class DetectionService {
     return null;
   };
 
-  getAllStreamingStats = async () => {
+  async getAllStreamingStats() {
     try {
+      if (this.isShuttingDown) {
+        return {
+          active_streams: 0,
+          avg_processing_time_ms: 0,
+          total_detections: 0,
+          system_load_percent: 0,
+          memory_usage_mb: 0
+        };
+      }
       const response = await api.get('/api/video_streaming/video/optimized/stats');
       return response.data;
     } catch (error) {
-      console.error("Error getting streaming stats:", error);
+      console.error("❌ Error getting streaming stats:", error);
       throw error;
     }
   };
@@ -625,49 +744,32 @@ class DetectionService {
       const response = await api.get('/api/video_streaming/video/optimized/performance/comparison');
       return response.data;
     } catch (error) {
-      console.error("Error getting performance comparison:", error);
+      console.error("❌ Error getting performance comparison:", error);
       throw error;
     }
   };
 
-  stopAllStreams = async () => {
-    try {
-      await api.post('/api/video_streaming/video/optimized/streams/stop_all');
-      this.currentStreams.clear();
-      this.detectionStats.clear();
-      for (const cameraId of this.eventListeners.keys()) {
-        this.stopStatsMonitoring(cameraId);
-      }
-      console.log("Stopped all optimized streams");
-    } catch (error) {
-      console.error("Error stopping all streams:", error);
-      throw error;
-    }
-  };
-
-  // Legacy methods for backward compatibility
   startDetectionFeed = async (cameraId, targetLabel) => {
     return this.startOptimizedDetectionFeed(cameraId, targetLabel);
   };
 
-  stopDetectionFeed = async (cameraId) => {
-    return this.stopOptimizedDetectionFeed(cameraId);
+  stopDetectionFeed = async (cameraId, performShutdown = true) => {
+    return this.stopOptimizedDetectionFeed(cameraId, performShutdown);
   };
 
-  stopVideoStream = async (cameraId) => {
-    return this.stopOptimizedDetectionFeed(cameraId);
+  stopVideoStream = async (cameraId, performShutdown = true) => {
+    return this.stopOptimizedDetectionFeed(cameraId, performShutdown);
   };
 
   cleanup = async () => {
     try {
-      await this.stopAllStreams();
-      // Optionally shutdown processor on cleanup
-      // await this.shutdownProcessor();
+      console.log('🧹 Starting DetectionService cleanup...');
+      await this.stopAllStreams(true);
+      console.log('✅ DetectionService cleanup completed');
     } catch (error) {
-      console.error("Error during cleanup:", error);
+      console.error("❌ Error during cleanup:", error);
     }
   };
 }
 
-// Export singleton instance
 export const detectionService = new DetectionService();

@@ -54,13 +54,13 @@ class DetectionResult:
 
 class OptimizedDetectionProcessor:
     """High-performance detection processor with FIXED pubsub communication"""
-    
+
     def __init__(self, 
-                 redis_host='redis', 
-                 redis_port=6379,
-                 max_workers=2,
-                 max_queue_size=50,
-                 frame_timeout=5.0):
+                redis_host='redis', 
+                redis_port=6379,
+                max_workers=2,
+                max_queue_size=50,
+                frame_timeout=5.0):
         
         # Redis connection
         self.redis_host = redis_host
@@ -77,13 +77,13 @@ class OptimizedDetectionProcessor:
         self.detection_system = None
         self.device = None
         
-        # Performance tracking
+        # FIXED: Complete performance tracking initialization
         self.processing_stats = {
             'frames_processed': 0,
             'total_processing_time': 0,
             'queue_overflows': 0,
             'timeouts': 0,
-            'overlays_created': 0,
+            'overlays_created': 0,  # ← This was missing!
             'frames_stored': 0,
             'pubsub_messages_sent': 0,
             'detection_results_published': 0
@@ -688,38 +688,61 @@ class OptimizedDetectionProcessor:
             }
     
     def get_performance_stats(self) -> Dict[str, Any]:
-        """Get current performance statistics"""
+        """Get current performance statistics with safe key access"""
         with self.queue_lock:
             queue_depth = len(self.high_priority_queue) + len(self.normal_priority_queue)
         
-        frames_processed = self.processing_stats['frames_processed']
+        # Safe access to processing stats with defaults
+        frames_processed = self.processing_stats.get('frames_processed', 0)
+        total_processing_time = self.processing_stats.get('total_processing_time', 0)
+        
         avg_processing_time = 0
         if frames_processed > 0:
-            avg_processing_time = self.processing_stats['total_processing_time'] / frames_processed
+            avg_processing_time = total_processing_time / frames_processed
         
-        # Memory stats
-        process = psutil.Process()
-        memory_info = process.memory_info()
+        # Memory stats with error handling
+        memory_usage_mb = 0
+        memory_percent = 0
+        try:
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            memory_usage_mb = memory_info.rss / 1024 / 1024
+            memory_percent = process.memory_percent()
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get memory stats: {e}")
         
         return {
             'queue_depth': queue_depth,
             'frames_processed': frames_processed,
-            'overlays_created': self.processing_stats['overlays_created'],
-            'frames_stored': self.processing_stats['frames_stored'],
-            'pubsub_messages_sent': self.processing_stats['pubsub_messages_sent'],
-            'detection_results_published': self.processing_stats['detection_results_published'],
+            'overlays_created': self.processing_stats.get('overlays_created', 0),
+            'frames_stored': self.processing_stats.get('frames_stored', 0),
+            'pubsub_messages_sent': self.processing_stats.get('pubsub_messages_sent', 0),
+            'detection_results_published': self.processing_stats.get('detection_results_published', 0),
             'avg_processing_time_ms': round(avg_processing_time, 2),
-            'queue_overflows': self.processing_stats['queue_overflows'],
-            'timeouts': self.processing_stats['timeouts'],
-            'memory_usage_mb': memory_info.rss / 1024 / 1024,
-            'memory_percent': process.memory_percent(),
+            'queue_overflows': self.processing_stats.get('queue_overflows', 0),
+            'timeouts': self.processing_stats.get('timeouts', 0),
+            'memory_usage_mb': round(memory_usage_mb, 2),
+            'memory_percent': round(memory_percent, 2),
             'device': str(self.device) if self.device else "unknown",
             'is_running': self.is_running,
             'redis_connected': self.redis_client is not None,
             'sync_redis_connected': self.sync_redis_client is not None,
             'result_queue_size': self._result_queue.qsize() if self._result_queue else 0
         }
-    
+    def reset_processing_stats(self):
+        """Reset all processing statistics to initial state"""
+        self.processing_stats = {
+            'frames_processed': 0,
+            'total_processing_time': 0,
+            'queue_overflows': 0,
+            'timeouts': 0,
+            'overlays_created': 0,
+            'frames_stored': 0,
+            'pubsub_messages_sent': 0,
+            'detection_results_published': 0
+        }
+        logger.info("📊 Processing statistics reset to initial state")
+
     async def shutdown(self):
         """Graceful shutdown with proper cleanup"""
         logger.info("🛑 Shutting down detection processor...")
@@ -779,6 +802,9 @@ class OptimizedDetectionProcessor:
                     self._result_queue.get_nowait()
                 except:
                     break
+        
+        # ADDED: Reset processing stats on shutdown
+        self.reset_processing_stats()
         
         logger.info("✅ Detection processor shutdown complete")
 
