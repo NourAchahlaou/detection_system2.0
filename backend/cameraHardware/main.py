@@ -1,15 +1,13 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.service.camera_manager import CameraManager
-from app.service.external_camera import get_available_cameras
-from app.api.route import camera
-import uvicorn
+from app.api.route import camera, camera_hardware_profiling_router
+
 
 def create_application():
     application = FastAPI()
     application.include_router(camera.camera_router)
-
+    application.include_router(camera_hardware_profiling_router.profiling_router)
     return application
 
 

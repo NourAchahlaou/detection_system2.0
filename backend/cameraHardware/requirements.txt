@@ -1,17 +1,31 @@
+# Core FastAPI dependencies
 fastapi==0.103.2
 uvicorn[standard]==0.23.2
 python-dotenv==1.0.0
 SQLAlchemy==2.0.21
 python-multipart==0.0.6
-
-# Core dependencies
-opencv-python>=4.5.0  # Add OpenCV for camera operations
-pypylon>=2.2.0
-
-pywin32==306
-# FastAPI related dependencies
 pydantic>=2.0.0
 
-# Additional utilities that might be needed
+# Core dependencies for camera operations
+opencv-python>=4.5.0
+pypylon>=2.2.0
+
+# System monitoring and performance
+psutil>=5.9.0
+
+# GPU monitoring (Python 3.12+ compatible alternatives)
+# Option 1: Use nvidia-ml-py3 instead of GPUtil
+nvidia-ml-py3>=7.352.0
+
+# Option 2: If you prefer to stick with GPUtil, use setuptools as workaround
+# setuptools>=65.0.0  # Provides distutils functionality
+# gputil==1.4.0
+
+# Windows-specific (if needed)
+pywin32==306
+
+# Additional utilities
 aiofiles>=0.8.0
-asyncio>=3.4.3
+
+# For async operations (usually included with Python 3.7+)
+# asyncio>=3.4.3  # Not needed for Python 3.12+
