@@ -1,5 +1,13 @@
 import api from "../../utils/UseAxios";
 
+// Define the 4 states clearly
+const DetectionStates = {
+  INITIALIZING: 'INITIALIZING',
+  READY: 'READY', 
+  RUNNING: 'RUNNING',
+  SHUTTING_DOWN: 'SHUTTING_DOWN'
+};
+
 class DetectionService {
   constructor() {
     this.currentStreams = new Map();
@@ -7,39 +15,83 @@ class DetectionService {
     this.wsConnections = new Map();
     this.eventListeners = new Map();
     
-    this.initializationPromise = null;
-    this.isInitializing = false;
-    this.isInitialized = false;
+    // Clear state management with proper initialization
+    this.state = DetectionStates.INITIALIZING;
     this.isModelLoaded = false;
-    this.isShuttingDown = false;
     this.lastHealthCheck = null;
     this.healthCheckInProgress = false;
+    this.stateChangeListeners = new Set();
     
+    // Initialization tracking
+    this.initializationPromise = null;
+    
+    // Timeouts
     this.INITIALIZATION_TIMEOUT = 30000;
     this.HEALTH_CHECK_TIMEOUT = 10000;
     this.CAMERA_START_TIMEOUT = 15000;
     this.SHUTDOWN_TIMEOUT = 35000;
     this.HEALTH_CHECK_COOLDOWN = 5000;
+    
+    console.log('🔧 DetectionService initialized with state:', this.state);
   }
 
-  resetAllState() {
-    this.isInitialized = false;
+  // State management methods
+  setState(newState, reason = '') {
+    const oldState = this.state;
+    this.state = newState;
+    console.log(`🔄 State changed: ${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
+    
+    // Notify all listeners
+    this.stateChangeListeners.forEach(listener => {
+      try {
+        listener(newState, oldState);
+      } catch (error) {
+        console.error('Error in state change listener:', error);
+      }
+    });
+  }
+
+  getState() {
+    return this.state;
+  }
+
+  addStateChangeListener(listener) {
+    this.stateChangeListeners.add(listener);
+    return () => this.stateChangeListeners.delete(listener);
+  }
+
+  // Check if operations are allowed in current state
+  canInitialize() {
+    return this.state === DetectionStates.INITIALIZING;
+  }
+
+  canStart() {
+    return this.state === DetectionStates.READY;
+  }
+
+  canStop() {
+    return this.state === DetectionStates.RUNNING;
+  }
+
+  canShutdown() {
+    return [DetectionStates.READY, DetectionStates.RUNNING].includes(this.state);
+  }
+
+  isOperational() {
+    return [DetectionStates.READY, DetectionStates.RUNNING].includes(this.state);
+  }
+
+  resetToInitializing(reason = 'Manual reset') {
+    this.setState(DetectionStates.INITIALIZING, reason);
     this.isModelLoaded = false;
-    this.isInitializing = false;
-    this.isShuttingDown = false;
     this.initializationPromise = null;
     this.lastHealthCheck = null;
     this.healthCheckInProgress = false;
-    console.log('🔄 Detection service state completely reset');
-  }
-
-  setShuttingDown(isShuttingDown) {
-    this.isShuttingDown = isShuttingDown;
-    console.log(`🔄 Shutdown state set to: ${isShuttingDown}`);
+    console.log('🔄 Detection service reset to initializing state');
   }
 
   shouldSkipHealthCheck() {
-    if (this.isShuttingDown) {
+    if (this.state === DetectionStates.SHUTTING_DOWN) {
       console.log('⏭️ Skipping health check - system is shutting down');
       return true;
     }
@@ -58,10 +110,25 @@ class DetectionService {
   }
 
   async ensureInitialized() {
-    if (this.isInitialized && this.isModelLoaded) {
-      return { success: true, message: 'Already initialized' };
+    // If already ready or running, no need to initialize
+    if (this.isOperational() && this.isModelLoaded) {
+      return { success: true, message: 'Already initialized', state: this.state };
     }
 
+    // If currently shutting down, wait for it to complete then reset
+    if (this.state === DetectionStates.SHUTTING_DOWN) {
+      console.log('⏳ Waiting for shutdown to complete before initializing...');
+      // Wait a bit for shutdown to complete
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      this.resetToInitializing('Post-shutdown reset');
+    }
+
+    // If not in initializing state, reset to it
+    if (this.state !== DetectionStates.INITIALIZING) {
+      this.resetToInitializing('Ensure initialization');
+    }
+
+    // If initialization is already in progress, wait for it
     if (this.initializationPromise) {
       try {
         console.log('⏳ Waiting for existing initialization to complete...');
@@ -73,23 +140,22 @@ class DetectionService {
         ]);
       } catch (error) {
         console.error('❌ Existing initialization failed or timed out:', error.message);
-        this.resetAllState();
+        this.resetToInitializing('Failed initialization cleanup');
         throw error;
       }
     }
 
+    // Start new initialization
     this.initializationPromise = this.initializeProcessor();
     return await this.initializationPromise;
   }
 
   async initializeProcessor() {
-    if (this.isInitializing) {
-      throw new Error('Initialization already in progress');
+    if (!this.canInitialize()) {
+      throw new Error(`Cannot initialize from state: ${this.state}`);
     }
 
-    this.isInitializing = true;
-    this.isShuttingDown = false;
-    console.log('🚀 Initializing detection processor...');
+    console.log('🚀 Starting detection processor initialization...');
 
     try {
       const controller = new AbortController();
@@ -103,20 +169,28 @@ class DetectionService {
       clearTimeout(timeoutId);
       
       if (response.data.status === 'initialized' || response.data.status === 'already_running') {
-        this.isInitialized = true;
-        this.isModelLoaded = true;
-        console.log('✅ Detection processor initialized successfully:', response.data.message);
-        return {
-          success: true,
-          message: response.data.message,
-          status: response.data.status
-        };
+        console.log('✅ Detection processor initialized:', response.data.message);
+        
+        // Load the model
+        const modelResult = await this.loadModel();
+        if (modelResult.success) {
+          this.isModelLoaded = true;
+          this.setState(DetectionStates.READY, 'Initialization completed');
+          
+          return {
+            success: true,
+            message: 'Detection system initialized and ready',
+            state: this.state
+          };
+        } else {
+          throw new Error('Model loading failed');
+        }
       } else {
         throw new Error(`Unexpected initialization status: ${response.data.status}`);
       }
     } catch (error) {
       console.error('❌ Error initializing detection processor:', error);
-      this.resetAllState();
+      this.resetToInitializing('Initialization failed');
       
       if (error.name === 'AbortError') {
         throw new Error('Initialization timed out. Please check if the detection service is running.');
@@ -126,20 +200,12 @@ class DetectionService {
         throw new Error(`Failed to initialize detection processor: ${error.response?.data?.detail || error.message}`);
       }
     } finally {
-      this.isInitializing = false;
-      if (this.isInitialized) {
-        this.initializationPromise = null;
-      }
+      this.initializationPromise = null;
     }
   }
 
   async loadModel() {
     try {
-      const initResult = await this.ensureInitialized();
-      if (!initResult.success) {
-        throw new Error(initResult.message || 'Failed to initialize processor');
-      }
-
       if (this.shouldSkipHealthCheck()) {
         return {
           success: false,
@@ -160,40 +226,23 @@ class DetectionService {
       
       if (!response.ok) {
         if (response.status === 503) {
-          console.log('🔄 Health check failed, attempting re-initialization...');
-          this.resetAllState();
-          await this.initializeProcessor();
-          
-          const retryController = new AbortController();
-          const retryTimeoutId = setTimeout(() => retryController.abort(), this.HEALTH_CHECK_TIMEOUT);
-          
-          const retryResponse = await fetch(`/api/detection/redis/health`, {
-            signal: retryController.signal
-          });
-          
-          clearTimeout(retryTimeoutId);
-          
-          if (!retryResponse.ok) {
-            throw new Error(`Health check failed after initialization: ${retryResponse.status}`);
-          }
-          const retryResult = await retryResponse.json();
-          this.isModelLoaded = retryResult.status === 'healthy';
+          console.log('🔄 Health check failed, model needs reloading...');
+          throw new Error('Detection service not ready');
         } else {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-      } else {
-        const result = await response.json();
-        this.isModelLoaded = result.status === 'healthy';
       }
+
+      const result = await response.json();
+      const modelLoaded = result.status === 'healthy';
       
       return {
-        success: this.isModelLoaded,
-        message: this.isModelLoaded ? 'Detection model loaded successfully' : 'Detection model not ready'
+        success: modelLoaded,
+        message: modelLoaded ? 'Detection model loaded successfully' : 'Detection model not ready'
       };
       
     } catch (error) {
       console.error('Error loading detection model:', error);
-      this.isModelLoaded = false;
       
       if (error.name === 'AbortError') {
         throw new Error('Health check timed out. Please check if the detection service is responding.');
@@ -271,7 +320,10 @@ class DetectionService {
     this.healthCheckInProgress = true;
 
     try {
-      await this.ensureInitialized();
+      // Don't try to initialize during health check, just check current state
+      if (!this.isOperational()) {
+        throw new Error(`Cannot perform health check in state: ${this.state}`);
+      }
 
       const healthCheckPromises = [
         Promise.race([
@@ -320,11 +372,12 @@ class DetectionService {
   async gracefulShutdown() {
     try {
       console.log('🛑 Initiating graceful detection shutdown...');
-      this.setShuttingDown(true);
+      this.setState(DetectionStates.SHUTTING_DOWN, 'Graceful shutdown requested');
       
-      if (!this.isInitialized && !this.isInitializing) {
+      // If not operational, already shut down
+      if (!this.isOperational() && this.state !== DetectionStates.SHUTTING_DOWN) {
         console.log('ℹ️ Detection service already shut down');
-        this.resetAllState();
+        this.setState(DetectionStates.READY, 'Already shut down');
         return {
           success: true,
           message: 'Detection service was already shut down'
@@ -340,7 +393,10 @@ class DetectionService {
       });
       
       clearTimeout(timeoutId);
-      this.resetAllState();
+      
+      // After successful shutdown, system is ready for new initialization
+      this.isModelLoaded = false;
+      this.setState(DetectionStates.READY, 'Shutdown completed');
       
       console.log('✅ Graceful detection shutdown completed:', response.data);
       
@@ -352,7 +408,8 @@ class DetectionService {
       
     } catch (error) {
       console.error('❌ Error during graceful shutdown:', error);
-      this.resetAllState();
+      // On shutdown error, reset to initializing so we can try again
+      this.resetToInitializing('Shutdown failed');
       
       if (error.name === 'AbortError') {
         throw new Error('Graceful shutdown timed out. Detection service may still be running.');
@@ -372,24 +429,33 @@ class DetectionService {
     }
   }
 
-  resetInitialization() {
-    this.resetAllState();
-    console.log('🔄 Detection service initialization state manually reset');
-  }
-
   isReady() {
-    return this.isInitialized && this.isModelLoaded && !this.isInitializing && !this.isShuttingDown;
+    return this.state === DetectionStates.READY && this.isModelLoaded;
   }
 
-  getInitializationStatus() {
+  isRunning() {
+    return this.state === DetectionStates.RUNNING;
+  }
+
+  isInitializing() {
+    return this.state === DetectionStates.INITIALIZING;
+  }
+
+  isShuttingDown() {
+    return this.state === DetectionStates.SHUTTING_DOWN;
+  }
+
+  getDetailedStatus() {
     return {
-      isInitialized: this.isInitialized,
+      state: this.state,
       isModelLoaded: this.isModelLoaded,
-      isInitializing: this.isInitializing,
-      isShuttingDown: this.isShuttingDown,
       isReady: this.isReady(),
-      hasInitializationPromise: !!this.initializationPromise,
-      lastHealthCheck: this.lastHealthCheck
+      isRunning: this.isRunning(),
+      isInitializing: this.isInitializing(),
+      isShuttingDown: this.isShuttingDown(),
+      activeStreams: this.currentStreams.size,
+      lastHealthCheck: this.lastHealthCheck,
+      healthCheckInProgress: this.healthCheckInProgress
     };
   }
 
@@ -403,22 +469,24 @@ class DetectionService {
     try {
       console.log(`🎯 Starting optimized detection feed for camera ${cameraId} with target: ${targetLabel}`);
 
-      const initResult = await this.ensureInitialized();
-      if (!initResult.success) {
-        throw new Error(`Cannot start detection: ${initResult.message}`);
+      // Ensure system is ready
+      if (!this.canStart()) {
+        throw new Error(`Cannot start detection in state: ${this.state}. Current state must be READY.`);
       }
 
-      if (!this.isReady()) {
-        throw new Error('Detection service is not ready. Please wait for initialization to complete.');
+      if (!this.isModelLoaded) {
+        throw new Error('Detection model is not loaded');
       }
 
+      // Start camera
       try {
         await this.ensureCameraStarted(cameraId);
       } catch (cameraError) {
         throw new Error(`Camera startup failed: ${cameraError.message}`);
       }
 
-      await this.stopOptimizedDetectionFeed(cameraId);
+      // Stop any existing stream for this camera
+      await this.stopOptimizedDetectionFeed(cameraId, false);
 
       const params = new URLSearchParams({
         target_label: targetLabel,
@@ -447,6 +515,9 @@ class DetectionService {
         isActive: true
       });
 
+      // Update state to running
+      this.setState(DetectionStates.RUNNING, `Started detection for camera ${cameraId}`);
+
       this.startStatsMonitoring(cameraId, streamKey);
 
       console.log(`✅ Successfully started optimized detection feed for camera ${cameraId}`);
@@ -456,7 +527,7 @@ class DetectionService {
       console.error("❌ Error starting optimized detection feed:", error);
       
       try {
-        await this.stopOptimizedDetectionFeed(cameraId);
+        await this.stopOptimizedDetectionFeed(cameraId, false);
       } catch (cleanupError) {
         console.error("Error during cleanup:", cleanupError);
       }
@@ -465,11 +536,15 @@ class DetectionService {
     }
   }
 
-  startOptimizedStream = async (cameraId, options = {}) => {
+  async startOptimizedStream(cameraId, options = {}) {
     const { streamQuality = 85 } = options;
 
     try {
       console.log(`📺 Starting optimized stream for camera ${cameraId}`);
+
+      if (!this.canStart()) {
+        throw new Error(`Cannot start stream in state: ${this.state}. Current state must be READY.`);
+      }
 
       try {
         await this.ensureCameraStarted(cameraId);
@@ -493,6 +568,11 @@ class DetectionService {
         isActive: true
       });
 
+      // Update state to running if not already
+      if (this.state === DetectionStates.READY) {
+        this.setState(DetectionStates.RUNNING, `Started stream for camera ${cameraId}`);
+      }
+
       console.log(`✅ Successfully started optimized stream for camera ${cameraId}`);
       return streamUrl;
 
@@ -500,11 +580,10 @@ class DetectionService {
       console.error("❌ Error starting optimized stream:", error);
       throw new Error(`Failed to start stream: ${error.message}`);
     }
-  };
+  }
 
-  stopOptimizedDetectionFeed = async (cameraId, performShutdown = false) => {
+  async stopOptimizedDetectionFeed(cameraId, performShutdown = false) {
     try {
-      this.setShuttingDown(true);
       const stream = this.currentStreams.get(cameraId);
       if (stream) {
         console.log(`⏹️ Stopping optimized detection feed for camera ${cameraId}`);
@@ -522,7 +601,12 @@ class DetectionService {
           this.detectionStats.delete(stream.streamKey);
         }
         
-        if (performShutdown || this.currentStreams.size === 0) {
+        // Update state based on remaining streams
+        if (this.currentStreams.size === 0 && this.state === DetectionStates.RUNNING) {
+          this.setState(DetectionStates.READY, 'All streams stopped');
+        }
+        
+        if (performShutdown) {
           try {
             console.log('🔄 Performing graceful detection shutdown...');
             await this.gracefulShutdown();
@@ -530,22 +614,17 @@ class DetectionService {
           } catch (shutdownError) {
             console.error('⚠️ Graceful shutdown failed, but stream stopped:', shutdownError.message);
           }
-        } else {
-          this.setShuttingDown(false);
         }
         
         console.log(`✅ Successfully stopped detection feed for camera ${cameraId}`);
-      } else {
-        this.setShuttingDown(false);
       }
     } catch (error) {
       console.error("❌ Error stopping optimized detection feed:", error);
-      this.setShuttingDown(false);
       throw error;
     }
-  };
+  }
 
-  stopOptimizedStream = async (cameraId) => {
+  async stopOptimizedStream(cameraId) {
     try {
       const stream = this.currentStreams.get(cameraId);
       if (stream) {
@@ -558,18 +637,23 @@ class DetectionService {
         }
         
         this.currentStreams.delete(cameraId);
+        
+        // Update state based on remaining streams
+        if (this.currentStreams.size === 0 && this.state === DetectionStates.RUNNING) {
+          this.setState(DetectionStates.READY, 'All streams stopped');
+        }
+        
         console.log(`✅ Successfully stopped stream for camera ${cameraId}`);
       }
     } catch (error) {
       console.error("❌ Error stopping optimized stream:", error);
       throw error;
     }
-  };
+  }
 
-  stopAllStreams = async (performShutdown = true) => {
+  async stopAllStreams(performShutdown = true) {
     try {
       console.log('🛑 Stopping all optimized streams...');
-      this.setShuttingDown(true);
       
       const stopPromises = Array.from(this.currentStreams.keys()).map(cameraId => 
         this.stopOptimizedDetectionFeed(cameraId, false)
@@ -589,6 +673,11 @@ class DetectionService {
         this.stopStatsMonitoring(cameraId);
       }
       
+      // Update state
+      if (this.state === DetectionStates.RUNNING) {
+        this.setState(DetectionStates.READY, 'All streams stopped');
+      }
+      
       if (performShutdown) {
         try {
           console.log('🔄 Performing graceful detection shutdown after stopping all streams...');
@@ -597,19 +686,16 @@ class DetectionService {
         } catch (shutdownError) {
           console.error('⚠️ Graceful shutdown failed, but all streams stopped:', shutdownError.message);
         }
-      } else {
-        this.setShuttingDown(false);
       }
       
       console.log("✅ Stopped all optimized streams");
     } catch (error) {
       console.error("❌ Error stopping all streams:", error);
-      this.setShuttingDown(false);
       throw error;
     }
-  };
+  }
 
-  reloadModel = async () => {
+  async reloadModel() {
     try {
       const response = await api.post("/api/detection/detection/model/reload");
       console.log("✅ Model reloaded successfully:", response.data.message);
@@ -618,11 +704,12 @@ class DetectionService {
       console.error("❌ Error reloading model:", error.response?.data?.detail || error.message);
       throw error;
     }
-  };
+  }
 
+  // Stats monitoring methods (unchanged)
   startStatsMonitoring = (cameraId, streamKey) => {
     const pollInterval = setInterval(async () => {
-      if (this.isShuttingDown) {
+      if (this.state === DetectionStates.SHUTTING_DOWN) {
         console.log(`⏭️ Skipping stats update for camera ${cameraId} - system shutting down`);
         return;
       }
@@ -651,7 +738,7 @@ class DetectionService {
           this.notifyStatsListeners(cameraId, updatedStats);
         }
       } catch (error) {
-        if (!this.isShuttingDown) {
+        if (this.state !== DetectionStates.SHUTTING_DOWN) {
           console.debug("Error polling detection stats:", error);
         }
       }
@@ -722,7 +809,7 @@ class DetectionService {
 
   async getAllStreamingStats() {
     try {
-      if (this.isShuttingDown) {
+      if (this.state === DetectionStates.SHUTTING_DOWN) {
         return {
           active_streams: 0,
           avg_processing_time_ms: 0,
@@ -737,7 +824,7 @@ class DetectionService {
       console.error("❌ Error getting streaming stats:", error);
       throw error;
     }
-  };
+  }
 
   getPerformanceComparison = async () => {
     try {
@@ -749,6 +836,7 @@ class DetectionService {
     }
   };
 
+  // Legacy method compatibility
   startDetectionFeed = async (cameraId, targetLabel) => {
     return this.startOptimizedDetectionFeed(cameraId, targetLabel);
   };
@@ -761,7 +849,7 @@ class DetectionService {
     return this.stopOptimizedDetectionFeed(cameraId, performShutdown);
   };
 
-  cleanup = async () => {
+  cleanup = async () => { 
     try {
       console.log('🧹 Starting DetectionService cleanup...');
       await this.stopAllStreams(true);

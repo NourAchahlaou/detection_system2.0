@@ -1,4 +1,4 @@
-// pages/AppDetection.jsx - Fixed with smart health checking
+// pages/AppDetection.jsx - Updated with 4-state system
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -19,20 +19,25 @@ import DetectionVideoFeed from "./components/DetectionVideoFeed";
 import { cameraService } from "../captureImage/CameraService";
 import { detectionService } from "./detectionService";
 
+// Detection states from service
+const DetectionStates = {
+  INITIALIZING: 'INITIALIZING',
+  READY: 'READY', 
+  RUNNING: 'RUNNING',
+  SHUTTING_DOWN: 'SHUTTING_DOWN'
+};
+
 export default function AppDetection() {
   // Core state management
   const [targetLabel, setTargetLabel] = useState("");
   const [cameraId, setCameraId] = useState("");
   const [cameras, setCameras] = useState([]);
-  const [isDetectionActive, setIsDetectionActive] = useState(false);
   const [selectedCameraId, setSelectedCameraId] = useState('');
   const [isDetecting, setIsDetecting] = useState(false);
   
-  // Model and system state
-  const [isModelLoaded, setIsModelLoaded] = useState(false);
-  const [modelLoadError, setModelLoadError] = useState(null);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [initializationStatus, setInitializationStatus] = useState('');
+  // Detection service state
+  const [detectionState, setDetectionState] = useState(DetectionStates.INITIALIZING);
+  const [initializationError, setInitializationError] = useState(null);
   const [systemHealth, setSystemHealth] = useState({
     streaming: { status: 'unknown' },
     detection: { status: 'unknown' },
@@ -56,13 +61,31 @@ export default function AppDetection() {
     memoryUsage: 0
   });
 
-  // FIXED: Smart health checking refs
-  const healthCheckInterval = useRef(null);
+  // Refs for lifecycle management
   const statsInterval = useRef(null);
   const cleanupRef = useRef(false);
   const initializationAttempted = useRef(false);
   const lastHealthCheck = useRef(null);
-  const isShuttingDown = useRef(false);
+  const stateChangeUnsubscribe = useRef(null);
+
+  // Subscribe to detection service state changes
+  useEffect(() => {
+    const unsubscribe = detectionService.addStateChangeListener((newState, oldState) => {
+      console.log(`🔄 Detection state changed: ${oldState} → ${newState}`);
+      setDetectionState(newState);
+    });
+    
+    stateChangeUnsubscribe.current = unsubscribe;
+    
+    // Get initial state
+    setDetectionState(detectionService.getState());
+    
+    return () => {
+      if (stateChangeUnsubscribe.current) {
+        stateChangeUnsubscribe.current();
+      }
+    };
+  }, []);
 
   // Initialize system on component mount
   useEffect(() => {
@@ -70,81 +93,58 @@ export default function AppDetection() {
       if (initializationAttempted.current) return;
       initializationAttempted.current = true;
 
-      setIsInitializing(true);
-      setInitializationStatus('Initializing detection processor...');
-      
       try {
-        console.log("Starting system initialization...");
+        console.log("🚀 Starting system initialization...");
         
-        // Step 1: Initialize detection processor
-        setInitializationStatus('Loading detection model...');
-        const modelResult = await detectionService.loadModel();
+        // Initialize detection processor
+        const initResult = await detectionService.ensureInitialized();
         
-        if (modelResult.success) {
-          setIsModelLoaded(true);
-          setInitializationStatus('Detection model loaded successfully');
-          console.log("Detection model loaded:", modelResult.message);
+        if (initResult.success) {
+          console.log("✅ Detection system initialized:", initResult.message);
+          setInitializationError(null);
+          
+          // Perform single health check
+          await performSingleHealthCheck();
+          
+          // Start stats monitoring
+          startStatsMonitoring();
+          
+          console.log("✅ System initialization completed successfully");
         } else {
-          throw new Error(modelResult.message || 'Failed to load detection model');
+          throw new Error(initResult.message || 'Failed to initialize detection system');
         }
         
-        // Step 2: Check system health ONCE during initialization
-        setInitializationStatus('Checking system health...');
-        await performSingleHealthCheck();
-        
-        // Step 3: FIXED - Only start stats monitoring, no continuous health checks
-        setInitializationStatus('Starting system monitoring...');
-        startStatsMonitoring();
-        
-        setInitializationStatus('System ready');
-        console.log("System initialization completed successfully");
-        
       } catch (error) {
-        console.error("Error initializing system:", error);
-        setModelLoadError(`System initialization failed: ${error.message}`);
-        setIsModelLoaded(false);
-        setInitializationStatus(`Initialization failed: ${error.message}`);
-      } finally {
-        setIsInitializing(false);
+        console.error("❌ Error initializing system:", error);
+        setInitializationError(error.message);
       }
     };
 
-    initializeSystem();
+    // Only initialize if in INITIALIZING state
+    if (detectionState === DetectionStates.INITIALIZING) {
+      initializeSystem();
+    }
     
     return () => {
       stopMonitoring();
     };
-  }, []);
+  }, [detectionState]);
 
-  // FIXED: Single health check function (not continuous)
+  // Single health check function
   const performSingleHealthCheck = useCallback(async () => {
-    if (isShuttingDown.current) {
+    if (detectionState === DetectionStates.SHUTTING_DOWN) {
       console.log("⏭️ Skipping health check - system is shutting down");
       return;
     }
 
     try {
-      console.log("🩺 Performing single health check...");
+      console.log("🩺 Performing health check...");
       const health = await detectionService.checkOptimizedHealth();
       setSystemHealth(health);
       lastHealthCheck.current = Date.now();
       
       if (!health.overall) {
         console.warn("System health check failed:", health);
-        
-        // If detection service is unhealthy, try to re-initialize
-        if (health.detection.status === 'unhealthy' && !isShuttingDown.current) {
-          console.log("Detection service unhealthy, attempting re-initialization...");
-          try {
-            await detectionService.ensureInitialized();
-            // Retry health check after re-initialization
-            const retryHealth = await detectionService.checkOptimizedHealth();
-            setSystemHealth(retryHealth);
-            lastHealthCheck.current = Date.now();
-          } catch (reinitError) {
-            console.error("Re-initialization failed:", reinitError);
-          }
-        }
       }
       
       console.log("✅ Health check completed:", health.overall ? "Healthy" : "Issues found");
@@ -157,61 +157,37 @@ export default function AppDetection() {
       });
       lastHealthCheck.current = Date.now();
     }
-  }, []);
+  }, [detectionState]);
 
   // Manual retry initialization
   const retryInitialization = useCallback(async () => {
     initializationAttempted.current = false;
-    setModelLoadError(null);
-    setIsModelLoaded(false);
-    isShuttingDown.current = false; // Reset shutdown flag
+    setInitializationError(null);
     
-    const initializeSystem = async () => {
-      setIsInitializing(true);
-      setInitializationStatus('Retrying initialization...');
+    try {
+      // Reset service to initializing state
+      detectionService.resetToInitializing('Manual retry');
       
-      try {
-        console.log("Retrying system initialization...");
-        
-        const modelResult = await detectionService.loadModel();
-        
-        if (modelResult.success) {
-          setIsModelLoaded(true);
-          setInitializationStatus('Detection model loaded successfully');
-          console.log("Detection model loaded on retry:", modelResult.message);
-        } else {
-          throw new Error(modelResult.message || 'Failed to load detection model');
-        }
-        
-        await performSingleHealthCheck();
-        startStatsMonitoring();
-        
-        setInitializationStatus('System ready');
-        console.log("System retry initialization completed successfully");
-        
-      } catch (error) {
-        console.error("Error during retry initialization:", error);
-        setModelLoadError(`Retry initialization failed: ${error.message}`);
-        setIsModelLoaded(false);
-        setInitializationStatus(`Retry failed: ${error.message}`);
-      } finally {
-        setIsInitializing(false);
-      }
-    };
+      // Wait a moment for state to update
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // The useEffect will trigger initialization automatically
+      console.log("🔄 Retry initialization requested");
+      
+    } catch (error) {
+      console.error("❌ Error during retry initialization:", error);
+      setInitializationError(error.message);
+    }
+  }, []);
 
-    await initializeSystem();
-  }, [performSingleHealthCheck]);
-
-  // REMOVED: Continuous health monitoring - now only on-demand
-
-  // FIXED: Only stats monitoring (much less frequent)
+  // Stats monitoring (reduced frequency)
   const startStatsMonitoring = useCallback(() => {
     if (statsInterval.current) {
       clearInterval(statsInterval.current);
     }
     
     const updateGlobalStats = async () => {
-      if (isShuttingDown.current) {
+      if (detectionState === DetectionStates.SHUTTING_DOWN) {
         console.log("⏭️ Skipping stats update - system is shutting down");
         return;
       }
@@ -232,31 +208,24 @@ export default function AppDetection() {
     };
 
     updateGlobalStats();
-    // FIXED: Reduced frequency - only every 10 seconds instead of 5
     statsInterval.current = setInterval(updateGlobalStats, 10000);
-  }, []);
+  }, [detectionState]);
 
   // Stop all monitoring
   const stopMonitoring = useCallback(() => {
     console.log("🛑 Stopping all monitoring...");
-    isShuttingDown.current = true;
     
-    if (healthCheckInterval.current) {
-      clearInterval(healthCheckInterval.current);
-      healthCheckInterval.current = null;
-    }
     if (statsInterval.current) {
       clearInterval(statsInterval.current);
       statsInterval.current = null;
     }
   }, []);
 
-  // FIXED: Enhanced cleanup with proper shutdown signaling
+  // Enhanced cleanup with proper shutdown signaling
   useEffect(() => {
     const handleBeforeUnload = async (event) => {
       if (cleanupRef.current) return;
       cleanupRef.current = true;
-      isShuttingDown.current = true;
       
       try {
         console.log("Performing cleanup...");
@@ -265,7 +234,7 @@ export default function AppDetection() {
         stopMonitoring();
         
         // Stop all detection services
-        if (isDetectionActive) {
+        if (detectionState === DetectionStates.RUNNING) {
           await detectionService.stopAllStreams();
         }
         
@@ -285,7 +254,7 @@ export default function AppDetection() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       handleBeforeUnload();
     };
-  }, [isDetectionActive, stopMonitoring]);
+  }, [detectionState, stopMonitoring]);
   
   // Fetch available cameras with error handling
   useEffect(() => {
@@ -318,7 +287,7 @@ export default function AppDetection() {
     }
   }, [cameras]);
   
-  // FIXED: Enhanced detection start with health check
+  // Enhanced detection start with state validation
   const handleStartDetection = useCallback(async () => {
     // Comprehensive validation
     if (!cameraId || cameraId === '') {
@@ -331,12 +300,12 @@ export default function AppDetection() {
       return;
     }
     
-    if (!isModelLoaded) {
-      alert("Detection model is not loaded. Please wait for initialization to complete or try refreshing the page.");
+    if (!detectionService.canStart()) {
+      alert(`Cannot start detection. Current state: ${detectionState}. System must be READY.`);
       return;
     }
     
-    // FIXED: Perform health check before starting detection
+    // Perform health check before starting detection
     console.log("🩺 Checking system health before starting detection...");
     await performSingleHealthCheck();
     
@@ -355,20 +324,18 @@ export default function AppDetection() {
     }
     
     console.log("Starting detection with options:", detectionOptions);
-    isShuttingDown.current = false; // Reset shutdown flag when starting
-    setIsDetectionActive(true);
-  }, [cameraId, targetLabel, isModelLoaded, systemHealth.overall, cameras, detectionOptions, performSingleHealthCheck]);
+  }, [cameraId, targetLabel, detectionState, systemHealth.overall, cameras, detectionOptions, performSingleHealthCheck]);
   
-  // FIXED: Enhanced detection stop with post-shutdown health check
+  // Enhanced detection stop
   const handleStopDetection = useCallback(async () => {
     console.log("Stopping detection...");
-    isShuttingDown.current = true;
-    setIsDetectionActive(false);
     
-    // FIXED: Perform health check after shutdown to verify clean state
+    // The state will be managed by the service itself
+    // Just trigger the stop, don't manage state here
+    
+    // Perform health check after shutdown to verify clean state
     setTimeout(async () => {
       console.log("🩺 Checking system health after detection stop...");
-      isShuttingDown.current = false; // Allow health check after shutdown
       await performSingleHealthCheck();
     }, 2000); // Wait 2 seconds for shutdown to complete
   }, [performSingleHealthCheck]);
@@ -393,9 +360,9 @@ export default function AppDetection() {
         setSelectedCameraId('');
         setCameraId('');
         
-        if (isDetectionActive) {
+        if (detectionState === DetectionStates.RUNNING) {
           alert("The camera currently in use is no longer available. Detection has been stopped.");
-          setIsDetectionActive(false);
+          // The service will handle state transitions
         }
       }
       
@@ -406,7 +373,7 @@ export default function AppDetection() {
     } finally {
       setIsDetecting(false);
     }
-  }, [selectedCameraId, isDetectionActive]);
+  }, [selectedCameraId, detectionState]);
 
   // Handle detection options changes
   const handleDetectionOptionsChange = useCallback((newOptions) => {
@@ -417,7 +384,7 @@ export default function AppDetection() {
     console.log("Detection options updated:", newOptions);
   }, []);
 
-  // FIXED: Manual health check button handler
+  // Manual health check button handler
   const handleManualHealthCheck = useCallback(async () => {
     console.log("🩺 Manual health check requested...");
     await performSingleHealthCheck();
@@ -440,31 +407,79 @@ export default function AppDetection() {
     return `${ageMinutes}m ago`;
   };
 
+  // Get state-specific styling and messages
+  const getStateInfo = () => {
+    switch (detectionState) {
+      case DetectionStates.INITIALIZING:
+        return {
+          color: 'info',
+          message: 'Initializing detection system...',
+          canOperate: false
+        };
+      case DetectionStates.READY:
+        return {
+          color: 'success',
+          message: 'System ready for detection',
+          canOperate: true
+        };
+      case DetectionStates.RUNNING:
+        return {
+          color: 'warning',
+          message: 'Detection active',
+          canOperate: true
+        };
+      case DetectionStates.SHUTTING_DOWN:
+        return {
+          color: 'error',
+          message: 'System shutting down...',
+          canOperate: false
+        };
+      default:
+        return {
+          color: 'default',
+          message: 'Unknown state',
+          canOperate: false
+        };
+    }
+  };
+
+  const stateInfo = getStateInfo();
+
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-      {/* Initialization Status */}
-      {isInitializing && (
+      {/* State Status Alert */}
+      {detectionState === DetectionStates.INITIALIZING && (
         <Alert 
           severity="info" 
           sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
           icon={<CircularProgress size={20} />}
         >
-          {initializationStatus}
+          Initializing detection system... This may take a moment.
+        </Alert>
+      )}
+
+      {detectionState === DetectionStates.SHUTTING_DOWN && (
+        <Alert 
+          severity="warning" 
+          sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
+          icon={<CircularProgress size={20} />}
+        >
+          System is shutting down... Please wait.
         </Alert>
       )}
 
       {/* System Status Alerts */}
-      {modelLoadError && (
+      {initializationError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {modelLoadError}
+          System initialization failed: {initializationError}
           <Box sx={{ mt: 1 }}>
             <Button 
               variant="outlined" 
               size="small" 
               onClick={retryInitialization}
-              disabled={isInitializing}
+              disabled={detectionState === DetectionStates.INITIALIZING || detectionState === DetectionStates.SHUTTING_DOWN}
             >
-              {isInitializing ? 'Retrying...' : 'Retry Initialization'}
+              {detectionState === DetectionStates.INITIALIZING ? 'Initializing...' : 'Retry Initialization'}
             </Button>
           </Box>
           <br />
@@ -472,21 +487,7 @@ export default function AppDetection() {
         </Alert>
       )}
       
-      {!isModelLoaded && !modelLoadError && !isInitializing && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Detection model not loaded. 
-          <Button 
-            variant="outlined" 
-            size="small" 
-            onClick={retryInitialization}
-            sx={{ ml: 1 }}
-          >
-            Try Again
-          </Button>
-        </Alert>
-      )}
-
-      {!systemHealth.overall && isModelLoaded && !isInitializing && (
+      {!systemHealth.overall && detectionState === DetectionStates.READY && !initializationError && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           System health check indicates issues. Detection may not work optimally.
           <br />
@@ -500,9 +501,9 @@ export default function AppDetection() {
               variant="outlined" 
               size="small" 
               onClick={handleManualHealthCheck}
-              disabled={isShuttingDown.current}
+              disabled={detectionState !== DetectionStates.READY}
             >
-              {isShuttingDown.current ? 'System Shutting Down...' : 'Check Health Now'}
+              Check Health Now
             </Button>
           </Box>
         </Alert>
@@ -522,22 +523,23 @@ export default function AppDetection() {
               isDetecting={isDetecting}
               onStartDetection={handleStartDetection}
               onStopDetection={handleStopDetection}
-              isDetectionActive={isDetectionActive}
-              isModelLoaded={isModelLoaded && !isInitializing}
+              isDetectionActive={detectionState === DetectionStates.RUNNING}
+              isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
               systemHealth={systemHealth}
               detectionOptions={detectionOptions}
               onDetectionOptionsChange={handleDetectionOptionsChange}
+              detectionState={detectionState}
             />
             
             <DetectionVideoFeed
-              isDetectionActive={isDetectionActive}
+              isDetectionActive={detectionState === DetectionStates.RUNNING}
               onStartDetection={handleStartDetection}
               onStopDetection={handleStopDetection}
               cameraId={cameraId}
               targetLabel={targetLabel}
-              isModelLoaded={isModelLoaded && !isInitializing}
-              setIsModelLoaded={setIsModelLoaded}
+              isSystemReady={stateInfo.canOperate}
               detectionOptions={detectionOptions}
+              detectionState={detectionState}
             />
           </Stack>
         </Grid>
@@ -551,23 +553,28 @@ export default function AppDetection() {
               </Typography>
               
               <Stack spacing={2}>
-                {/* Initialization Status */}
-                {isInitializing && (
-                  <Box>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Initialization Status
-                    </Typography>
+                {/* Detection State */}
+                <Box>
+                  <Typography variant="subtitle2" color="textSecondary">
+                    Detection State
+                  </Typography>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
                     <Chip
-                      label="Initializing..."
-                      color="warning"
+                      label={detectionState}
+                      color={stateInfo.color}
                       size="small"
-                      sx={{ mt: 0.5 }}
-                      icon={<CircularProgress size={16} />}
+                      icon={
+                        (detectionState === DetectionStates.INITIALIZING || detectionState === DetectionStates.SHUTTING_DOWN) ? 
+                        <CircularProgress size={16} /> : undefined
+                      }
                     />
-                  </Box>
-                )}
+                  </Stack>
+                  <Typography variant="caption" color="textSecondary">
+                    {stateInfo.message}
+                  </Typography>
+                </Box>
 
-                {/* FIXED: System Health with last check time */}
+                {/* System Health */}
                 <Box>
                   <Typography variant="subtitle2" color="textSecondary">
                     System Health
@@ -575,13 +582,13 @@ export default function AppDetection() {
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
                     <Chip
                       label={
-                        isInitializing ? "Initializing" : 
-                        isShuttingDown.current ? "Shutting Down" :
+                        detectionState === DetectionStates.INITIALIZING ? "Initializing" : 
+                        detectionState === DetectionStates.SHUTTING_DOWN ? "Shutting Down" :
                         systemHealth.overall ? "Healthy" : "Issues Detected"
                       }
                       color={
-                        isInitializing ? "warning" :
-                        isShuttingDown.current ? "info" :
+                        detectionState === DetectionStates.INITIALIZING ? "warning" :
+                        detectionState === DetectionStates.SHUTTING_DOWN ? "info" :
                         systemHealth.overall ? "success" : "error"
                       }
                       size="small"
@@ -590,7 +597,7 @@ export default function AppDetection() {
                       size="small"
                       variant="text"
                       onClick={handleManualHealthCheck}
-                      disabled={isShuttingDown.current || isInitializing}
+                      disabled={detectionState !== DetectionStates.READY}
                       sx={{ fontSize: '0.7rem', minWidth: 'auto', p: 0.5 }}
                     >
                       Check Now
