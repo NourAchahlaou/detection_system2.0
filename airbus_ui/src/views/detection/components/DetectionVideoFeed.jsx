@@ -1,4 +1,4 @@
-// DetectionVideoFeed.jsx - Updated with 4-state system
+// DetectionVideoFeed.jsx - Updated with fixed health check integration
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Alert, CircularProgress, Typography, Chip, Button } from "@mui/material";
 import { VideoCard } from "./styledComponents";
@@ -48,9 +48,17 @@ const DetectionVideoFeed = ({
   const [componentError, setComponentError] = useState(null);
   const [initializationAttempts, setInitializationAttempts] = useState(0);
   
+  // Health check tracking
+  const [healthCheckStatus, setHealthCheckStatus] = useState({
+    initial: false,
+    postShutdown: false,
+    lastCheck: null
+  });
+  
   const videoRef = useRef(null);
   const mountedRef = useRef(true);
   const stateChangeUnsubscribe = useRef(null);
+  const initializationAttempted = useRef(false);
 
   // Subscribe to detection service state changes
   useEffect(() => {
@@ -62,25 +70,45 @@ const DetectionVideoFeed = ({
       console.log(`🔄 VideoFeed: Detection state changed: ${oldState} → ${newState}`);
       setDetectionState(newState);
       
+      // Update model loaded status
+      setIsModelLoaded(detectionService.isModelLoaded);
+      
       // Handle state-specific logic
       switch (newState) {
         case DetectionStates.INITIALIZING:
           setStreamStatus(prev => ({ ...prev, isLoading: true }));
           setComponentError(null);
+          // Reset health check status
+          setHealthCheckStatus(prev => ({
+            ...prev,
+            initial: false,
+            postShutdown: false
+          }));
           break;
           
         case DetectionStates.READY:
-          setIsModelLoaded(detectionService.isModelLoaded);
           if (oldState === DetectionStates.SHUTTING_DOWN) {
             // Clean up after shutdown
             setStreamStatus({ isLoading: false, error: null, isConnected: false });
             setVideoUrl("");
             setComponentError(null);
             resetDetectionStats();
+            
+            // Mark that we need a post-shutdown health check
+            setHealthCheckStatus(prev => ({
+              ...prev,
+              postShutdown: false // Reset so we can perform post-shutdown check
+            }));
           } else if (oldState === DetectionStates.INITIALIZING) {
             // Initialization completed
             setStreamStatus(prev => ({ ...prev, isLoading: false }));
             setComponentError(null);
+            
+            // Mark that we need an initial health check
+            setHealthCheckStatus(prev => ({
+              ...prev,
+              initial: false // Reset so we can perform initial check
+            }));
           }
           break;
           
@@ -98,6 +126,10 @@ const DetectionVideoFeed = ({
     
     stateChangeUnsubscribe.current = unsubscribe;
     
+    // Get initial state and model status
+    setDetectionState(detectionService.getState());
+    setIsModelLoaded(detectionService.isModelLoaded);
+    
     return () => {
       mountedRef.current = false;
       if (stateChangeUnsubscribe.current) {
@@ -110,12 +142,25 @@ const DetectionVideoFeed = ({
   useEffect(() => {
     const initializeIfNeeded = async () => {
       // Only initialize if we're in INITIALIZING state and haven't tried yet
-      if (detectionState === DetectionStates.INITIALIZING && initializationAttempts === 0) {
+      if (detectionState === DetectionStates.INITIALIZING && !initializationAttempted.current) {
         console.log("🚀 VideoFeed: Starting detection system initialization...");
+        initializationAttempted.current = true;
         setInitializationAttempts(1);
         
         try {
-          await detectionService.ensureInitialized();
+          const initResult = await detectionService.ensureInitialized();
+          
+          if (initResult.success && mountedRef.current) {
+            console.log("✅ VideoFeed: Detection system initialized successfully");
+            setComponentError(null);
+            
+            // Trigger initial health check after successful initialization
+            setTimeout(() => {
+              if (mountedRef.current && detectionState === DetectionStates.READY) {
+                performInitialHealthCheck();
+              }
+            }, 1000); // Give it a moment to settle
+          }
         } catch (error) {
           console.error("❌ VideoFeed: Initialization failed:", error);
           if (mountedRef.current) {
@@ -126,7 +171,32 @@ const DetectionVideoFeed = ({
     };
 
     initializeIfNeeded();
-  }, [detectionState, initializationAttempts]);
+  }, [detectionState]);
+
+  // Watch for READY state transitions to trigger appropriate health checks
+  useEffect(() => {
+    const handleReadyStateTransition = async () => {
+      if (detectionState !== DetectionStates.READY) return;
+      
+      const serviceStatus = detectionService.getDetailedStatus();
+      
+      // Check if we need to perform initial health check
+      if (!healthCheckStatus.initial && !serviceStatus.hasPerformedInitialHealthCheck) {
+        console.log("🩺 VideoFeed: Triggering initial health check...");
+        await performInitialHealthCheck();
+      }
+      // Check if we need to perform post-shutdown health check
+      else if (!healthCheckStatus.postShutdown && !serviceStatus.hasPerformedPostShutdownCheck) {
+        console.log("🩺 VideoFeed: Triggering post-shutdown health check...");
+        await performPostShutdownHealthCheck();
+      }
+    };
+
+    // Use a small delay to ensure state has settled
+    const timer = setTimeout(handleReadyStateTransition, 500);
+    
+    return () => clearTimeout(timer);
+  }, [detectionState, healthCheckStatus.initial, healthCheckStatus.postShutdown]);
 
   // Reset detection stats helper
   const resetDetectionStats = useCallback(() => {
@@ -143,11 +213,83 @@ const DetectionVideoFeed = ({
     });
   }, []);
 
+  // Initial health check function
+  const performInitialHealthCheck = useCallback(async () => {
+    if (healthCheckStatus.initial) {
+      console.log("⏭️ VideoFeed: Initial health check already performed");
+      return;
+    }
+
+    try {
+      console.log("🩺 VideoFeed: Performing initial health check...");
+      const health = await detectionService.checkOptimizedHealth(true, false); // isInitialCheck = true
+      
+      if (mountedRef.current) {
+        setHealthCheckStatus(prev => ({
+          ...prev,
+          initial: true,
+          lastCheck: Date.now()
+        }));
+        
+        console.log("✅ VideoFeed: Initial health check completed:", health.overall ? "Healthy" : "Issues found");
+      }
+    } catch (error) {
+      console.error("❌ VideoFeed: Initial health check failed:", error);
+      if (mountedRef.current) {
+        setHealthCheckStatus(prev => ({
+          ...prev,
+          initial: true, // Mark as attempted even if failed
+          lastCheck: Date.now()
+        }));
+      }
+    }
+  }, [healthCheckStatus.initial]);
+
+  // Post-shutdown health check function
+  const performPostShutdownHealthCheck = useCallback(async () => {
+    if (healthCheckStatus.postShutdown) {
+      console.log("⏭️ VideoFeed: Post-shutdown health check already performed");
+      return;
+    }
+
+    try {
+      console.log("🩺 VideoFeed: Performing post-shutdown health check...");
+      const health = await detectionService.checkOptimizedHealth(false, true); // isPostShutdownCheck = true
+      
+      if (mountedRef.current) {
+        setHealthCheckStatus(prev => ({
+          ...prev,
+          postShutdown: true,
+          lastCheck: Date.now()
+        }));
+        
+        console.log("✅ VideoFeed: Post-shutdown health check completed:", health.overall ? "Healthy" : "Issues found");
+      }
+    } catch (error) {
+      console.error("❌ VideoFeed: Post-shutdown health check failed:", error);
+      if (mountedRef.current) {
+        setHealthCheckStatus(prev => ({
+          ...prev,
+          postShutdown: true, // Mark as attempted even if failed
+          lastCheck: Date.now()
+        }));
+      }
+    }
+  }, [healthCheckStatus.postShutdown]);
+
   // Manual retry initialization
   const handleRetryInitialization = useCallback(async () => {
     console.log("🔄 VideoFeed: Manual initialization retry requested");
     setComponentError(null);
     setInitializationAttempts(prev => prev + 1);
+    initializationAttempted.current = false;
+    
+    // Reset health check status
+    setHealthCheckStatus({
+      initial: false,
+      postShutdown: false,
+      lastCheck: null
+    });
     
     try {
       // Reset service to initializing state
@@ -157,7 +299,12 @@ const DetectionVideoFeed = ({
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // Try initialization
-      await detectionService.ensureInitialized();
+      const initResult = await detectionService.ensureInitialized();
+      
+      if (initResult.success && mountedRef.current) {
+        console.log("✅ VideoFeed: Retry initialization successful");
+        setComponentError(null);
+      }
     } catch (error) {
       console.error("❌ VideoFeed: Retry initialization failed:", error);
       if (mountedRef.current) {
@@ -287,6 +434,18 @@ const DetectionVideoFeed = ({
 
       console.log(`✅ VideoFeed: Stopped optimized detection for camera ${cameraId}`);
 
+      // Schedule post-shutdown health check
+      setTimeout(() => {
+        if (mountedRef.current && detectionState === DetectionStates.READY) {
+          console.log("🩺 VideoFeed: Scheduling post-shutdown health check...");
+          setHealthCheckStatus(prev => ({
+            ...prev,
+            postShutdown: false // Reset to allow new post-shutdown check
+          }));
+          performPostShutdownHealthCheck();
+        }
+      }, 2000); // Wait 2 seconds for shutdown to complete
+
     } catch (error) {
       console.error("❌ VideoFeed: Error stopping optimized detection:", error);
       
@@ -342,6 +501,30 @@ const DetectionVideoFeed = ({
       detectionState === DetectionStates.SHUTTING_DOWN ||
       streamStatus.isLoading
     );
+  };
+
+  // Get health check status for display
+  const getHealthCheckStatusText = () => {
+    const serviceStatus = detectionService.getDetailedStatus();
+    
+    if (detectionState === DetectionStates.INITIALIZING) {
+      return "Health checks pending initialization";
+    }
+    
+    if (detectionState === DetectionStates.SHUTTING_DOWN) {
+      return "Health checks paused during shutdown";
+    }
+    
+    const initialDone = healthCheckStatus.initial || serviceStatus.hasPerformedInitialHealthCheck;
+    const postShutdownDone = healthCheckStatus.postShutdown || serviceStatus.hasPerformedPostShutdownCheck;
+    
+    if (initialDone && postShutdownDone) {
+      return "All health checks completed";
+    } else if (initialDone) {
+      return "Initial check done, awaiting post-shutdown";
+    } else {
+      return "Health checks pending";
+    }
   };
 
   return (
@@ -473,6 +656,17 @@ const DetectionVideoFeed = ({
             color="warning"
           />
         )}
+
+        {/* Health Check Status */}
+        <Chip 
+          label={getHealthCheckStatusText()} 
+          size="small" 
+          color={
+            (healthCheckStatus.initial || detectionService.getDetailedStatus().hasPerformedInitialHealthCheck) &&
+            (healthCheckStatus.postShutdown || detectionService.getDetailedStatus().hasPerformedPostShutdownCheck)
+              ? 'success' : 'info'
+          }
+        />
       </Box>
     </div>
   );

@@ -24,6 +24,8 @@ class DetectionService {
     
     // Initialization tracking
     this.initializationPromise = null;
+    this.hasPerformedInitialHealthCheck = false; // Track if initial health check was done
+    this.hasPerformedPostShutdownCheck = false; // Track post-shutdown check
     
     // Timeouts
     this.INITIALIZATION_TIMEOUT = 30000;
@@ -40,6 +42,14 @@ class DetectionService {
     const oldState = this.state;
     this.state = newState;
     console.log(`🔄 State changed: ${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
+    
+    // Reset health check flags on state transitions
+    if (newState === DetectionStates.INITIALIZING) {
+      this.hasPerformedInitialHealthCheck = false;
+      this.hasPerformedPostShutdownCheck = false;
+    } else if (newState === DetectionStates.READY && oldState === DetectionStates.SHUTTING_DOWN) {
+      this.hasPerformedPostShutdownCheck = false; // Allow post-shutdown check
+    }
     
     // Notify all listeners
     this.stateChangeListeners.forEach(listener => {
@@ -87,20 +97,38 @@ class DetectionService {
     this.initializationPromise = null;
     this.lastHealthCheck = null;
     this.healthCheckInProgress = false;
+    this.hasPerformedInitialHealthCheck = false;
+    this.hasPerformedPostShutdownCheck = false;
     console.log('🔄 Detection service reset to initializing state');
   }
 
-  shouldSkipHealthCheck() {
+  // Updated shouldSkipHealthCheck with clearer logic
+  shouldSkipHealthCheck(isInitialCheck = false, isPostShutdownCheck = false) {
+    // NEVER skip initial health checks during initialization
+    if (isInitialCheck && !this.hasPerformedInitialHealthCheck) {
+      console.log('🩺 Allowing initial health check during initialization');
+      return false;
+    }
+
+    // NEVER skip post-shutdown health checks
+    if (isPostShutdownCheck && !this.hasPerformedPostShutdownCheck) {
+      console.log('🩺 Allowing post-shutdown health check');
+      return false;
+    }
+
+    // Skip if system is shutting down (except for post-shutdown checks)
     if (this.state === DetectionStates.SHUTTING_DOWN) {
       console.log('⏭️ Skipping health check - system is shutting down');
       return true;
     }
 
+    // Skip if another health check is in progress
     if (this.healthCheckInProgress) {
       console.log('⏭️ Skipping health check - already in progress');
       return true;
     }
 
+    // Skip if too soon since last check (cooldown period)
     if (this.lastHealthCheck && (Date.now() - this.lastHealthCheck) < this.HEALTH_CHECK_COOLDOWN) {
       console.log('⏭️ Skipping health check - too soon since last check');
       return true;
@@ -171,8 +199,8 @@ class DetectionService {
       if (response.data.status === 'initialized' || response.data.status === 'already_running') {
         console.log('✅ Detection processor initialized:', response.data.message);
         
-        // Load the model
-        const modelResult = await this.loadModel();
+        // Load the model with initial health check
+        const modelResult = await this.loadModel(true); // Pass true for initial check
         if (modelResult.success) {
           this.isModelLoaded = true;
           this.setState(DetectionStates.READY, 'Initialization completed');
@@ -204,9 +232,10 @@ class DetectionService {
     }
   }
 
-  async loadModel() {
+  // Updated loadModel method with initial check parameter
+  async loadModel(isInitialCheck = false) {
     try {
-      if (this.shouldSkipHealthCheck()) {
+      if (this.shouldSkipHealthCheck(isInitialCheck, false)) {
         return {
           success: false,
           message: 'Health check skipped due to system state'
@@ -223,6 +252,12 @@ class DetectionService {
       
       clearTimeout(timeoutId);
       this.lastHealthCheck = Date.now();
+      
+      // Mark initial health check as performed
+      if (isInitialCheck) {
+        this.hasPerformedInitialHealthCheck = true;
+        console.log('✅ Initial health check completed and marked');
+      }
       
       if (!response.ok) {
         if (response.status === 503) {
@@ -308,8 +343,9 @@ class DetectionService {
     }
   }
 
-  async checkOptimizedHealth() {
-    if (this.shouldSkipHealthCheck()) {
+  // Updated checkOptimizedHealth with proper parameters and flags
+  async checkOptimizedHealth(isInitialCheck = false, isPostShutdownCheck = false) {
+    if (this.shouldSkipHealthCheck(isInitialCheck, isPostShutdownCheck)) {
       return {
         streaming: { status: 'skipped', message: 'Health check skipped' },
         detection: { status: 'skipped', message: 'Health check skipped' },
@@ -320,8 +356,8 @@ class DetectionService {
     this.healthCheckInProgress = true;
 
     try {
-      // Don't try to initialize during health check, just check current state
-      if (!this.isOperational()) {
+      // Allow health checks during initialization and post-shutdown
+      if (!this.isOperational() && !isInitialCheck && !isPostShutdownCheck) {
         throw new Error(`Cannot perform health check in state: ${this.state}`);
       }
 
@@ -348,8 +384,16 @@ class DetectionService {
       const [streamingHealth, detectionHealth] = await Promise.all(healthCheckPromises);
       this.lastHealthCheck = Date.now();
 
+      // Mark post-shutdown health check as performed
+      if (isPostShutdownCheck) {
+        this.hasPerformedPostShutdownCheck = true;
+        console.log('✅ Post-shutdown health check completed and marked');
+      }
+
       const streamingHealthy = streamingHealth.data.status === 'healthy';
       const detectionHealthy = detectionHealth.data.status === 'healthy';
+
+      console.log(`🩺 Health check completed - Streaming: ${streamingHealthy ? 'Healthy' : 'Unhealthy'}, Detection: ${detectionHealthy ? 'Healthy' : 'Unhealthy'}`);
 
       return {
         streaming: streamingHealth.data,
@@ -455,7 +499,9 @@ class DetectionService {
       isShuttingDown: this.isShuttingDown(),
       activeStreams: this.currentStreams.size,
       lastHealthCheck: this.lastHealthCheck,
-      healthCheckInProgress: this.healthCheckInProgress
+      healthCheckInProgress: this.healthCheckInProgress,
+      hasPerformedInitialHealthCheck: this.hasPerformedInitialHealthCheck,
+      hasPerformedPostShutdownCheck: this.hasPerformedPostShutdownCheck
     };
   }
 
@@ -820,7 +866,7 @@ class DetectionService {
       }
       const response = await api.get('/api/video_streaming/video/optimized/stats');
       return response.data;
-    } catch (error) {
+    } catch (error) { 
       console.error("❌ Error getting streaming stats:", error);
       throw error;
     }

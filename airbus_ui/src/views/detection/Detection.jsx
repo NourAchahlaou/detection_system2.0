@@ -1,4 +1,4 @@
-// pages/AppDetection.jsx - Updated with 4-state system
+// pages/AppDetection.jsx - Updated with fixed health check logic
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -67,12 +67,25 @@ export default function AppDetection() {
   const initializationAttempted = useRef(false);
   const lastHealthCheck = useRef(null);
   const stateChangeUnsubscribe = useRef(null);
+  const healthCheckPerformed = useRef({
+    initial: false,
+    postShutdown: false
+  });
 
   // Subscribe to detection service state changes
   useEffect(() => {
     const unsubscribe = detectionService.addStateChangeListener((newState, oldState) => {
       console.log(`🔄 Detection state changed: ${oldState} → ${newState}`);
       setDetectionState(newState);
+      
+      // Reset health check flags on state transitions
+      if (newState === DetectionStates.INITIALIZING) {
+        healthCheckPerformed.current.initial = false;
+        healthCheckPerformed.current.postShutdown = false;
+      } else if (newState === DetectionStates.READY && oldState === DetectionStates.SHUTTING_DOWN) {
+        // Allow post-shutdown health check
+        healthCheckPerformed.current.postShutdown = false;
+      }
     });
     
     stateChangeUnsubscribe.current = unsubscribe;
@@ -103,8 +116,8 @@ export default function AppDetection() {
           console.log("✅ Detection system initialized:", initResult.message);
           setInitializationError(null);
           
-          // Perform single health check
-          await performSingleHealthCheck();
+          // Perform initial health check right after initialization
+          await performInitialHealthCheck();
           
           // Start stats monitoring
           startStatsMonitoring();
@@ -130,39 +143,95 @@ export default function AppDetection() {
     };
   }, [detectionState]);
 
-  // Single health check function
-  const performSingleHealthCheck = useCallback(async () => {
+  // Watch for state transitions to trigger health checks
+  useEffect(() => {
+    const handleStateTransition = async () => {
+      if (detectionState === DetectionStates.READY) {
+        const serviceStatus = detectionService.getDetailedStatus();
+        
+        // If we just transitioned to READY after shutdown, perform post-shutdown health check
+        if (!healthCheckPerformed.current.postShutdown && 
+            !serviceStatus.hasPerformedPostShutdownCheck) {
+          console.log("🩺 Triggering post-shutdown health check...");
+          await performPostShutdownHealthCheck();
+        }
+        // If we just transitioned to READY after initialization, perform initial health check
+        else if (!healthCheckPerformed.current.initial && 
+                 !serviceStatus.hasPerformedInitialHealthCheck) {
+          console.log("🩺 Triggering initial health check...");
+          await performInitialHealthCheck();
+        }
+      }
+    };
+
+    handleStateTransition();
+  }, [detectionState]);
+
+  // Initial health check function
+  const performInitialHealthCheck = useCallback(async () => {
+    if (healthCheckPerformed.current.initial) {
+      console.log("⏭️ Initial health check already performed");
+      return;
+    }
+
     if (detectionState === DetectionStates.SHUTTING_DOWN) {
-      console.log("⏭️ Skipping health check - system is shutting down");
+      console.log("⏭️ Skipping initial health check - system is shutting down");
       return;
     }
 
     try {
-      console.log("🩺 Performing health check...");
-      const health = await detectionService.checkOptimizedHealth();
+      console.log("🩺 Performing initial health check...");
+      const health = await detectionService.checkOptimizedHealth(true, false); // isInitialCheck = true
       setSystemHealth(health);
       lastHealthCheck.current = Date.now();
+      healthCheckPerformed.current.initial = true;
       
-      if (!health.overall) {
-        console.warn("System health check failed:", health);
-      }
-      
-      console.log("✅ Health check completed:", health.overall ? "Healthy" : "Issues found");
+      console.log("✅ Initial health check completed:", health.overall ? "Healthy" : "Issues found");
     } catch (error) {
-      console.error("Health check error:", error);
+      console.error("Initial health check error:", error);
       setSystemHealth({
         streaming: { status: 'unhealthy', error: error.message },
         detection: { status: 'unhealthy', error: error.message },
         overall: false
       });
       lastHealthCheck.current = Date.now();
+      healthCheckPerformed.current.initial = true;
     }
   }, [detectionState]);
+
+  // Post-shutdown health check function
+  const performPostShutdownHealthCheck = useCallback(async () => {
+    if (healthCheckPerformed.current.postShutdown) {
+      console.log("⏭️ Post-shutdown health check already performed");
+      return;
+    }
+
+    try {
+      console.log("🩺 Performing post-shutdown health check...");
+      const health = await detectionService.checkOptimizedHealth(false, true); // isPostShutdownCheck = true
+      setSystemHealth(health);
+      lastHealthCheck.current = Date.now();
+      healthCheckPerformed.current.postShutdown = true;
+      
+      console.log("✅ Post-shutdown health check completed:", health.overall ? "Healthy" : "Issues found");
+    } catch (error) {
+      console.error("Post-shutdown health check error:", error);
+      setSystemHealth({
+        streaming: { status: 'unhealthy', error: error.message },
+        detection: { status: 'unhealthy', error: error.message },
+        overall: false
+      });
+      lastHealthCheck.current = Date.now();
+      healthCheckPerformed.current.postShutdown = true;
+    }
+  }, []);
 
   // Manual retry initialization
   const retryInitialization = useCallback(async () => {
     initializationAttempted.current = false;
     setInitializationError(null);
+    healthCheckPerformed.current.initial = false;
+    healthCheckPerformed.current.postShutdown = false;
     
     try {
       // Reset service to initializing state
@@ -305,9 +374,12 @@ export default function AppDetection() {
       return;
     }
     
-    // Perform health check before starting detection
-    console.log("🩺 Checking system health before starting detection...");
-    await performSingleHealthCheck();
+    // Perform health check before starting detection if not done recently
+    const timeSinceLastCheck = lastHealthCheck.current ? Date.now() - lastHealthCheck.current : Infinity;
+    if (timeSinceLastCheck > 30000 || !systemHealth.overall) { // 30 seconds
+      console.log("🩺 Checking system health before starting detection...");
+      await performSingleHealthCheck();
+    }
     
     if (!systemHealth.overall) {
       const proceed = window.confirm(
@@ -324,7 +396,7 @@ export default function AppDetection() {
     }
     
     console.log("Starting detection with options:", detectionOptions);
-  }, [cameraId, targetLabel, detectionState, systemHealth.overall, cameras, detectionOptions, performSingleHealthCheck]);
+  }, [cameraId, targetLabel, detectionState, systemHealth.overall, cameras, detectionOptions]);
   
   // Enhanced detection stop
   const handleStopDetection = useCallback(async () => {
@@ -333,12 +405,41 @@ export default function AppDetection() {
     // The state will be managed by the service itself
     // Just trigger the stop, don't manage state here
     
-    // Perform health check after shutdown to verify clean state
+    // Perform post-shutdown health check after shutdown to verify clean state
     setTimeout(async () => {
       console.log("🩺 Checking system health after detection stop...");
-      await performSingleHealthCheck();
-    }, 2000); // Wait 2 seconds for shutdown to complete
-  }, [performSingleHealthCheck]);
+      await performPostShutdownHealthCheck();
+    }, 3000); // Wait 3 seconds for shutdown to complete
+  }, [performPostShutdownHealthCheck]);
+
+  // Single health check function (for manual checks)
+  const performSingleHealthCheck = useCallback(async () => {
+    if (detectionState === DetectionStates.SHUTTING_DOWN) {
+      console.log("⏭️ Skipping health check - system is shutting down");
+      return;
+    }
+
+    try {
+      console.log("🩺 Performing manual health check...");
+      const health = await detectionService.checkOptimizedHealth();
+      setSystemHealth(health);
+      lastHealthCheck.current = Date.now();
+      
+      if (!health.overall) {
+        console.warn("System health check failed:", health);
+      }
+      
+      console.log("✅ Manual health check completed:", health.overall ? "Healthy" : "Issues found");
+    } catch (error) {
+      console.error("Manual health check error:", error);
+      setSystemHealth({
+        streaming: { status: 'unhealthy', error: error.message },
+        detection: { status: 'unhealthy', error: error.message },
+        overall: false
+      });
+      lastHealthCheck.current = Date.now();
+    }
+  }, [detectionState]);
 
   // Handle target label changes with validation
   const handleTargetLabelChange = useCallback((event) => {
@@ -677,6 +778,22 @@ export default function AppDetection() {
                     </Typography>
                     <Typography variant="caption">
                       Priority: {detectionOptions.priority}
+                    </Typography>
+                  </Stack>
+                </Box>
+
+                {/* Health Check Status */}
+                <Divider />
+                <Box>
+                  <Typography variant="subtitle2" color="textSecondary">
+                    Health Check Status
+                  </Typography>
+                  <Stack spacing={0.5} sx={{ mt: 1 }}>
+                    <Typography variant="caption">
+                      Initial: {healthCheckPerformed.current.initial ? '✅ Done' : '⏳ Pending'}
+                    </Typography>
+                    <Typography variant="caption">
+                      Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
                     </Typography>
                   </Stack>
                 </Box>
