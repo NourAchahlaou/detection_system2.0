@@ -1,13 +1,13 @@
-# basic_detection_service.py - On-demand detection for low-performance mode
+# basic_detection_service.py - HTTP client approach for cross-container communication
 import cv2
 import logging
 import numpy as np
-import aiohttp
 from typing import Optional, Dict, Any
 import time
 import base64
-from dataclasses import dataclass
+import aiohttp
 import asyncio
+from dataclasses import dataclass
 
 # Import your detection system (adapt to your actual import)
 from detection.app.service.detection_service import DetectionSystem
@@ -16,12 +16,12 @@ from detection.app.service.detection_service import DetectionSystem
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-HARDWARE_SERVICE_URL = "http://host.docker.internal:8003"
+# Configuration for video streaming service
+VIDEO_STREAMING_SERVICE_URL = "http://video_streaming:8000"  # Docker service name
 
 @dataclass
 class DetectionRequest:
-    """Simple detection request structure"""
+    """Detection request structure"""
     camera_id: int
     target_label: str
     timestamp: float
@@ -29,7 +29,7 @@ class DetectionRequest:
 
 @dataclass
 class DetectionResponse:
-    """Simple detection response structure"""
+    """Detection response structure"""
     camera_id: int
     target_label: str
     detected_target: bool
@@ -38,9 +38,132 @@ class DetectionResponse:
     confidence: Optional[float]
     frame_with_overlay: str  # Base64 encoded image
     timestamp: float
+    stream_frozen: bool
+
+class VideoStreamingClient:
+    """HTTP client to communicate with video streaming service"""
+    
+    def __init__(self, base_url: str = VIDEO_STREAMING_SERVICE_URL):
+        self.base_url = base_url
+        self.session = None
+    
+    async def _get_session(self):
+        """Get or create HTTP session"""
+        if self.session is None or self.session.closed:
+            timeout = aiohttp.ClientTimeout(total=30)
+            self.session = aiohttp.ClientSession(timeout=timeout)
+        return self.session
+    
+    async def get_current_frame(self, camera_id: int) -> Optional[np.ndarray]:
+        """Get current frame from video streaming service"""
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/video/basic/stream/{camera_id}/current-frame"
+            
+            async with session.get(url) as response:
+                if response.status == 200:
+                    frame_data = await response.read()
+                    nparr = np.frombuffer(frame_data, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    return frame
+                else:
+                    logger.error(f"Failed to get frame: HTTP {response.status}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Error getting current frame: {e}")
+            return None
+    
+    async def freeze_stream(self, camera_id: int) -> bool:
+        """Freeze video stream"""
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/video/basic/stream/{camera_id}/freeze"
+            
+            async with session.post(url) as response:
+                if response.status == 200:
+                    logger.info(f"🧊 Stream frozen for camera {camera_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to freeze stream: HTTP {response.status}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error freezing stream: {e}")
+            return False
+    
+    async def unfreeze_stream(self, camera_id: int) -> bool:
+        """Unfreeze video stream"""
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/video/basic/stream/{camera_id}/unfreeze"
+            
+            async with session.post(url) as response:
+                if response.status == 200:
+                    logger.info(f"🔥 Stream unfrozen for camera {camera_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to unfreeze stream: HTTP {response.status}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error unfreezing stream: {e}")
+            return False
+    
+    async def update_frozen_frame(self, camera_id: int, frame_bytes: bytes) -> bool:
+        """Update frozen frame with detection results"""
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/video/basic/stream/{camera_id}/update-frozen-frame"
+            
+            data = aiohttp.FormData()
+            data.add_field('frame', frame_bytes, content_type='image/jpeg')
+            
+            async with session.post(url, data=data) as response:
+                if response.status == 200:
+                    logger.info(f"✅ Updated frozen frame for camera {camera_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to update frozen frame: HTTP {response.status}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error updating frozen frame: {e}")
+            return False
+    
+    async def get_stream_status(self, camera_id: int) -> Dict[str, Any]:
+        """Get stream status"""
+        try:
+            session = await self._get_session()
+            url = f"{self.base_url}/video/basic/stream/{camera_id}/status"
+            
+            async with session.get(url) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    return {
+                        'camera_id': camera_id,
+                        'stream_active': False,
+                        'is_frozen': False,
+                        'error': f'HTTP {response.status}'
+                    }
+                    
+        except Exception as e:
+            logger.error(f"Error getting stream status: {e}")
+            return {
+                'camera_id': camera_id,
+                'stream_active': False,
+                'is_frozen': False,
+                'error': str(e)
+            }
+    
+    async def close(self):
+        """Close HTTP session"""
+        if self.session and not self.session.closed:
+            await self.session.close()
 
 class BasicDetectionProcessor:
-    """Simple detection processor for on-demand detection"""
+    """Detection processor that communicates with video streaming service via HTTP"""
     
     def __init__(self):
         self.detection_system = None
@@ -51,6 +174,7 @@ class BasicDetectionProcessor:
             'total_processing_time': 0,
             'avg_processing_time': 0
         }
+        self.video_client = VideoStreamingClient()
     
     async def initialize(self):
         """Initialize detection system"""
@@ -71,63 +195,12 @@ class BasicDetectionProcessor:
             logger.error(f"❌ Failed to initialize basic detection system: {e}")
             raise
     
-    async def get_frame_from_camera(self, camera_id: int) -> Optional[np.ndarray]:
-        """Capture a single frame from the camera"""
-        try:
-            logger.info(f"📸 Capturing frame from camera {camera_id}")
-            
-            timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(f"{HARDWARE_SERVICE_URL}/camera/video_feed") as response:
-                    if response.status != 200:
-                        logger.error(f"Failed to get frame: HTTP {response.status}")
-                        return None
-                    
-                    # Read first frame from stream
-                    buffer = bytearray()
-                    frame_found = False
-                    
-                    async for chunk in response.content.iter_chunked(8192):
-                        buffer.extend(chunk)
-                        
-                        # Look for complete JPEG frame
-                        jpeg_start = buffer.find(b'\xff\xd8')
-                        if jpeg_start != -1:
-                            jpeg_end = buffer.find(b'\xff\xd9', jpeg_start + 2)
-                            if jpeg_end != -1:
-                                jpeg_data = bytes(buffer[jpeg_start:jpeg_end + 2])
-                                
-                                # Decode frame
-                                nparr = np.frombuffer(jpeg_data, np.uint8)
-                                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                                
-                                if frame is not None and frame.size > 0:
-                                    logger.info(f"✅ Captured frame from camera {camera_id}: {frame.shape}")
-                                    return frame
-                                
-                                frame_found = True
-                                break
-                        
-                        # Prevent excessive buffering
-                        if len(buffer) > 50000:
-                            buffer = buffer[-25000:]
-                        
-                        # Stop after reasonable attempt
-                        if len(buffer) > 100000:
-                            break
-            
-            if not frame_found:
-                logger.warning(f"⚠️ No complete frame found from camera {camera_id}")
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"❌ Error capturing frame from camera {camera_id}: {e}")
-            return None
-    
-    async def detect_on_frame(self, request: DetectionRequest) -> DetectionResponse:
-        """Perform detection on a single frame"""
+    async def detect_on_current_frame(self, request: DetectionRequest) -> DetectionResponse:
+        """
+        Perform detection on current frame from video stream via HTTP
+        """
         start_time = time.time()
+        stream_frozen = False
         
         try:
             if not self.is_initialized:
@@ -135,13 +208,20 @@ class BasicDetectionProcessor:
             
             logger.info(f"🔍 Starting detection for camera {request.camera_id}, target: '{request.target_label}'")
             
-            # Get frame from camera
-            frame = await self.get_frame_from_camera(request.camera_id)
-            if frame is None:
-                raise Exception(f"Could not capture frame from camera {request.camera_id}")
+            # Freeze the stream first
+            freeze_success = await self.video_client.freeze_stream(request.camera_id)
+            if freeze_success:
+                stream_frozen = True
+                logger.info(f"🧊 Stream frozen for detection on camera {request.camera_id}")
             
-            # Resize frame for processing efficiency
-            frame = cv2.resize(frame, (640, 480))
+            # Get current frame from video streaming service
+            frame = await self.video_client.get_current_frame(request.camera_id)
+            if frame is None:
+                raise Exception(f"Could not get current frame from camera {request.camera_id}")
+            
+            # Ensure frame is the right size and format
+            if frame.shape[:2] != (480, 640):
+                frame = cv2.resize(frame, (640, 480))
             
             # Ensure frame is contiguous for better performance
             if not frame.flags['C_CONTIGUOUS']:
@@ -174,6 +254,19 @@ class BasicDetectionProcessor:
                 # If single return value, it's the processed frame
                 processed_frame = detection_results
                 detected_target = False
+            
+            # Update the frozen frame with detection results
+            if processed_frame is not None and stream_frozen:
+                try:
+                    # Encode the processed frame
+                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, request.quality]
+                    success, buffer = cv2.imencode('.jpg', processed_frame, encode_params)
+                    if success:
+                        # Update the frozen frame in the video streaming service
+                        await self.video_client.update_frozen_frame(request.camera_id, buffer.tobytes())
+                        logger.info(f"✅ Updated frozen frame with detection results")
+                except Exception as e:
+                    logger.error(f"❌ Error updating frozen frame: {e}")
             
             # Encode processed frame as base64 for response
             frame_b64 = ""
@@ -220,7 +313,8 @@ class BasicDetectionProcessor:
                 processing_time_ms=round(processing_time, 2),
                 confidence=confidence,
                 frame_with_overlay=frame_b64,
-                timestamp=time.time()
+                timestamp=time.time(),
+                stream_frozen=stream_frozen
             )
             
             logger.info(f"✅ Detection completed for camera {request.camera_id} in {processing_time:.2f}ms")
@@ -239,8 +333,25 @@ class BasicDetectionProcessor:
                 processing_time_ms=round(processing_time, 2),
                 confidence=None,
                 frame_with_overlay="",
-                timestamp=time.time()
+                timestamp=time.time(),
+                stream_frozen=stream_frozen
             )
+    
+    async def unfreeze_stream(self, camera_id: int) -> bool:
+        """Unfreeze the stream to resume live video"""
+        return await self.video_client.unfreeze_stream(camera_id)
+    
+    def get_stream_status(self, camera_id: int) -> Dict[str, Any]:
+        """Get current stream status via HTTP client"""
+        # Note: This needs to be async, but keeping sync for compatibility
+        # You might want to refactor this to be async
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If already in async context, create a task
+            task = asyncio.create_task(self.video_client.get_stream_status(camera_id))
+            return {'note': 'Status check initiated', 'camera_id': camera_id}
+        else:
+            return loop.run_until_complete(self.video_client.get_stream_status(camera_id))
     
     def get_stats(self) -> Dict[str, Any]:
         """Get detection statistics"""
@@ -249,6 +360,10 @@ class BasicDetectionProcessor:
             'device': str(self.detection_system.device) if self.detection_system else "unknown",
             **self.stats
         }
+    
+    async def cleanup(self):
+        """Cleanup resources"""
+        await self.video_client.close()
 
 # Global basic detection processor
 basic_detection_processor = BasicDetectionProcessor()

@@ -1,4 +1,4 @@
-// pages/AppDetection.jsx - Updated with fixed health check logic
+// pages/AppDetection.jsx - Enhanced with adaptive system integration
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -11,8 +11,19 @@ import {
   Typography,
   Chip,
   Divider,
-  Button
+  Button,
+  IconButton,
+  Tooltip
 } from '@mui/material';
+import { 
+  Refresh, 
+  Speed, 
+  Computer, 
+  Smartphone,
+  AutoMode,
+  Settings,
+  Info
+} from '@mui/icons-material';
 
 import DetectionControls from "./components/DetectionControls";
 import DetectionVideoFeed from "./components/DetectionVideoFeed";
@@ -25,6 +36,14 @@ const DetectionStates = {
   READY: 'READY', 
   RUNNING: 'RUNNING',
   SHUTTING_DOWN: 'SHUTTING_DOWN'
+};
+
+// Performance modes
+const PerformanceModes = {
+  BASIC: 'basic',
+  STANDARD: 'standard', 
+  ENHANCED: 'enhanced',
+  HIGH_PERFORMANCE: 'high_performance'
 };
 
 export default function AppDetection() {
@@ -43,6 +62,14 @@ export default function AppDetection() {
     detection: { status: 'unknown' },
     overall: false
   });
+
+  // Adaptive system state
+  const [systemProfile, setSystemProfile] = useState(null);
+  const [currentPerformanceMode, setCurrentPerformanceMode] = useState('basic');
+  const [currentStreamingType, setCurrentStreamingType] = useState('basic');
+  const [autoModeEnabled, setAutoModeEnabled] = useState(true);
+  const [systemCapabilities, setSystemCapabilities] = useState(null);
+  const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
 
   // Performance and optimization state
   const [detectionOptions, setDetectionOptions] = useState({
@@ -67,6 +94,7 @@ export default function AppDetection() {
   const initializationAttempted = useRef(false);
   const lastHealthCheck = useRef(null);
   const stateChangeUnsubscribe = useRef(null);
+  const profileUpdateUnsubscribe = useRef(null);
   const healthCheckPerformed = useRef({
     initial: false,
     postShutdown: false
@@ -100,6 +128,40 @@ export default function AppDetection() {
     };
   }, []);
 
+  // Subscribe to system profile updates
+  useEffect(() => {
+    const unsubscribe = detectionService.addProfileUpdateListener((profileData) => {
+      console.log(`📊 System profile updated`, profileData);
+      setSystemProfile(profileData.profile);
+      setCurrentPerformanceMode(profileData.performanceMode);
+      setCurrentStreamingType(profileData.streamingType);
+      setSystemCapabilities(profileData.capabilities);
+      setAutoModeEnabled(detectionService.autoModeEnabled);
+    });
+    
+    profileUpdateUnsubscribe.current = unsubscribe;
+    
+    // Get initial profile
+    const initialProfile = detectionService.getSystemProfile();
+    const initialMode = detectionService.getCurrentPerformanceMode();
+    const initialStreamingType = detectionService.getCurrentStreamingType();
+    const initialCapabilities = detectionService.getSystemCapabilities();
+    
+    if (initialProfile) {
+      setSystemProfile(initialProfile);
+      setCurrentPerformanceMode(initialMode);
+      setCurrentStreamingType(initialStreamingType);
+      setSystemCapabilities(initialCapabilities);
+      setAutoModeEnabled(detectionService.autoModeEnabled);
+    }
+    
+    return () => {
+      if (profileUpdateUnsubscribe.current) {
+        profileUpdateUnsubscribe.current();
+      }
+    };
+  }, []);
+
   // Initialize system on component mount
   useEffect(() => {
     const initializeSystem = async () => {
@@ -107,13 +169,14 @@ export default function AppDetection() {
       initializationAttempted.current = true;
 
       try {
-        console.log("🚀 Starting system initialization...");
+        console.log("🚀 Starting adaptive detection system initialization...");
         
-        // Initialize detection processor
+        // Initialize detection processor (it will auto-select mode based on system)
         const initResult = await detectionService.ensureInitialized();
         
         if (initResult.success) {
-          console.log("✅ Detection system initialized:", initResult.message);
+          console.log("✅ Adaptive detection system initialized:", initResult.message);
+          console.log(`📊 Selected mode: ${initResult.mode || detectionService.getCurrentStreamingType()}`);
           setInitializationError(null);
           
           // Perform initial health check right after initialization
@@ -124,11 +187,11 @@ export default function AppDetection() {
           
           console.log("✅ System initialization completed successfully");
         } else {
-          throw new Error(initResult.message || 'Failed to initialize detection system');
+          throw new Error(initResult.message || 'Failed to initialize adaptive detection system');
         }
         
       } catch (error) {
-        console.error("❌ Error initializing system:", error);
+        console.error("❌ Error initializing adaptive system:", error);
         setInitializationError(error.message);
       }
     };
@@ -248,6 +311,86 @@ export default function AppDetection() {
       setInitializationError(error.message);
     }
   }, []);
+
+  // Force refresh system profile
+  const handleRefreshSystemProfile = useCallback(async () => {
+    setIsProfileRefreshing(true);
+    try {
+      console.log("🔄 Force refreshing system profile...");
+      const result = await detectionService.forceSystemProfileRefresh();
+      
+      if (result.success) {
+        console.log("✅ System profile refreshed successfully");
+        console.log(`📊 New mode: ${result.streamingType}, Performance: ${result.performanceMode}`);
+      }
+    } catch (error) {
+      console.error("❌ Error refreshing system profile:", error);
+      alert(`Failed to refresh system profile: ${error.message}`);
+    } finally {
+      setIsProfileRefreshing(false);
+    }
+  }, []);
+
+  // Manual mode switching functions
+  const handleSwitchToBasicMode = useCallback(async () => {
+    if (detectionState === DetectionStates.RUNNING) {
+      alert("Please stop detection before switching modes.");
+      return;
+    }
+
+    try {
+      const result = await detectionService.switchToBasicMode();
+      console.log("✅ Switched to basic mode:", result);
+    } catch (error) {
+      console.error("❌ Error switching to basic mode:", error);
+      alert(`Failed to switch to basic mode: ${error.message}`);
+    }
+  }, [detectionState]);
+
+  const handleSwitchToOptimizedMode = useCallback(async () => {
+    if (detectionState === DetectionStates.RUNNING) {
+      alert("Please stop detection before switching modes.");
+      return;
+    }
+
+    try {
+      const result = await detectionService.switchToOptimizedMode();
+      console.log("✅ Switched to optimized mode:", result);
+    } catch (error) {
+      console.error("❌ Error switching to optimized mode:", error);
+      alert(`Failed to switch to optimized mode: ${error.message}`);
+    }
+  }, [detectionState]);
+
+  const handleEnableAutoMode = useCallback(async () => {
+    try {
+      const result = await detectionService.enableAutoMode();
+      console.log("✅ Auto mode enabled:", result);
+    } catch (error) {
+      console.error("❌ Error enabling auto mode:", error);
+      alert(`Failed to enable auto mode: ${error.message}`);
+    }
+  }, []);
+
+  // Run performance test
+  const handleRunPerformanceTest = useCallback(async () => {
+    if (detectionState === DetectionStates.RUNNING) {
+      alert("Please stop detection before running performance test.");
+      return;
+    }
+
+    try {
+      console.log("🧪 Running performance test...");
+      const result = await detectionService.runPerformanceTest(10); // 10 seconds test
+      console.log("✅ Performance test completed:", result);
+      
+      // The profile will be updated automatically via the listener
+      alert(`Performance test completed. New performance score: ${result.performance_score}/100`);
+    } catch (error) {
+      console.error("❌ Error running performance test:", error);
+      alert(`Performance test failed: ${error.message}`);
+    }
+  }, [detectionState]);
 
   // Stats monitoring (reduced frequency)
   const startStatsMonitoring = useCallback(() => {
@@ -383,7 +526,7 @@ export default function AppDetection() {
     
     if (!systemHealth.overall) {
       const proceed = window.confirm(
-        "System health check indicates issues. Do you want to proceed anyway?"
+        `System health check indicates issues (${currentStreamingType} mode). Do you want to proceed anyway?`
       );
       if (!proceed) return;
     }
@@ -395,12 +538,12 @@ export default function AppDetection() {
       return;
     }
     
-    console.log("Starting detection with options:", detectionOptions);
-  }, [cameraId, targetLabel, detectionState, systemHealth.overall, cameras, detectionOptions]);
+    console.log(`Starting ${currentStreamingType} detection with options:`, detectionOptions);
+  }, [cameraId, targetLabel, detectionState, systemHealth.overall, cameras, detectionOptions, currentStreamingType]);
   
   // Enhanced detection stop
   const handleStopDetection = useCallback(async () => {
-    console.log("Stopping detection...");
+    console.log(`Stopping ${currentStreamingType} detection...`);
     
     // The state will be managed by the service itself
     // Just trigger the stop, don't manage state here
@@ -410,7 +553,7 @@ export default function AppDetection() {
       console.log("🩺 Checking system health after detection stop...");
       await performPostShutdownHealthCheck();
     }, 3000); // Wait 3 seconds for shutdown to complete
-  }, [performPostShutdownHealthCheck]);
+  }, [performPostShutdownHealthCheck, currentStreamingType]);
 
   // Single health check function (for manual checks)
   const performSingleHealthCheck = useCallback(async () => {
@@ -420,7 +563,7 @@ export default function AppDetection() {
     }
 
     try {
-      console.log("🩺 Performing manual health check...");
+      console.log(`🩺 Performing manual health check (${currentStreamingType} mode)...`);
       const health = await detectionService.checkOptimizedHealth();
       setSystemHealth(health);
       lastHealthCheck.current = Date.now();
@@ -439,7 +582,7 @@ export default function AppDetection() {
       });
       lastHealthCheck.current = Date.now();
     }
-  }, [detectionState]);
+  }, [detectionState, currentStreamingType]);
 
   // Handle target label changes with validation
   const handleTargetLabelChange = useCallback((event) => {
@@ -514,19 +657,19 @@ export default function AppDetection() {
       case DetectionStates.INITIALIZING:
         return {
           color: 'info',
-          message: 'Initializing detection system...',
+          message: 'Initializing adaptive detection system...',
           canOperate: false
         };
       case DetectionStates.READY:
         return {
           color: 'success',
-          message: 'System ready for detection',
+          message: `System ready for ${currentStreamingType} detection`,
           canOperate: true
         };
       case DetectionStates.RUNNING:
         return {
           color: 'warning',
-          message: 'Detection active',
+          message: `${currentStreamingType.toUpperCase()} detection active`,
           canOperate: true
         };
       case DetectionStates.SHUTTING_DOWN:
@@ -544,18 +687,31 @@ export default function AppDetection() {
     }
   };
 
+  // Get mode display info
+  const getModeDisplayInfo = () => {
+    const isBasic = currentStreamingType === 'basic';
+    return {
+      icon: isBasic ? <Smartphone /> : <Computer />,
+      color: isBasic ? 'warning' : 'success',
+      description: isBasic 
+        ? 'On-Demand Detection - Captures single frames when requested' 
+        : 'Real-Time Detection - Continuous video stream analysis'
+    };
+  };
+
   const stateInfo = getStateInfo();
+  const modeInfo = getModeDisplayInfo();
 
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-      {/* State Status Alert */}
+      {/* Adaptive System Status Alert */}
       {detectionState === DetectionStates.INITIALIZING && (
         <Alert 
           severity="info" 
           sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
           icon={<CircularProgress size={20} />}
         >
-          Initializing detection system... This may take a moment.
+          Initializing adaptive detection system... Analyzing system capabilities.
         </Alert>
       )}
 
@@ -569,10 +725,56 @@ export default function AppDetection() {
         </Alert>
       )}
 
+      {/* System Mode Information */}
+      {detectionState === DetectionStates.READY && systemProfile && (
+        <Alert 
+          severity="info" 
+          sx={{ mb: 2 }}
+          icon={modeInfo.icon}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                {currentStreamingType.toUpperCase()} MODE SELECTED
+              </Typography>
+              <Typography variant="body2">
+                {modeInfo.description}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Performance Score: {systemProfile.performance_score}/100 | 
+                CPU: {systemProfile.cpu_cores} cores | 
+                RAM: {systemProfile.available_memory_gb}GB | 
+                GPU: {systemProfile.gpu_available ? systemProfile.gpu_name : 'None'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Tooltip title="Refresh System Profile">
+                <IconButton 
+                  size="small" 
+                  onClick={handleRefreshSystemProfile}
+                  disabled={isProfileRefreshing}
+                >
+                  <Refresh />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Run Performance Test">
+                <IconButton 
+                  size="small" 
+                  onClick={handleRunPerformanceTest}
+                  disabled={detectionState !== DetectionStates.READY}
+                >
+                  <Speed />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </Alert>
+      )}
+
       {/* System Status Alerts */}
       {initializationError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          System initialization failed: {initializationError}
+          Adaptive system initialization failed: {initializationError}
           <Box sx={{ mt: 1 }}>
             <Button 
               variant="outlined" 
@@ -590,7 +792,7 @@ export default function AppDetection() {
       
       {!systemHealth.overall && detectionState === DetectionStates.READY && !initializationError && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          System health check indicates issues. Detection may not work optimally.
+          System health check indicates issues in {currentStreamingType} mode. Detection may not work optimally.
           <br />
           <small>
             Streaming: {systemHealth.streaming.status} | 
@@ -622,8 +824,8 @@ export default function AppDetection() {
               cameras={cameras}
               onDetectCameras={handleDetectCameras}
               isDetecting={isDetecting}
-              onStartDetection={handleStartDetection}
-              onStopDetection={handleStopDetection}
+              // onStartDetection={handleStartDetection}
+              // onStopDetection={handleStopDetection}
               isDetectionActive={detectionState === DetectionStates.RUNNING}
               isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
               systemHealth={systemHealth}
@@ -711,57 +913,6 @@ export default function AppDetection() {
 
                 <Divider />
 
-                {/* Performance Metrics */}
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Active Streams
-                  </Typography>
-                  <Typography variant="h4" color="primary">
-                    {globalStats.totalStreams}
-                  </Typography>
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Avg Processing Time
-                  </Typography>
-                  <Chip
-                    label={`${globalStats.avgProcessingTime.toFixed(1)}ms`}
-                    color={getPerformanceColor(globalStats.avgProcessingTime, { good: 50, warning: 100 })}
-                    size="small"
-                  />
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Total Detections
-                  </Typography>
-                  <Typography variant="h4" color="success.main">
-                    {globalStats.totalDetections.toLocaleString()}
-                  </Typography>
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    System Load
-                  </Typography>
-                  <Chip
-                    label={`${globalStats.systemLoad.toFixed(1)}%`}
-                    color={getPerformanceColor(globalStats.systemLoad, { good: 60, warning: 80 })}
-                    size="small"
-                  />
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Memory Usage
-                  </Typography>
-                  <Chip
-                    label={`${globalStats.memoryUsage.toFixed(0)}MB`}
-                    color={getPerformanceColor(globalStats.memoryUsage, { good: 1000, warning: 2000 })}
-                    size="small"
-                  />
-                </Box>
 
                 {/* Current Settings */}
                 <Divider />

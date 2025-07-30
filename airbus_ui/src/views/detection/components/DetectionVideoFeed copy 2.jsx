@@ -1,4 +1,4 @@
-// DetectionVideoFeed.jsx - Enhanced with Basic Mode Logic and Freeze/Unfreeze Controls
+// DetectionVideoFeed.jsx - Enhanced with Basic Mode On-Demand Detection
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { 
   Box, 
@@ -7,22 +7,21 @@ import {
   Typography, 
   Chip, 
   Button,
-  ButtonGroup,
-  Card,
-  CardContent,
+  Stack,
+  Paper,
   IconButton,
-  Tooltip
+  Tooltip,
+  Badge
 } from "@mui/material";
 import { 
   PlayArrow, 
   Pause, 
   CameraAlt, 
+  Visibility, 
   Refresh,
-  AcUnit, // Freeze icon
-  Whatshot, // Unfreeze icon
-  AutoMode,
-  Settings
-} from "@mui/icons-material";
+  FiberManualRecord,
+  Stop
+} from '@mui/icons-material';
 import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
 import LiveDetectionView from "../LiveDetectionView";
@@ -57,7 +56,6 @@ const DetectionVideoFeed = ({
     detectionFps: 5.0,
     queueDepth: 0,
     isStreamActive: false,
-    isFrozen: false,
     mode: 'basic'
   });
   const [streamStatus, setStreamStatus] = useState({
@@ -80,11 +78,15 @@ const DetectionVideoFeed = ({
   
   // Basic mode specific state
   const [isStreamFrozen, setIsStreamFrozen] = useState(false);
-  const [onDemandDetecting, setOnDemandDetecting] = useState(false);
-  const [lastDetectionResult, setLastDetectionResult] = useState(null);
-  const [freezeListenerActive, setFreezeListenerActive] = useState(false);
   const [detectionInProgress, setDetectionInProgress] = useState(false);
-  const [batchDetectionMode, setBatchDetectionMode] = useState(false);
+  const [lastDetectionResult, setLastDetectionResult] = useState(null);
+  const [frozenFrame, setFrozenFrame] = useState(null);
+  const [basicModeStats, setBasicModeStats] = useState({
+    totalDetections: 0,
+    successfulDetections: 0,
+    lastDetectionTime: null,
+    avgProcessingTime: 0
+  });
   
   // Health check tracking
   const [healthCheckStatus, setHealthCheckStatus] = useState({
@@ -97,8 +99,8 @@ const DetectionVideoFeed = ({
   const mountedRef = useRef(true);
   const stateChangeUnsubscribe = useRef(null);
   const profileUpdateUnsubscribe = useRef(null);
-  const freezeListenerUnsubscribe = useRef(null);
   const initializationAttempted = useRef(false);
+  const basicModeStatsInterval = useRef(null);
 
   // Subscribe to detection service state changes
   useEffect(() => {
@@ -119,7 +121,7 @@ const DetectionVideoFeed = ({
           setStreamStatus(prev => ({ ...prev, isLoading: true }));
           setComponentError(null);
           setModeTransitioning(true);
-          // Reset health check status
+          resetBasicModeState();
           setHealthCheckStatus(prev => ({
             ...prev,
             initial: false,
@@ -135,20 +137,16 @@ const DetectionVideoFeed = ({
             setVideoUrl("");
             setComponentError(null);
             resetDetectionStats();
-            setIsStreamFrozen(false);
-            setLastDetectionResult(null);
+            resetBasicModeState();
             
-            // Mark that we need a post-shutdown health check
             setHealthCheckStatus(prev => ({
               ...prev,
               postShutdown: false
             }));
           } else if (oldState === DetectionStates.INITIALIZING) {
-            // Initialization completed
             setStreamStatus(prev => ({ ...prev, isLoading: false }));
             setComponentError(null);
             
-            // Mark that we need an initial health check
             setHealthCheckStatus(prev => ({
               ...prev,
               initial: false
@@ -166,7 +164,6 @@ const DetectionVideoFeed = ({
           setStreamStatus(prev => ({ ...prev, isLoading: true }));
           setComponentError("System is shutting down...");
           setModeTransitioning(true);
-          setIsStreamFrozen(false);
           break;
       }
     });
@@ -220,39 +217,73 @@ const DetectionVideoFeed = ({
     };
   }, []);
 
-  // Subscribe to freeze/unfreeze events for basic mode
+  // Basic mode state monitoring
   useEffect(() => {
-    if (!isBasicMode || !cameraId) return;
-    
-    const unsubscribe = detectionService.addFreezeListener((freezeEvent) => {
-      if (!mountedRef.current || freezeEvent.cameraId !== parseInt(cameraId)) return;
+    if (isBasicMode && isDetectionActive && cameraId) {
+      const monitorBasicModeState = async () => {
+        try {
+          const streamFrozen = detectionService.isStreamFrozen(cameraId);
+          const detectionActive = detectionService.isDetectionInProgress(cameraId);
+          const lastResult = detectionService.getLastDetectionResult(cameraId);
+          const frozen = detectionService.getFrozenFrame(cameraId);
+          
+          setIsStreamFrozen(streamFrozen);
+          setDetectionInProgress(detectionActive);
+          setLastDetectionResult(lastResult);
+          setFrozenFrame(frozen);
+          
+          // Update basic mode stats
+          if (lastResult) {
+            setBasicModeStats(prev => ({
+              ...prev,
+              lastDetectionTime: Date.now(),
+              avgProcessingTime: lastResult.processing_time_ms || prev.avgProcessingTime
+            }));
+          }
+        } catch (error) {
+          console.error('Error monitoring basic mode state:', error);
+        }
+      };
+
+      // Monitor every 1 second
+      basicModeStatsInterval.current = setInterval(monitorBasicModeState, 1000);
       
-      console.log(`🧊 VideoFeed: Freeze event for camera ${cameraId}:`, freezeEvent);
-      setIsStreamFrozen(freezeEvent.status === 'frozen');
-      
-      // Update detection stats
-      setDetectionStats(prev => ({
-        ...prev,
-        isFrozen: freezeEvent.status === 'frozen'
-      }));
-    });
-    
-    freezeListenerUnsubscribe.current = unsubscribe;
-    setFreezeListenerActive(true);
-    
-    // Check initial freeze status
-    if (detectionService.isStreamFrozen(cameraId)) {
-      setIsStreamFrozen(true);
-      setDetectionStats(prev => ({ ...prev, isFrozen: true }));
+      return () => {
+        if (basicModeStatsInterval.current) {
+          clearInterval(basicModeStatsInterval.current);
+        }
+      };
     }
-    
-    return () => {
-      if (freezeListenerUnsubscribe.current) {
-        freezeListenerUnsubscribe.current();
-      }
-      setFreezeListenerActive(false);
-    };
-  }, [isBasicMode, cameraId]);
+  }, [isBasicMode, isDetectionActive, cameraId]);
+
+  // Reset functions
+  const resetDetectionStats = useCallback(() => {
+    setDetectionStats({
+      objectDetected: false,
+      detectionCount: 0,
+      nonTargetCount: 0,
+      lastDetectionTime: null,
+      avgProcessingTime: 0,
+      streamQuality: 85,
+      detectionFps: 5.0,
+      queueDepth: 0,
+      isStreamActive: false,
+      mode: currentMode
+    });
+  }, [currentMode]);
+
+  const resetBasicModeState = useCallback(() => {
+    setIsStreamFrozen(false);
+    setDetectionInProgress(false);
+    setLastDetectionResult(null);
+    setFrozenFrame(null);
+    setBasicModeStats({
+      totalDetections: 0,
+      successfulDetections: 0,
+      lastDetectionTime: null,
+      avgProcessingTime: 0
+    });
+  }, []);
 
   // Initialize detection system on component mount
   useEffect(() => {
@@ -287,48 +318,12 @@ const DetectionVideoFeed = ({
     initializeIfNeeded();
   }, [detectionState]);
 
-  // Watch for READY state transitions to trigger appropriate health checks
-  useEffect(() => {
-    const handleReadyStateTransition = async () => {
-      if (detectionState !== DetectionStates.READY) return;
-      
-      const serviceStatus = detectionService.getDetailedStatus();
-      
-      if (!healthCheckStatus.initial && !serviceStatus.hasPerformedInitialHealthCheck) {
-        console.log("🩺 VideoFeed: Triggering initial health check...");
-        await performInitialHealthCheck();
-      }
-      else if (!healthCheckStatus.postShutdown && !serviceStatus.hasPerformedPostShutdownCheck) {
-        console.log("🩺 VideoFeed: Triggering post-shutdown health check...");
-        await performPostShutdownHealthCheck();
-      }
-    };
-
-    const timer = setTimeout(handleReadyStateTransition, 500);
-    return () => clearTimeout(timer);
-  }, [detectionState, healthCheckStatus.initial, healthCheckStatus.postShutdown]);
-
-  // Reset detection stats helper
-  const resetDetectionStats = useCallback(() => {
-    setDetectionStats({
-      objectDetected: false,
-      detectionCount: 0,
-      nonTargetCount: 0,
-      lastDetectionTime: null,
-      avgProcessingTime: 0,
-      streamQuality: 85,
-      detectionFps: 5.0,
-      queueDepth: 0,
-      isStreamActive: false,
-      isFrozen: false,
-      mode: currentMode
-    });
-    setLastDetectionResult(null);
-  }, [currentMode]);
-
-  // Initial health check function
+  // Health check functions
   const performInitialHealthCheck = useCallback(async () => {
-    if (healthCheckStatus.initial) return;
+    if (healthCheckStatus.initial) {
+      console.log("⏭️ VideoFeed: Initial health check already performed");
+      return;
+    }
 
     try {
       console.log("🩺 VideoFeed: Performing initial health check...");
@@ -355,9 +350,11 @@ const DetectionVideoFeed = ({
     }
   }, [healthCheckStatus.initial]);
 
-  // Post-shutdown health check function
   const performPostShutdownHealthCheck = useCallback(async () => {
-    if (healthCheckStatus.postShutdown) return;
+    if (healthCheckStatus.postShutdown) {
+      console.log("⏭️ VideoFeed: Post-shutdown health check already performed");
+      return;
+    }
 
     try {
       console.log("🩺 VideoFeed: Performing post-shutdown health check...");
@@ -428,7 +425,7 @@ const DetectionVideoFeed = ({
     }));
   }, [detectionState, currentMode]);
 
-  // Enhanced detection start with adaptive mode selection
+  // Enhanced detection start with mode awareness
   const handleStartDetection = async () => {
     if (!cameraId || cameraId === '') {
       setComponentError("Please select a camera first.");
@@ -466,20 +463,24 @@ const DetectionVideoFeed = ({
     setStreamStatus({ isLoading: true, error: null, isConnected: false });
     setComponentError(null);
     setModeTransitioning(true);
+    resetBasicModeState();
 
     try {
       let streamUrl;
       
       if (isBasicMode) {
-        // For basic mode, start basic stream (not detection feed)
-        console.log(`📺 VideoFeed: Starting basic stream for camera ${cameraId}`);
-        streamUrl = await detectionService.startBasicStream(parseInt(cameraId), {
-          streamQuality: detectionOptions.streamQuality || 85
-        });
+        // Start basic mode with on-demand detection
+        console.log(`🎯 Starting basic mode stream for camera ${cameraId}`);
+        streamUrl = await detectionService.startBasicDetectionFeed(
+          parseInt(cameraId), 
+          targetLabel, 
+          {
+            streamQuality: detectionOptions.streamQuality || 85
+          }
+        );
       } else {
-        // For optimized mode, use detection feed
-        console.log(`🎯 VideoFeed: Starting optimized detection feed for camera ${cameraId}`);
-        streamUrl = await detectionService.startOptimizedDetectionFeed(
+        // Start optimized mode with continuous detection
+        streamUrl = await detectionService.startDetectionFeedWithAutoMode(
           parseInt(cameraId), 
           targetLabel, 
           {
@@ -488,14 +489,14 @@ const DetectionVideoFeed = ({
             priority: detectionOptions.priority || 1
           }
         );
+        
+        // Add stats listener for optimized mode
+        detectionService.addStatsListener(parseInt(cameraId), handleStatsUpdate);
       }
 
       if (!mountedRef.current) return;
 
       setVideoUrl(streamUrl);
-      
-      // Add stats listener
-      detectionService.addStatsListener(parseInt(cameraId), handleStatsUpdate);
       
       setDetectionStats({
         objectDetected: false,
@@ -507,7 +508,6 @@ const DetectionVideoFeed = ({
         detectionFps: detectionOptions.detectionFps || 5.0,
         queueDepth: 0,
         isStreamActive: true,
-        isFrozen: false,
         mode: currentMode
       });
 
@@ -515,10 +515,10 @@ const DetectionVideoFeed = ({
       setModeTransitioning(false);
       onStartDetection();
 
-      console.log(`✅ VideoFeed: Started ${currentMode} ${isBasicMode ? 'stream' : 'detection'} for camera ${cameraId}`);
+      console.log(`✅ VideoFeed: Started ${currentMode} detection for camera ${cameraId} with target: ${targetLabel}`);
 
     } catch (error) {
-      console.error("❌ VideoFeed: Error starting adaptive detection:", error);
+      console.error("❌ VideoFeed: Error starting detection:", error);
       
       if (!mountedRef.current) return;
       
@@ -536,30 +536,29 @@ const DetectionVideoFeed = ({
   const handleStopDetection = async () => {
     if (!mountedRef.current) return;
     
-    console.log(`🛑 VideoFeed: Stopping ${currentMode} ${isBasicMode ? 'stream' : 'detection'} for camera ${cameraId}`);
+    console.log(`🛑 VideoFeed: Stopping ${currentMode} detection for camera ${cameraId}`);
     setStreamStatus(prev => ({ ...prev, isLoading: true }));
     setModeTransitioning(true);
 
     try {
-      detectionService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
-      
-      if (isBasicMode) {
-        await detectionService.stopBasicStream(parseInt(cameraId));
-      } else {
-        await detectionService.stopOptimizedDetectionFeed(parseInt(cameraId), false);
+      // Remove stats listener for optimized mode
+      if (!isBasicMode) {
+        detectionService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
       }
+      
+      await detectionService.stopDetectionFeed(parseInt(cameraId), false);
       
       if (!mountedRef.current) return;
       
       setVideoUrl("");
       resetDetectionStats();
+      resetBasicModeState();
       setStreamStatus({ isLoading: false, error: null, isConnected: false });
       setComponentError(null);
       setModeTransitioning(false);
-      setIsStreamFrozen(false);
       onStopDetection();
 
-      console.log(`✅ VideoFeed: Stopped ${currentMode} ${isBasicMode ? 'stream' : 'detection'} for camera ${cameraId}`);
+      console.log(`✅ VideoFeed: Stopped ${currentMode} detection for camera ${cameraId}`);
 
       setTimeout(() => {
         if (mountedRef.current && detectionState === DetectionStates.READY) {
@@ -573,7 +572,7 @@ const DetectionVideoFeed = ({
       }, 2000);
 
     } catch (error) {
-      console.error("❌ VideoFeed: Error stopping adaptive detection:", error);
+      console.error("❌ VideoFeed: Error stopping detection:", error);
       
       if (!mountedRef.current) return;
       
@@ -583,163 +582,169 @@ const DetectionVideoFeed = ({
     }
   };
 
-  // Basic mode: On-demand detection
-  const handleOnDemandDetection = async (options = {}) => {
-    if (!cameraId || !targetLabel) {
-      setComponentError("Camera ID and target label are required for detection.");
+  // Basic Mode: Perform on-demand detection
+  const handlePerformDetection = async () => {
+    if (!isBasicMode || !cameraId || !targetLabel) {
+      console.error('Cannot perform detection: missing requirements');
       return;
     }
 
     if (detectionInProgress) {
-      console.log("🚫 Detection already in progress, skipping...");
+      console.log('Detection already in progress, skipping...');
       return;
     }
 
-    setOnDemandDetecting(true);
     setDetectionInProgress(true);
     setComponentError(null);
 
     try {
-      console.log(`🎯 VideoFeed: Performing on-demand detection for camera ${cameraId}, target: ${targetLabel}`);
+      console.log(`🎯 Performing on-demand detection for camera ${cameraId} with target: ${targetLabel}`);
       
-      const detectionResult = await detectionService.performOnDemandDetection(
-        parseInt(cameraId), 
-        targetLabel, 
+      const result = await detectionService.performOnDemandDetection(
+        parseInt(cameraId),
+        targetLabel,
         {
-          quality: options.quality || 85,
-          autoUnfreeze: options.autoUnfreeze || false,
-          unfreezeDelay: options.unfreezeDelay || 2.0
+          quality: detectionOptions.streamQuality || 85,
+          autoUnfreeze: false, // Keep stream frozen to show results
+          unfreezeDelay: 2.0
         }
       );
 
-      if (!mountedRef.current) return;
-
-      setLastDetectionResult(detectionResult);
-      
-      // Update detection stats
-      setDetectionStats(prev => ({
-        ...prev,
-        objectDetected: detectionResult.detected,
-        detectionCount: detectionResult.detected ? prev.detectionCount + 1 : prev.detectionCount,
-        lastDetectionTime: detectionResult.detected ? Date.now() : prev.lastDetectionTime,
-        avgProcessingTime: detectionResult.processingTime,
-        isFrozen: detectionResult.streamFrozen && !detectionResult.autoUnfrozen
-      }));
-
-      // Update freeze status
-      if (detectionResult.streamFrozen && !detectionResult.autoUnfrozen) {
+      if (result.success && mountedRef.current) {
+        setLastDetectionResult(result.data);
+        setFrozenFrame(result.data.annotated_image_base64);
         setIsStreamFrozen(true);
-      } else if (detectionResult.autoUnfrozen) {
-        setIsStreamFrozen(false);
-      }
+        
+        // Update basic mode stats
+        setBasicModeStats(prev => ({
+          totalDetections: prev.totalDetections + 1,
+          successfulDetections: result.data.target_detected ? prev.successfulDetections + 1 : prev.successfulDetections,
+          lastDetectionTime: Date.now(),
+          avgProcessingTime: result.data.processing_time_ms || prev.avgProcessingTime
+        }));
 
-      console.log(`✅ VideoFeed: On-demand detection completed. Detected: ${detectionResult.detected}, Confidence: ${detectionResult.confidence}`);
+        // Update main detection stats
+        setDetectionStats(prev => ({
+          ...prev,
+          objectDetected: result.data.target_detected,
+          detectionCount: result.data.target_detected ? prev.detectionCount + 1 : prev.detectionCount,
+          lastDetectionTime: Date.now(),
+          avgProcessingTime: result.data.processing_time_ms || prev.avgProcessingTime
+        }));
+
+        console.log(`✅ Detection completed. Target detected: ${result.data.target_detected}, Confidence: ${result.data.confidence}`);
+      }
 
     } catch (error) {
-      console.error("❌ VideoFeed: On-demand detection failed:", error);
-      if (mountedRef.current) {
-        setComponentError(`Detection failed: ${error.message}`);
-      }
+      console.error('❌ Error performing on-demand detection:', error);
+      setComponentError(`Detection failed: ${error.message}`);
     } finally {
-      if (mountedRef.current) {
-        setOnDemandDetecting(false);
-        setDetectionInProgress(false);
-      }
+      setDetectionInProgress(false);
     }
   };
 
-  // Basic mode: Freeze stream
-  const handleFreezeStream = async () => {
-    if (!cameraId) return;
-
-    try {
-      setComponentError(null);
-      console.log(`🧊 VideoFeed: Freezing stream for camera ${cameraId}`);
-      
-      await detectionService.freezeStream(cameraId);
-      console.log(`✅ VideoFeed: Stream frozen for camera ${cameraId}`);
-      
-    } catch (error) {
-      console.error("❌ VideoFeed: Error freezing stream:", error);
-      setComponentError(`Failed to freeze stream: ${error.message}`);
-    }
-  };
-
-  // Basic mode: Unfreeze stream
+  // Basic Mode: Unfreeze stream
   const handleUnfreezeStream = async () => {
-    if (!cameraId) return;
+    if (!isBasicMode || !cameraId) {
+      return;
+    }
 
     try {
-      setComponentError(null);
-      console.log(`🔥 VideoFeed: Unfreezing stream for camera ${cameraId}`);
+      console.log(`🔥 Unfreezing stream for camera ${cameraId}`);
+      await detectionService.unfreezeBasicStream(parseInt(cameraId));
       
-      await detectionService.unfreezeStream(cameraId);
-      console.log(`✅ VideoFeed: Stream unfrozen for camera ${cameraId}`);
+      setIsStreamFrozen(false);
+      setFrozenFrame(null);
+      // Keep last detection result for reference
       
+      console.log('✅ Stream unfrozen successfully');
     } catch (error) {
-      console.error("❌ VideoFeed: Error unfreezing stream:", error);
+      console.error('❌ Error unfreezing stream:', error);
       setComponentError(`Failed to unfreeze stream: ${error.message}`);
     }
   };
 
-  // Manual mode switching functions
-  const handleSwitchToBasic = useCallback(async () => {
-    if (detectionState === DetectionStates.RUNNING) {
-      setComponentError("Please stop detection before switching modes.");
+  // Basic Mode: Detect and auto-resume
+  const handleDetectAndResume = async () => {
+    if (!isBasicMode || !cameraId || !targetLabel) {
+      console.error('Cannot perform detection: missing requirements');
       return;
     }
 
-    setModeTransitioning(true);
-    try {
-      await detectionService.switchToBasicMode();
-      console.log("✅ Switched to basic mode");
-    } catch (error) {
-      console.error("❌ Error switching to basic mode:", error);
-      setComponentError(`Failed to switch to basic mode: ${error.message}`);
-    } finally {
-      setModeTransitioning(false);
-    }
-  }, [detectionState]);
-
-  const handleSwitchToOptimized = useCallback(async () => {
-    if (detectionState === DetectionStates.RUNNING) {
-      setComponentError("Please stop detection before switching modes.");
+    if (detectionInProgress) {
+      console.log('Detection already in progress, skipping...');
       return;
     }
 
-    setModeTransitioning(true);
-    try {
-      await detectionService.switchToOptimizedMode();
-      console.log("✅ Switched to optimized mode");
-    } catch (error) {
-      console.error("❌ Error switching to optimized mode:", error);
-      setComponentError(`Failed to switch to optimized mode: ${error.message}`);
-    } finally {
-      setModeTransitioning(false);
-    }
-  }, [detectionState]);
+    setDetectionInProgress(true);
+    setComponentError(null);
 
-  const handleEnableAutoMode = useCallback(async () => {
-    setModeTransitioning(true);
     try {
-      await detectionService.enableAutoMode();
-      console.log("✅ Auto mode enabled");
+      console.log(`🎯 Performing detection with auto-resume for camera ${cameraId}`);
+      
+      const result = await detectionService.performOnDemandDetection(
+        parseInt(cameraId),
+        targetLabel,
+        {
+          quality: detectionOptions.streamQuality || 85,
+          autoUnfreeze: true, // Auto-resume after delay
+          unfreezeDelay: 3.0 // Show results for 3 seconds
+        }
+      );
+
+      if (result.success && mountedRef.current) {
+        setLastDetectionResult(result.data);
+        setFrozenFrame(result.data.annotated_image_base64);
+        setIsStreamFrozen(!result.autoUnfreeze); // Stream will be unfrozen automatically
+        
+        // Update stats
+        setBasicModeStats(prev => ({
+          totalDetections: prev.totalDetections + 1,
+          successfulDetections: result.data.target_detected ? prev.successfulDetections + 1 : prev.successfulDetections,
+          lastDetectionTime: Date.now(),
+          avgProcessingTime: result.data.processing_time_ms || prev.avgProcessingTime
+        }));
+
+        setDetectionStats(prev => ({
+          ...prev,
+          objectDetected: result.data.target_detected,
+          detectionCount: result.data.target_detected ? prev.detectionCount + 1 : prev.detectionCount,
+          lastDetectionTime: Date.now(),
+          avgProcessingTime: result.data.processing_time_ms || prev.avgProcessingTime
+        }));
+
+        // Auto-clear frozen frame after delay if auto-unfrozen
+        if (result.autoUnfreeze) {
+          setTimeout(() => {
+            if (mountedRef.current) {
+              setIsStreamFrozen(false);
+              setFrozenFrame(null);
+            }
+          }, 3500); // Slightly longer than unfreeze delay
+        }
+
+        console.log(`✅ Detection with auto-resume completed. Target detected: ${result.data.target_detected}`);
+      }
+
     } catch (error) {
-      console.error("❌ Error enabling auto mode:", error);
-      setComponentError(`Failed to enable auto mode: ${error.message}`);
+      console.error('❌ Error performing detection with auto-resume:', error);
+      setComponentError(`Detection failed: ${error.message}`);
     } finally {
-      setModeTransitioning(false);
+      setDetectionInProgress(false);
     }
-  }, []);
+  };
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (cameraId) {
+      if (cameraId && !isBasicMode) {
         detectionService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
       }
+      if (basicModeStatsInterval.current) {
+        clearInterval(basicModeStatsInterval.current);
+      }
     };
-  }, [cameraId, handleStatsUpdate]);
+  }, [cameraId, isBasicMode, handleStatsUpdate]);
 
   // Get appropriate button text based on state and mode
   const getButtonText = () => {
@@ -749,13 +754,13 @@ const DetectionVideoFeed = ({
       case DetectionStates.INITIALIZING:
         return "Initializing System...";
       case DetectionStates.READY:
-        return componentError ? "Retry" : `Start ${isBasicMode ? 'Basic Stream' : 'Optimized Detection'}`;
+        return componentError ? "Retry" : `Start ${isBasicMode ? 'Basic' : 'Optimized'} Detection`;
       case DetectionStates.RUNNING:
         return "System Running";
       case DetectionStates.SHUTTING_DOWN:
         return "Shutting Down...";
       default:
-        return "Start Stream";
+        return "Start Detection";
     }
   };
 
@@ -783,28 +788,216 @@ const DetectionVideoFeed = ({
     );
   };
 
-  // Get health check status for display
-  const getHealthCheckStatusText = () => {
-    const serviceStatus = detectionService.getDetailedStatus();
-    
-    if (detectionState === DetectionStates.INITIALIZING) {
-      return "Health checks pending initialization";
-    }
-    
-    if (detectionState === DetectionStates.SHUTTING_DOWN) {
-      return "Health checks paused during shutdown";
-    }
-    
-    const initialDone = healthCheckStatus.initial || serviceStatus.hasPerformedInitialHealthCheck;
-    const postShutdownDone = healthCheckStatus.postShutdown || serviceStatus.hasPerformedPostShutdownCheck;
-    
-    if (initialDone && postShutdownDone) {
-      return "All health checks completed";
-    } else if (initialDone) {
-      return "Initial check done, awaiting post-shutdown";
-    } else {
-      return "Health checks pending";
-    }
+  // Enhanced Basic Mode Controls Component
+  const BasicModeControls = () => {
+    if (!isBasicMode || !isDetectionActive) return null;
+
+    return (
+      <Paper 
+        elevation={3} 
+        sx={{ 
+          position: 'absolute', 
+          bottom: 16, 
+          left: 16, 
+          right: 16, 
+          p: 2, 
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          color: 'white',
+          zIndex: 10
+        }}
+      >
+        <Stack spacing={2}>
+          {/* Status Info */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Badge color={isStreamFrozen ? "error" : "success"} variant="dot">
+                <FiberManualRecord fontSize="small" />
+              </Badge>
+              {isStreamFrozen ? 'Stream Frozen' : 'Live Stream'}
+            </Typography>
+            
+            <Stack direction="row" spacing={1}>
+              <Chip 
+                label={`Detections: ${basicModeStats.totalDetections}`} 
+                size="small" 
+                color="primary"
+              />
+              <Chip 
+                label={`Success: ${basicModeStats.successfulDetections}`} 
+                size="small" 
+                color="success"
+              />
+            </Stack>
+          </Box>
+
+          {/* Action Buttons */}
+          <Stack direction="row" spacing={1} justifyContent="center">
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handlePerformDetection}
+              disabled={detectionInProgress}
+              startIcon={detectionInProgress ? <CircularProgress size={16} color="inherit" /> : <CameraAlt />}
+              size="small"
+            >
+              {detectionInProgress ? 'Detecting...' : 'Detect Object'}
+            </Button>
+
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={handleDetectAndResume}
+              disabled={detectionInProgress}
+              startIcon={<Visibility />}
+              size="small"
+            >
+              Detect & Resume
+            </Button>
+
+            {isStreamFrozen && (
+              <Button
+                variant="outlined"
+                color="success"
+                onClick={handleUnfreezeStream}
+                startIcon={<PlayArrow />}
+                size="small"
+              >
+                Resume Stream
+              </Button>
+            )}
+
+            <Tooltip title="Stop Detection">
+              <IconButton
+                color="error"
+                onClick={handleStopDetection}
+                size="small"
+              >
+                <Stop />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+
+          {/* Detection Results Display */}
+          {lastDetectionResult && (
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="caption" color="textSecondary">
+                Last Detection: {lastDetectionResult.target_detected ? '✅ Found' : '❌ Not Found'} | 
+                Confidence: {(lastDetectionResult.confidence * 100).toFixed(1)}% | 
+                Processing: {lastDetectionResult.processing_time_ms}ms
+              </Typography>
+              
+              {lastDetectionResult.detections && lastDetectionResult.detections.length > 0 && (
+                <Typography variant="caption" display="block" color="success.main">
+                  Objects detected: {lastDetectionResult.detections.length}
+                </Typography>
+              )}
+            </Box>
+          )}
+        </Stack>
+      </Paper>
+    );
+  };
+
+  // Enhanced Live Detection View with Basic Mode Support
+  const EnhancedLiveDetectionView = () => {
+    if (!isDetectionActive || !videoUrl) return null;
+
+    return (
+      <Box sx={{ position: 'relative', width: '100%', height: '400px' }}>
+        {/* Frozen Frame Overlay for Basic Mode */}
+        {isBasicMode && isStreamFrozen && frozenFrame && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(0, 0, 0, 0.9)'
+            }}
+          >
+            <img
+              src={`data:image/jpeg;base64,${frozenFrame}`}
+              alt="Detection Result"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'contain',
+                border: '2px solid #1976d2'
+              }}
+            />
+            
+            {/* Frozen Frame Indicator */}
+            <Paper
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                p: 1,
+                backgroundColor: 'rgba(255, 0, 0, 0.8)',
+                color: 'white'
+              }}
+            >
+              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Pause fontSize="small" />
+                Detection Result
+              </Typography>
+            </Paper>
+          </Box>
+        )}
+
+        {/* Live Video Stream */}
+        <LiveDetectionView
+          videoUrl={videoUrl}
+          videoRef={videoRef}
+          showControls={showControls}
+          onStopDetection={handleStopDetection}
+          detectionStats={detectionStats}
+          targetLabel={targetLabel}
+          streamStatus={streamStatus}
+          currentMode={currentMode}
+          isBasicMode={isBasicMode}
+          // Basic mode specific props
+          isStreamFrozen={isStreamFrozen}
+          detectionInProgress={detectionInProgress}
+          basicModeStats={basicModeStats}
+        />
+
+        {/* Basic Mode Controls Overlay */}
+        <BasicModeControls />
+
+        {/* Detection Progress Indicator for Basic Mode */}
+        {isBasicMode && detectionInProgress && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 15,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+              p: 3,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              borderRadius: 2,
+              color: 'white'
+            }}
+          >
+            <CircularProgress size={48} />
+            <Typography variant="h6">Analyzing Frame...</Typography>
+            <Typography variant="body2" color="textSecondary">
+              Detecting {targetLabel}
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    );
   };
 
   return (
@@ -830,7 +1023,7 @@ const DetectionVideoFeed = ({
         </Alert>
       )}
 
-{modeTransitioning && (
+      {modeTransitioning && (
         <Alert 
           severity="info" 
           sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
@@ -879,109 +1072,21 @@ const DetectionVideoFeed = ({
           sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
           icon={<CircularProgress size={20} />}
         >
-          {isDetectionActive ? `Connecting to ${currentMode} stream...` : "Stopping stream..."}
+          {isDetectionActive ? `Connecting to ${currentMode} detection stream...` : "Stopping stream..."}
         </Alert>
       )}
 
-      {/* Basic Mode Specific Alerts */}
-      {isBasicMode && isStreamFrozen && (
+      {/* Basic Mode Information Alert */}
+      {isBasicMode && isDetectionActive && (
         <Alert severity="info" sx={{ mb: 2, width: '100%' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+            Basic Mode: On-Demand Detection Active
+          </Typography>
           <Typography variant="body2">
-            Stream is frozen for detection. Use controls below to unfreeze or perform detection.
+            Stream is running continuously. Click "Detect Object" to analyze the current frame.
+            The stream will freeze to show detection results.
           </Typography>
         </Alert>
-      )}
-
-      {onDemandDetecting && (
-        <Alert 
-          severity="info" 
-          sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
-          icon={<CircularProgress size={20} />}
-        >
-          Performing on-demand detection...
-        </Alert>
-      )}
-
-      {/* Basic Mode Detection Controls */}
-      {isBasicMode && isDetectionActive && detectionState === DetectionStates.RUNNING && (
-        <Card sx={{ mb: 2, width: '100%' }}>
-          <CardContent sx={{ py: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Basic Mode Controls
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* On-Demand Detection Button */}
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<CameraAlt />}
-                onClick={() => handleOnDemandDetection({ autoUnfreeze: false })}
-                disabled={onDemandDetecting || detectionInProgress}
-                color="primary"
-              >
-                {onDemandDetecting ? 'Detecting...' : 'Detect Now'}
-              </Button>
-
-              {/* Auto-Unfreeze Detection Button
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<AutoMode />}
-                onClick={() => handleOnDemandDetection({ autoUnfreeze: true, unfreezeDelay: 2.0 })}
-                disabled={onDemandDetecting || detectionInProgress}
-                color="secondary"
-              >
-                Detect & Unfreeze
-              </Button> */}
-
-              {/* Freeze/Unfreeze Controls */}
-              <ButtonGroup size="small" variant="outlined">
-                <Tooltip title="Freeze stream">
-                  <IconButton
-                    onClick={handleFreezeStream}
-                    disabled={isStreamFrozen || onDemandDetecting}
-                    color={isStreamFrozen ? "default" : "info"}
-                  >
-                    <AcUnit />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Unfreeze stream">
-                  <IconButton
-                    onClick={handleUnfreezeStream}
-                    disabled={!isStreamFrozen || onDemandDetecting}
-                    color={!isStreamFrozen ? "default" : "warning"}
-                  >
-                    <Whatshot />
-                  </IconButton>
-                </Tooltip>
-              </ButtonGroup>
-
-              {/* Stream Status Indicator */}
-              <Chip 
-                label={isStreamFrozen ? "FROZEN" : "LIVE"} 
-                size="small" 
-                color={isStreamFrozen ? "warning" : "success"}
-                icon={isStreamFrozen ? <AcUnit /> : <PlayArrow />}
-              />
-            </Box>
-
-            {/* Last Detection Result */}
-            {lastDetectionResult && (
-              <Box sx={{ mt: 1, p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
-                <Typography variant="caption" display="block">
-                  Last Detection: {lastDetectionResult.detected ? '✅ FOUND' : '❌ NOT FOUND'} 
-                  {lastDetectionResult.confidence && ` (${(lastDetectionResult.confidence * 100).toFixed(1)}%)`}
-                  {` - ${lastDetectionResult.processingTime}ms`}
-                </Typography>
-                {lastDetectionResult.detected && (
-                  <Typography variant="caption" color="success.main" display="block">
-                    Target "{targetLabel}" detected successfully!
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </CardContent>
-        </Card>
       )}
 
       <VideoCard
@@ -990,20 +1095,7 @@ const DetectionVideoFeed = ({
         onMouseLeave={() => setShowControls(false)}
       >
         {isDetectionActive && detectionState === DetectionStates.RUNNING ? (
-          <LiveDetectionView
-            videoUrl={videoUrl}
-            videoRef={videoRef}
-            showControls={showControls}
-            onStopDetection={handleStopDetection}
-            detectionStats={detectionStats}
-            targetLabel={targetLabel}
-            streamStatus={streamStatus}
-            currentMode={currentMode}
-            isBasicMode={isBasicMode}
-            isStreamFrozen={isStreamFrozen}
-            lastDetectionResult={lastDetectionResult}
-            onDemandDetecting={onDemandDetecting}
-          />
+          <EnhancedLiveDetectionView />
         ) : (
           <CameraPlaceholder 
             onStartCamera={componentError && detectionState === DetectionStates.INITIALIZING 
@@ -1018,7 +1110,7 @@ const DetectionVideoFeed = ({
         )}
       </VideoCard>
 
-      {/* System Status Info with Basic Mode Features */}
+      {/* Enhanced System Status Info with Basic Mode Features */}
       <Box sx={{ mt: 1, width: '100%', display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <Chip 
           label={`State: ${detectionState}`} 
@@ -1044,32 +1136,46 @@ const DetectionVideoFeed = ({
           color={isBasicMode ? 'warning' : 'success'}
         />
 
+        {/* Basic Mode Specific Status */}
+        {isBasicMode && isDetectionActive && (
+          <>
+            <Chip 
+              label={isStreamFrozen ? 'Stream: Frozen' : 'Stream: Live'} 
+              size="small" 
+              color={isStreamFrozen ? 'error' : 'success'}
+            />
+            
+            {detectionInProgress && (
+              <Chip 
+                label="Detecting..." 
+                size="small" 
+                color="info"
+                icon={<CircularProgress size={12} color="inherit" />}
+              />
+            )}
+            
+            <Chip 
+              label={`Detections: ${basicModeStats.totalDetections}`} 
+              size="small" 
+              color="primary"
+            />
+            
+            {basicModeStats.successfulDetections > 0 && (
+              <Chip 
+                label={`Found: ${basicModeStats.successfulDetections}`} 
+                size="small" 
+                color="success"
+              />
+            )}
+          </>
+        )}
+
         {/* Auto Mode Status */}
         <Chip 
           label={detectionService.autoModeEnabled ? 'Auto Mode: ON' : 'Auto Mode: OFF'} 
           size="small" 
           color={detectionService.autoModeEnabled ? 'success' : 'default'}
         />
-
-        {/* Basic Mode Specific Status */}
-        {isBasicMode && (
-          <>
-            <Chip 
-              label={`Stream: ${isStreamFrozen ? 'FROZEN' : 'LIVE'}`} 
-              size="small" 
-              color={isStreamFrozen ? 'warning' : 'info'}
-              icon={isStreamFrozen ? <AcUnit /> : <PlayArrow />}
-            />
-            
-            {freezeListenerActive && (
-              <Chip 
-                label="Freeze Listener: Active" 
-                size="small" 
-                color="info"
-              />
-            )}
-          </>
-        )}
 
         {/* System Performance Score */}
         {systemProfile && (
@@ -1090,15 +1196,6 @@ const DetectionVideoFeed = ({
             color="info"
           />
         )}
-
-        {/* Detection Stats for Basic Mode */}
-        {isBasicMode && detectionStats.detectionCount > 0 && (
-          <Chip 
-            label={`Detections: ${detectionStats.detectionCount}`} 
-            size="small" 
-            color="success"
-          />
-        )}
         
         {initializationAttempts > 0 && detectionState === DetectionStates.INITIALIZING && (
           <Chip 
@@ -1108,60 +1205,63 @@ const DetectionVideoFeed = ({
           />
         )}
 
-        {/* Health Check Status */}
-        <Chip 
-          label={getHealthCheckStatusText()} 
-          size="small" 
-          color={
-            (healthCheckStatus.initial || detectionService.getDetailedStatus().hasPerformedInitialHealthCheck) &&
-            (healthCheckStatus.postShutdown || detectionService.getDetailedStatus().hasPerformedPostShutdownCheck)
-              ? 'success' : 'info'
-          }
-        />
+        {/* Processing Time for Basic Mode */}
+        {isBasicMode && basicModeStats.avgProcessingTime > 0 && (
+          <Chip 
+            label={`Processing: ${basicModeStats.avgProcessingTime}ms`} 
+            size="small" 
+            color={basicModeStats.avgProcessingTime < 1000 ? 'success' : 'warning'}
+          />
+        )}
       </Box>
 
-      {/* Manual Mode Control Buttons */}
-      {detectionState === DetectionStates.READY && !detectionService.autoModeEnabled && (
+      {/* Quick Action Buttons for Basic Mode */}
+      {isBasicMode && isDetectionActive && !isStreamFrozen && (
         <Box sx={{ mt: 1, width: '100%', display: 'flex', gap: 1, justifyContent: 'center' }}>
           <Button
             size="small"
-            variant="outlined"
-            onClick={handleSwitchToBasic}
-            disabled={isBasicMode || modeTransitioning}
-            color="warning"
+            variant="contained"
+            onClick={handlePerformDetection}
+            disabled={detectionInProgress}
+            startIcon={detectionInProgress ? <CircularProgress size={16} /> : <CameraAlt />}
           >
-            Switch to Basic
+            {detectionInProgress ? 'Detecting...' : 'Detect Now'}
           </Button>
+          
           <Button
             size="small"
             variant="outlined"
-            onClick={handleSwitchToOptimized}
-            disabled={!isBasicMode || modeTransitioning}
-            color="success"
+            onClick={handleDetectAndResume}
+            disabled={detectionInProgress}
+            startIcon={<Visibility />}
           >
-            Switch to Optimized
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={handleEnableAutoMode}
-            disabled={modeTransitioning}
-            color="primary"
-          >
-            Enable Auto Mode
+            Quick Detect
           </Button>
         </Box>
       )}
 
-      {/* Basic Mode Instructions */}
-      {isBasicMode && detectionState === DetectionStates.READY && (
-        <Box sx={{ mt: 1, width: '100%' }}>
-          <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
-            <Typography variant="caption" display="block">
-              <strong>Basic Mode:</strong> Start stream first, then use "Detect Now" for on-demand detection.
-              Stream will freeze during detection - use controls to unfreeze or auto-unfreeze.
-            </Typography>
-          </Alert>
+      {/* Resume Controls for Frozen Stream */}
+      {isBasicMode && isDetectionActive && isStreamFrozen && (
+        <Box sx={{ mt: 1, width: '100%', display: 'flex', gap: 1, justifyContent: 'center' }}>
+          <Button
+            size="small"
+            variant="contained"
+            color="success"
+            onClick={handleUnfreezeStream}
+            startIcon={<PlayArrow />}
+          >
+            Resume Live Stream
+          </Button>
+          
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handlePerformDetection}
+            disabled={detectionInProgress}
+            startIcon={<Refresh />}
+          >
+            Detect Again
+          </Button>
         </Box>
       )}
     </div>

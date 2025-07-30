@@ -20,13 +20,14 @@ const DetectionControls = ({
   cameras,
   onDetectCameras,
   isDetecting = false,
-  onStartDetection,
-  onStopDetection,
+  // onStartDetection,
+  // onStopDetection,
   isDetectionActive = false,
-  isModelLoaded = false
+  // isModelLoaded = false
 }) => {
-  const canStartDetection = targetLabel && selectedCameraId && isModelLoaded && !isDetectionActive;
-  
+  // const canStartDetection = targetLabel && selectedCameraId && isModelLoaded && !isDetectionActive;
+  // const canStartDetection = targetLabel && selectedCameraId && !isDetectionActive;
+
   return (
     <Stack
       direction="row"
@@ -76,7 +77,7 @@ const DetectionControls = ({
         {isDetecting ? 'Detecting...' : 'Detect'}
       </Button>
       
-      {!isDetectionActive ? (
+      {/* {!isDetectionActive ? (
         <Button
           variant="contained"
           onClick={onStartDetection}
@@ -103,14 +104,14 @@ const DetectionControls = ({
         >
           Stop Detection
         </Button>
-      )}
+      )} */}
       
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      {/* <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Visibility sx={{ fontSize: 16, color: isModelLoaded ? 'success.main' : 'text.secondary' }} />
         <Typography variant="caption" color={isModelLoaded ? 'success.main' : 'text.secondary'}>
           {isModelLoaded ? 'Model Ready' : 'Loading Model...'}
         </Typography>
-      </Box>
+      </Box> */}
     </Stack>
   );
 };

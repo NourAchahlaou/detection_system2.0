@@ -1,28 +1,22 @@
-# basic_video_streaming_service.py - Simple streaming for low-performance mode
+# basic_video_streaming_router.py - Router with freeze/unfreeze capability
 
 import asyncio
 import logging
-
-
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query,File, UploadFile
+from fastapi.responses import StreamingResponse,Response
 from sqlalchemy.orm import Session
 
 # Import existing dependencies (adapt these to your actual imports)
-from video_streaming.app.service.alternative.basic_video_streaming_service import BasicStreamConfig,basic_stream_manager
+from video_streaming.app.service.alternative.basic_video_streaming_service import BasicStreamConfig, basic_stream_manager
 from video_streaming.app.db.session import get_session
 from video_streaming.app.service.camera import CameraService
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Configuration
-
-
 
 # Initialize services
 camera_service = CameraService()
@@ -41,11 +35,12 @@ async def basic_video_stream(
     db: Session = Depends(get_session)
 ):
     """
-    Basic video streaming without real-time detection
+    Basic video streaming with freeze capability for detection
     
-    This endpoint provides simple video streaming for low-performance systems:
+    This endpoint provides continuous video streaming that can be frozen
+    for on-demand detection:
     - Efficient frame processing
-    - No detection overhead
+    - Stream freeze/unfreeze capability
     - Lightweight resource usage
     """
     try:
@@ -74,7 +69,7 @@ async def basic_video_stream(
                 "Expires": "0",
                 "Connection": "close",
                 "X-Consumer-ID": consumer_id,
-                "X-Stream-Type": "basic-streaming-only",
+                "X-Stream-Type": "basic-streaming-with-freeze",
                 "X-Stream-Quality": str(stream_quality)
             }
         )
@@ -86,7 +81,7 @@ async def basic_video_stream(
         raise HTTPException(status_code=500, detail=f"Failed to start basic stream: {str(e)}")
 
 async def generate_basic_video_frames(config: BasicStreamConfig, consumer_id: str):
-    """Generate video frames for basic streaming"""
+    """Generate video frames for basic streaming with freeze capability"""
     frame_count = 0
     stream_key = None
     
@@ -116,6 +111,7 @@ async def generate_basic_video_frames(config: BasicStreamConfig, consumer_id: st
             frame_start_time = time.time()
             
             try:
+                # Get frame (will be frozen frame if stream is frozen)
                 frame_bytes = await stream_state.get_latest_frame()
                 
                 if frame_bytes is not None:
@@ -130,7 +126,8 @@ async def generate_basic_video_frames(config: BasicStreamConfig, consumer_id: st
                     
                     # Log progress
                     if frame_count % 100 == 0:
-                        logger.info(f"📊 Basic stream - Camera {config.camera_id}: {frame_count} frames streamed")
+                        freeze_status = "🧊 FROZEN" if stream_state.is_frozen else "🎬 LIVE"
+                        logger.info(f"📊 Basic stream - Camera {config.camera_id}: {frame_count} frames streamed ({freeze_status})")
                 else:
                     no_frame_count += 1
                     if no_frame_count > max_no_frame:
@@ -139,11 +136,15 @@ async def generate_basic_video_frames(config: BasicStreamConfig, consumer_id: st
                     await asyncio.sleep(0.05)
                     continue
                 
-                # Frame rate control
-                elapsed = time.time() - frame_start_time
-                sleep_time = max(0, frame_time - elapsed)
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
+                # Frame rate control (but don't sleep if frozen to maintain responsiveness)
+                if not stream_state.is_frozen:
+                    elapsed = time.time() - frame_start_time
+                    sleep_time = max(0, frame_time - elapsed)
+                    if sleep_time > 0:
+                        await asyncio.sleep(sleep_time)
+                else:
+                    # When frozen, update less frequently to save resources
+                    await asyncio.sleep(0.1)
                 
             except asyncio.CancelledError:
                 logger.info(f"🛑 Basic stream cancelled for camera {config.camera_id}, consumer {consumer_id}")
@@ -161,6 +162,95 @@ async def generate_basic_video_frames(config: BasicStreamConfig, consumer_id: st
         
         logger.info(f"🏁 Basic video stream stopped for camera {config.camera_id}, consumer {consumer_id} (streamed {frame_count} frames)")
 
+@basic_router.post("/stream/{camera_id}/freeze")
+async def freeze_stream(camera_id: int):
+    """
+    Freeze the video stream for detection
+    
+    This stops updating frames and holds the current frame
+    for detection processing
+    """
+    try:
+        stream_state = basic_stream_manager.get_stream_by_camera_id(camera_id)
+        if not stream_state:
+            raise HTTPException(status_code=404, detail=f"No active stream found for camera {camera_id}")
+        
+        success = await stream_state.freeze_stream()
+        
+        if success:
+            return {
+                "camera_id": camera_id,
+                "status": "frozen",
+                "message": f"Stream frozen for camera {camera_id}",
+                "timestamp": time.time()
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Failed to freeze stream for camera {camera_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error freezing stream for camera {camera_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to freeze stream: {str(e)}")
+
+@basic_router.post("/stream/{camera_id}/unfreeze")
+async def unfreeze_stream(camera_id: int):
+    """
+    Unfreeze the video stream to resume live feed
+    
+    This resumes normal streaming after detection is complete
+    """
+    try:
+        stream_state = basic_stream_manager.get_stream_by_camera_id(camera_id)
+        if not stream_state:
+            raise HTTPException(status_code=404, detail=f"No active stream found for camera {camera_id}")
+        
+        await stream_state.unfreeze_stream()
+        
+        return {
+            "camera_id": camera_id,
+            "status": "unfrozen",
+            "message": f"Stream resumed for camera {camera_id}",
+            "timestamp": time.time()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error unfreezing stream for camera {camera_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to unfreeze stream: {str(e)}")
+
+@basic_router.get("/stream/{camera_id}/status")
+async def get_stream_status(camera_id: int):
+    """Get the current status of a video stream"""
+    try:
+        stream_state = basic_stream_manager.get_stream_by_camera_id(camera_id)
+        if not stream_state:
+            return {
+                "camera_id": camera_id,
+                "stream_active": False,
+                "is_frozen": False,
+                "consumers_count": 0,
+                "message": "No active stream found"
+            }
+        
+        stats = stream_state.get_stats()
+        
+        return {
+            "camera_id": camera_id,
+            "stream_active": stats['is_active'],
+            "is_frozen": stats['is_frozen'],
+            "consumers_count": stats['consumers_count'],
+            "frames_processed": stats['frames_processed'],
+            "last_frame_time": stats['last_frame_time'],
+            "stream_quality": stats['stream_quality'],
+            "timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting stream status for camera {camera_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stream status: {str(e)}")
+
 @basic_router.get("/stats")
 async def get_basic_streaming_stats():
     """Get basic streaming statistics"""
@@ -174,12 +264,15 @@ async def get_basic_streaming_stats():
                 logger.error(f"Error getting stats for stream {stream_key}: {e}")
         
         total_consumers = sum(stat.get('consumers_count', 0) for stat in stream_stats)
+        frozen_streams = sum(1 for stat in stream_stats if stat.get('is_frozen', False))
         
         return {
             "manager_stats": basic_stream_manager.stats,
             "stream_stats": stream_stats,
             "total_active_streams": len(stream_stats),
-            "total_consumers": total_consumers
+            "total_consumers": total_consumers,
+            "frozen_streams": frozen_streams,
+            "live_streams": len(stream_stats) - frozen_streams
         }
         
     except Exception as e:
@@ -224,9 +317,22 @@ async def basic_streaming_health():
     try:
         stats = basic_stream_manager.stats
         
+        # Get detailed health info
+        active_streams = len(basic_stream_manager.active_streams)
+        frozen_count = 0
+        total_consumers = 0
+        
+        for stream_state in basic_stream_manager.active_streams.values():
+            if stream_state.is_frozen:
+                frozen_count += 1
+            total_consumers += len(stream_state.consumers)
+        
         return {
             "status": "healthy",
-            "active_streams": stats.get('active_streams_count', 0),
+            "active_streams": active_streams,
+            "frozen_streams": frozen_count,
+            "live_streams": active_streams - frozen_count,
+            "total_consumers": total_consumers,
             "total_frames_streamed": stats.get('total_frames_streamed', 0),
             "timestamp": time.time()
         }
@@ -238,3 +344,70 @@ async def basic_streaming_health():
             "error": str(e),
             "timestamp": time.time()
         }
+@basic_router.get("/stream/{camera_id}/current-frame")
+async def get_current_frame(camera_id: int):
+    """
+    Get current frame as JPEG for detection service
+    
+    This endpoint allows the detection service to retrieve
+    the current frame from the video stream
+    """
+    try:
+        stream_state = basic_stream_manager.get_stream_by_camera_id(camera_id)
+        if not stream_state:
+            raise HTTPException(status_code=404, detail=f"No active stream found for camera {camera_id}")
+        
+        frame_bytes = await stream_state.get_latest_frame()
+        if frame_bytes is None:
+            raise HTTPException(status_code=404, detail=f"No frame available for camera {camera_id}")
+        
+        return Response(
+            content=frame_bytes,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current frame for camera {camera_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get current frame: {str(e)}")
+
+@basic_router.post("/stream/{camera_id}/update-frozen-frame")
+async def update_frozen_frame(camera_id: int, frame: UploadFile = File(...)):
+    """
+    Update the frozen frame with detection results
+    
+    This allows the detection service to update the frozen frame
+    with overlay annotations after processing
+    """
+    try:
+        stream_state = basic_stream_manager.get_stream_by_camera_id(camera_id)
+        if not stream_state:
+            raise HTTPException(status_code=404, detail=f"No active stream found for camera {camera_id}")
+        
+        if not stream_state.is_frozen:
+            raise HTTPException(status_code=400, detail=f"Stream for camera {camera_id} is not frozen")
+        
+        # Read the uploaded frame
+        frame_bytes = await frame.read()
+        
+        # Update the frozen frame
+        await stream_state.update_frozen_frame(frame_bytes)
+        
+        return {
+            "camera_id": camera_id,
+            "message": "Frozen frame updated successfully",
+            "frame_size": len(frame_bytes),
+            "timestamp": time.time()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating frozen frame for camera {camera_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update frozen frame: {str(e)}")    

@@ -49,10 +49,6 @@ class DetectionService {
     this.hasPerformedInitialHealthCheck = false;
     this.hasPerformedPostShutdownCheck = false;
     
-    // Stream freeze tracking for basic mode
-    this.frozenStreams = new Map(); // camera_id -> freeze_info
-    this.freezeListeners = new Set();
-    
     // Timeouts
     this.INITIALIZATION_TIMEOUT = 30000;
     this.HEALTH_CHECK_TIMEOUT = 10000;
@@ -68,7 +64,7 @@ class DetectionService {
   }
 
   // ===================
-  // SYSTEM PROFILING METHODS (unchanged)
+  // SYSTEM PROFILING METHODS
   // ===================
 
   async initializeSystemProfiling() {
@@ -184,364 +180,161 @@ class DetectionService {
     }
   }
 
-  // ===================
-  // FREEZE/UNFREEZE METHODS (NEW)
-  // ===================
-
-  async freezeStream(cameraId) {
+  async forceSystemProfileRefresh() {
     try {
-      console.log(`🧊 Freezing stream for camera ${cameraId}...`);
+      console.log('🔄 Force refreshing system profile...');
       
-      const response = await api.post(`/api/video_streaming/video/basic/stream/${cameraId}/freeze`);
+      // Force refresh cache on backend
+      await api.post('/api/artifact_keeper/system/cache/refresh');
       
-      if (response.data.status === 'frozen') {
-        const freezeInfo = {
-          cameraId: parseInt(cameraId),
-          frozenAt: Date.now(),
-          status: 'frozen'
-        };
-        
-        this.frozenStreams.set(cameraId, freezeInfo);
-        this.notifyFreezeListeners(cameraId, 'frozen');
-        
-        console.log(`✅ Stream frozen for camera ${cameraId}`);
-        return { success: true, ...response.data };
-      } else {
-        throw new Error('Failed to freeze stream');
-      }
-    } catch (error) {
-      console.error(`❌ Error freezing stream for camera ${cameraId}:`, error);
-      throw new Error(`Failed to freeze stream: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async unfreezeStream(cameraId) {
-    try {
-      console.log(`🔥 Unfreezing stream for camera ${cameraId}...`);
-      
-      const response = await api.post(`/api/video_streaming/video/basic/stream/${cameraId}/unfreeze`);
-      
-      if (response.data.status === 'unfrozen') {
-        this.frozenStreams.delete(cameraId);
-        this.notifyFreezeListeners(cameraId, 'unfrozen');
-        
-        console.log(`✅ Stream unfrozen for camera ${cameraId}`);
-        return { success: true, ...response.data };
-      } else {
-        throw new Error('Failed to unfreeze stream');
-      }
-    } catch (error) {
-      console.error(`❌ Error unfreezing stream for camera ${cameraId}:`, error);
-      throw new Error(`Failed to unfreeze stream: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async getStreamFreezeStatus(cameraId) {
-    try {
-      const response = await api.get(`/api/video_streaming/video/basic/stream/${cameraId}/status`);
-      
-      const isFrozen = response.data.is_frozen || false;
-      const streamActive = response.data.stream_active || false;
-      
-      if (isFrozen && !this.frozenStreams.has(cameraId)) {
-        // Update local state
-        this.frozenStreams.set(cameraId, {
-          cameraId: parseInt(cameraId),
-          frozenAt: Date.now(),
-          status: 'frozen'
-        });
-      } else if (!isFrozen && this.frozenStreams.has(cameraId)) {
-        this.frozenStreams.delete(cameraId);
-      }
+      // Update local profile
+      await this.updateSystemProfile(true);
       
       return {
-        cameraId: parseInt(cameraId),
-        isFrozen,
-        streamActive,
-        ...response.data
+        success: true,
+        profile: this.systemProfile,
+        performanceMode: this.currentPerformanceMode,
+        streamingType: this.currentStreamingType
       };
     } catch (error) {
-      console.error(`❌ Error getting freeze status for camera ${cameraId}:`, error);
-      return {
-        cameraId: parseInt(cameraId),
-        isFrozen: false,
-        streamActive: false,
-        error: error.message
-      };
+      console.error('❌ Error force refreshing system profile:', error);
+      throw error;
     }
   }
 
-  isStreamFrozen(cameraId) {
-    return this.frozenStreams.has(cameraId);
+  async runPerformanceTest(durationSeconds = 10) {
+    try {
+      console.log(`🧪 Running performance test for ${durationSeconds} seconds...`);
+      
+      const response = await api.post('/api/artifact_keeper/system/performance/test', null, {
+        params: { duration_seconds: durationSeconds }
+      });
+      
+      // Update profile after test
+      await this.updateSystemProfile(true);
+      
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error running performance test:', error);
+      throw error;
+    }
   }
 
-  getFrozenStreams() {
-    return Array.from(this.frozenStreams.values());
+  // System profile getters
+  getSystemProfile() {
+    return this.systemProfile;
   }
 
-  addFreezeListener(listener) {
-    this.freezeListeners.add(listener);
-    return () => this.freezeListeners.delete(listener);
+  getCurrentPerformanceMode() {
+    return this.currentPerformanceMode;
   }
 
-  notifyFreezeListeners(cameraId, status) {
-    this.freezeListeners.forEach(listener => {
+  getCurrentStreamingType() {
+    return this.currentStreamingType;
+  }
+
+  getSystemCapabilities() {
+    return this.systemCapabilities;
+  }
+
+  shouldUseBasicMode() {
+    return this.currentStreamingType === StreamingTypes.BASIC || 
+           this.currentPerformanceMode === PerformanceModes.BASIC;
+  }
+
+  shouldUseOptimizedMode() {
+    return this.currentStreamingType === StreamingTypes.OPTIMIZED;
+  }
+
+  // Manual mode switching
+  async switchToBasicMode() {
+    try {
+      console.log('🔄 Manually switching to basic mode...');
+      
+      // Stop all current streams
+      await this.stopAllStreams(false);
+      
+      this.currentPerformanceMode = PerformanceModes.BASIC;
+      this.currentStreamingType = StreamingTypes.BASIC;
+      this.autoModeEnabled = false;
+      
+      this.notifyProfileUpdateListeners();
+      
+      console.log('✅ Switched to basic mode');
+      return { success: true, mode: 'basic' };
+    } catch (error) {
+      console.error('❌ Error switching to basic mode:', error);
+      throw error;
+    }
+  }
+
+  async switchToOptimizedMode() {
+    try {
+      console.log('🔄 Manually switching to optimized mode...');
+      
+      // Check if system supports optimized mode
+      if (!this.systemProfile || this.systemProfile.performance_score < 30) {
+        throw new Error('System does not meet minimum requirements for optimized mode');
+      }
+      
+      // Stop all current streams
+      await this.stopAllStreams(false);
+      
+      this.currentStreamingType = StreamingTypes.OPTIMIZED;
+      if (this.currentPerformanceMode === PerformanceModes.BASIC) {
+        this.currentPerformanceMode = PerformanceModes.STANDARD;
+      }
+      this.autoModeEnabled = false;
+      
+      this.notifyProfileUpdateListeners();
+      
+      console.log('✅ Switched to optimized mode');
+      return { success: true, mode: 'optimized' };
+    } catch (error) {
+      console.error('❌ Error switching to optimized mode:', error);
+      throw error;
+    }
+  }
+
+  async enableAutoMode() {
+    try {
+      console.log('🤖 Enabling automatic mode selection...');
+      this.autoModeEnabled = true;
+      
+      // Re-evaluate optimal settings
+      await this.updateSystemProfile(true);
+      
+      console.log(`✅ Auto mode enabled - Selected: ${this.currentStreamingType}`);
+      return { success: true, mode: this.currentStreamingType };
+    } catch (error) {
+      console.error('❌ Error enabling auto mode:', error);
+      throw error;
+    }
+  }
+
+  // Profile update listeners
+  addProfileUpdateListener(listener) {
+    this.profileUpdateListeners.add(listener);
+    return () => this.profileUpdateListeners.delete(listener);
+  }
+
+  notifyProfileUpdateListeners() {
+    this.profileUpdateListeners.forEach(listener => {
       try {
         listener({
-          cameraId: parseInt(cameraId),
-          status,
-          timestamp: Date.now()
+          profile: this.systemProfile,
+          performanceMode: this.currentPerformanceMode,
+          streamingType: this.currentStreamingType,
+          capabilities: this.systemCapabilities
         });
       } catch (error) {
-        console.error('Error in freeze listener:', error);
+        console.error('Error in profile update listener:', error);
       }
     });
   }
 
   // ===================
-  // UPDATED BASIC DETECTION METHODS
-  // ===================
-
-  async performOnDemandDetection(cameraId, targetLabel, options = {}) {
-    try {
-      const { quality = 85, autoUnfreeze = false, unfreezeDelay = 2.0 } = options;
-      
-      console.log(`🎯 Performing on-demand detection for camera ${cameraId}, target: '${targetLabel}'`);
-      
-      if (!this.isOperational()) {
-        throw new Error(`Cannot perform detection in state: ${this.state}. Service must be ready.`);
-      }
-
-      // Choose detection endpoint based on auto-unfreeze option
-      const endpoint = autoUnfreeze 
-        ? `/api/detection/basic/detect/${cameraId}/with-unfreeze`
-        : `/api/detection/basic/detect/${cameraId}`;
-
-      const requestBody = {
-        target_label: targetLabel,
-        quality: quality
-      };
-
-      if (autoUnfreeze) {
-        requestBody.unfreeze_delay = unfreezeDelay;
-      }
-
-      const response = await api.post(endpoint, requestBody);
-
-      if (response.data.success) {
-        const detectionData = response.data.data;
-        
-        // Update freeze status
-        if (detectionData.stream_frozen && !autoUnfreeze) {
-          this.frozenStreams.set(cameraId, {
-            cameraId: parseInt(cameraId),
-            frozenAt: Date.now(),
-            status: 'frozen',
-            detectionPerformed: true
-          });
-          this.notifyFreezeListeners(cameraId, 'frozen');
-        } else if (autoUnfreeze) {
-          this.frozenStreams.delete(cameraId);
-          this.notifyFreezeListeners(cameraId, 'unfrozen');
-        }
-
-        // Update detection stats
-        const streamKey = `basic_${cameraId}_${targetLabel}`;
-        const updatedStats = {
-          objectDetected: detectionData.detected_target,
-          detectionCount: detectionData.detected_target ? 1 : 0,
-          lastDetectionTime: detectionData.detected_target ? Date.now() : null,
-          avgProcessingTime: detectionData.processing_time_ms,
-          confidence: detectionData.confidence,
-          mode: 'basic_on_demand',
-          streamFrozen: detectionData.stream_frozen,
-          autoUnfrozen: autoUnfreeze
-        };
-
-        this.detectionStats.set(streamKey, updatedStats);
-        this.notifyStatsListeners(cameraId, updatedStats);
-
-        console.log(`✅ On-demand detection completed for camera ${cameraId}${autoUnfreeze ? ' (auto-unfrozen)' : ' (stream frozen)'}`);
-        
-        return {
-          success: true,
-          detected: detectionData.detected_target,
-          confidence: detectionData.confidence,
-          processingTime: detectionData.processing_time_ms,
-          frameWithOverlay: detectionData.frame_with_overlay,
-          streamFrozen: detectionData.stream_frozen,
-          autoUnfrozen: autoUnfreeze,
-          timestamp: detectionData.timestamp
-        };
-      } else {
-        throw new Error('Detection request failed');
-      }
-
-    } catch (error) {
-      console.error("❌ Error performing on-demand detection:", error);
-      throw new Error(`Failed to perform detection: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async startBasicDetectionFeed(cameraId, targetLabel, options = {}) {
-    try {
-      console.log(`🎯 Starting basic detection feed for camera ${cameraId} with target: ${targetLabel}`);
-
-      if (!this.canStart()) {
-        throw new Error(`Cannot start detection in state: ${this.state}. Current state must be READY.`);
-      }
-
-      // Start camera
-      await this.ensureCameraStarted(cameraId);
-
-      // Store stream info
-      const streamKey = `basic_${cameraId}_${targetLabel}`;
-      this.currentStreams.set(cameraId, {
-        url: `/api/video_streaming/video/basic/stream/${cameraId}`,
-        targetLabel,
-        streamKey,
-        startTime: Date.now(),
-        isActive: true,
-        type: 'basic_detection'
-      });
-
-      // Update state to running
-      this.setState(DetectionStates.RUNNING, `Started basic detection for camera ${cameraId}`);
-
-      // Start detection polling for basic mode (but less frequently since it's on-demand)
-      this.startBasicDetectionMonitoring(cameraId, targetLabel);
-
-      console.log(`✅ Successfully started basic detection feed for camera ${cameraId}`);
-      return `/api/video_streaming/video/basic/stream/${cameraId}`;
-
-    } catch (error) {
-      console.error("❌ Error starting basic detection feed:", error);
-      throw new Error(`Failed to start basic detection feed: ${error.message}`);
-    }
-  }
-
-  async startBasicStream(cameraId, options = {}) {
-    try {
-      const { streamQuality = 85 } = options;
-      console.log(`📺 Starting basic stream for camera ${cameraId}`);
-
-      if (!this.canStart()) {
-        throw new Error(`Cannot start stream in state: ${this.state}. Current state must be READY.`);
-      }
-
-      await this.ensureCameraStarted(cameraId);
-
-      const params = new URLSearchParams({
-        stream_quality: streamQuality.toString()
-      });
-
-      const streamUrl = `/api/video_streaming/video/basic/stream/${cameraId}?${params}`;
-      
-      this.currentStreams.set(cameraId, {
-        url: streamUrl,
-        targetLabel: null,
-        streamKey: `basic_stream_${cameraId}`,
-        startTime: Date.now(),
-        isActive: true,
-        type: 'basic_stream'
-      });
-
-      if (this.state === DetectionStates.READY) {
-        this.setState(DetectionStates.RUNNING, `Started basic stream for camera ${cameraId}`);
-      }
-
-      console.log(`✅ Successfully started basic stream for camera ${cameraId}`);
-      return streamUrl;
-
-    } catch (error) {
-      console.error("❌ Error starting basic stream:", error);
-      throw new Error(`Failed to start basic stream: ${error.message}`);
-    }
-  }
-
-  async startBasicDetectionMonitoring(cameraId, targetLabel) {
-    // For basic mode, we don't need continuous polling since detection is on-demand
-    // Just set up monitoring for stream status and freeze state
-    const monitorInterval = setInterval(async () => {
-      if (this.state === DetectionStates.SHUTTING_DOWN) {
-        clearInterval(monitorInterval);
-        return;
-      }
-
-      try {
-        // Check stream status and freeze state
-        const freezeStatus = await this.getStreamFreezeStatus(cameraId);
-        
-        // Update stats based on stream status
-        const streamKey = `basic_${cameraId}_${targetLabel}`;
-        const currentStats = this.detectionStats.get(streamKey) || {};
-        
-        const updatedStats = {
-          ...currentStats,
-          streamActive: freezeStatus.streamActive,
-          isFrozen: freezeStatus.isFrozen,
-          lastStatusCheck: Date.now(),
-          mode: 'basic_monitoring'
-        };
-
-        this.detectionStats.set(streamKey, updatedStats);
-        this.notifyStatsListeners(cameraId, updatedStats);
-        
-      } catch (error) {
-        if (this.state !== DetectionStates.SHUTTING_DOWN) {
-          console.debug("Error in basic detection monitoring:", error);
-        }
-      }
-    }, 5000); // Check every 5 seconds (less frequent than continuous detection)
-
-    // Store interval for cleanup
-    if (!this.eventListeners.has(cameraId)) {
-      this.eventListeners.set(cameraId, { monitorInterval, listeners: [] });
-    } else {
-      this.eventListeners.get(cameraId).monitorInterval = monitorInterval;
-    }
-  }
-
-  async stopBasicStream(cameraId) {
-    try {
-      const stream = this.currentStreams.get(cameraId);
-      if (stream && stream.type && stream.type.startsWith('basic')) {
-        console.log(`⏹️ Stopping basic stream for camera ${cameraId}`);
-        
-        // Unfreeze stream if it's frozen
-        if (this.isStreamFrozen(cameraId)) {
-          try {
-            await this.unfreezeStream(cameraId);
-          } catch (error) {
-            console.warn(`⚠️ Error unfreezing stream during stop for camera ${cameraId}:`, error.message);
-          }
-        }
-        
-        this.stopStatsMonitoring(cameraId);
-        
-        try {
-          await api.post(`/api/video_streaming/video/basic/stream/${cameraId}/stop`);
-        } catch (error) {
-          console.warn(`⚠️ Error stopping basic stream API for camera ${cameraId}:`, error.message);
-        }
-        
-        this.currentStreams.delete(cameraId);
-        
-        // Update state based on remaining streams
-        if (this.currentStreams.size === 0 && this.state === DetectionStates.RUNNING) {
-          this.setState(DetectionStates.READY, 'All streams stopped');
-        }
-        
-        console.log(`✅ Successfully stopped basic stream for camera ${cameraId}`);
-      }
-    } catch (error) {
-      console.error("❌ Error stopping basic stream:", error);
-      throw error;
-    }
-  }
-
-  // ===================
-  // ENHANCED STREAMING METHODS WITH AUTO MODE
+  // ENHANCED STREAMING METHODS
   // ===================
 
   async startDetectionFeedWithAutoMode(cameraId, targetLabel, options = {}) {
@@ -598,146 +391,289 @@ class DetectionService {
     }
   }
 
-  // ===================
-  // BATCH DETECTION (NEW)
-  // ===================
-
-  async performBatchDetection(detections = []) {
+  // Basic streaming methods
+  async startBasicDetectionFeed(cameraId, targetLabel, options = {}) {
     try {
-      console.log(`🎯 Performing batch detection on ${detections.length} streams`);
+      console.log(`🎯 Starting basic detection feed for camera ${cameraId} with target: ${targetLabel}`);
 
-      if (!this.isOperational()) {
-        throw new Error(`Cannot perform batch detection in state: ${this.state}. Service must be ready.`);
+      if (!this.canStart()) {
+        throw new Error(`Cannot start detection in state: ${this.state}. Current state must be READY.`);
       }
 
-      if (detections.length === 0) {
-        throw new Error('No detections provided');
-      }
+      // Start camera
+      await this.ensureCameraStarted(cameraId);
 
-      if (detections.length > 3) {
-        throw new Error('Maximum 3 detections per batch in basic mode');
-      }
-
-      const response = await api.post('/api/detection/basic/detect/batch', {
-        detections: detections
+      // Store stream info
+      const streamKey = `basic_${cameraId}_${targetLabel}`;
+      this.currentStreams.set(cameraId, {
+        url: `/api/video_streaming/video/basic/stream/${cameraId}`,
+        targetLabel,
+        streamKey,
+        startTime: Date.now(),
+        isActive: true,
+        type: 'basic_detection'
       });
 
-      if (response.data.success) {
-        const results = response.data.results;
-        
-        // Update local state for each detection
-        results.forEach(result => {
-          if (result.success && result.data) {
-            const cameraId = result.camera_id;
-            const detectionData = result.data;
-            
-            // Update freeze status
-            if (detectionData.stream_frozen && !result.auto_unfrozen) {
-              this.frozenStreams.set(cameraId, {
-                cameraId: parseInt(cameraId),
-                frozenAt: Date.now(),
-                status: 'frozen',
-                detectionPerformed: true
-              });
-              this.notifyFreezeListeners(cameraId, 'frozen');
-            } else if (result.auto_unfrozen) {
-              this.frozenStreams.delete(cameraId);
-              this.notifyFreezeListeners(cameraId, 'unfrozen');
-            }
+      // Update state to running
+      this.setState(DetectionStates.RUNNING, `Started basic detection for camera ${cameraId}`);
 
-            // Update detection stats
-            const streamKey = `basic_${cameraId}_batch`;
-            const updatedStats = {
-              objectDetected: detectionData.detected_target,
-              detectionCount: detectionData.detected_target ? 1 : 0,
-              lastDetectionTime: detectionData.detected_target ? Date.now() : null,
-              avgProcessingTime: detectionData.processing_time_ms,
-              confidence: detectionData.confidence,
-              mode: 'basic_batch',
-              streamFrozen: detectionData.stream_frozen,
-              autoUnfrozen: result.auto_unfrozen
-            };
+      // Start detection polling for basic mode
+      this.startBasicDetectionPolling(cameraId, targetLabel);
 
-            this.detectionStats.set(streamKey, updatedStats);
-            this.notifyStatsListeners(cameraId, updatedStats);
-          }
-        });
-
-        console.log(`✅ Batch detection completed: ${response.data.successful}/${response.data.total_processed} successful`);
-        return response.data;
-      } else {
-        throw new Error('Batch detection request failed');
-      }
+      console.log(`✅ Successfully started basic detection feed for camera ${cameraId}`);
+      return `/api/video_streaming/video/basic/stream/${cameraId}`;
 
     } catch (error) {
-      console.error("❌ Error performing batch detection:", error);
-      throw new Error(`Failed to perform batch detection: ${error.response?.data?.detail || error.message}`);
+      console.error("❌ Error starting basic detection feed:", error);
+      throw new Error(`Failed to start basic detection feed: ${error.message}`);
+    }
+  }
+
+  async startBasicStream(cameraId, options = {}) {
+    try {
+      const { streamQuality = 85 } = options;
+      console.log(`📺 Starting basic stream for camera ${cameraId}`);
+
+      if (!this.canStart()) {
+        throw new Error(`Cannot start stream in state: ${this.state}. Current state must be READY.`);
+      }
+
+      await this.ensureCameraStarted(cameraId);
+
+      const params = new URLSearchParams({
+        stream_quality: streamQuality.toString()
+      });
+
+      const streamUrl = `/api/video_streaming/video/basic/stream/${cameraId}?${params}`;
+      
+      this.currentStreams.set(cameraId, {
+        url: streamUrl,
+        targetLabel: null,
+        streamKey: `basic_stream_${cameraId}`,
+        startTime: Date.now(),
+        isActive: true,
+        type: 'basic_stream'
+      });
+
+      if (this.state === DetectionStates.READY) {
+        this.setState(DetectionStates.RUNNING, `Started basic stream for camera ${cameraId}`);
+      }
+
+      console.log(`✅ Successfully started basic stream for camera ${cameraId}`);
+      return streamUrl;
+
+    } catch (error) {
+      console.error("❌ Error starting basic stream:", error);
+      throw new Error(`Failed to start basic stream: ${error.message}`);
+    }
+  }
+
+  async startBasicDetectionPolling(cameraId, targetLabel) {
+    const pollInterval = setInterval(async () => {
+      if (this.state === DetectionStates.SHUTTING_DOWN) {
+        clearInterval(pollInterval);
+        return;
+      }
+
+      try {
+        // Perform detection on single frame
+        const response = await api.post(`/api/detection/basic/detect/${cameraId}`, {
+          target_label: targetLabel,
+          quality: 85
+        });
+
+        if (response.data.success) {
+          const detectionData = response.data.data;
+          const streamKey = `basic_${cameraId}_${targetLabel}`;
+          
+          // Update detection stats
+          const currentStats = this.detectionStats.get(streamKey) || {};
+          const updatedStats = {
+            ...currentStats,
+            objectDetected: detectionData.target_detected,
+            detectionCount: detectionData.target_detected ? (currentStats.detectionCount || 0) + 1 : (currentStats.detectionCount || 0),
+            lastDetectionTime: detectionData.target_detected ? Date.now() : currentStats.lastDetectionTime,
+            avgProcessingTime: detectionData.processing_time_ms,
+            confidence: detectionData.confidence
+          };
+
+          this.detectionStats.set(streamKey, updatedStats);
+          this.notifyStatsListeners(cameraId, updatedStats);
+        }
+      } catch (error) {
+        if (this.state !== DetectionStates.SHUTTING_DOWN) {
+          console.debug("Error in basic detection polling:", error);
+        }
+      }
+    }, 2000); // Poll every 2 seconds for basic mode
+
+    // Store interval for cleanup
+    if (!this.eventListeners.has(cameraId)) {
+      this.eventListeners.set(cameraId, { pollInterval, listeners: [] });
+    } else {
+      this.eventListeners.get(cameraId).pollInterval = pollInterval;
+    }
+  }
+
+  async stopBasicStream(cameraId) {
+    try {
+      const stream = this.currentStreams.get(cameraId);
+      if (stream && stream.type && stream.type.startsWith('basic')) {
+        console.log(`⏹️ Stopping basic stream for camera ${cameraId}`);
+        
+        this.stopStatsMonitoring(cameraId);
+        
+        try {
+          await api.post(`/api/video_streaming/video/basic/stream/${cameraId}/stop`);
+        } catch (error) {
+          console.warn(`⚠️ Error stopping basic stream API for camera ${cameraId}:`, error.message);
+        }
+        
+        this.currentStreams.delete(cameraId);
+        
+        // Update state based on remaining streams
+        if (this.currentStreams.size === 0 && this.state === DetectionStates.RUNNING) {
+          this.setState(DetectionStates.READY, 'All streams stopped');
+        }
+        
+        console.log(`✅ Successfully stopped basic stream for camera ${cameraId}`);
+      }
+    } catch (error) {
+      console.error("❌ Error stopping basic stream:", error);
+      throw error;
     }
   }
 
   // ===================
-  // INITIALIZATION AND HEALTH CHECK METHODS
+  // EXISTING METHODS (keeping all original functionality)
   // ===================
 
-  async loadModel(isInitialCheck = false) {
-    try {
-      if (this.shouldSkipHealthCheck(isInitialCheck, false)) {
-        return {
-          success: false,
-          message: 'Health check skipped due to system state'
-        };
-      }
-
-      this.healthCheckInProgress = true;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.HEALTH_CHECK_TIMEOUT);
-
-      // Choose health endpoint based on mode
-      let healthEndpoint = '/api/detection/redis/health';
-      if (this.shouldUseBasicMode()) {
-        healthEndpoint = '/api/detection/basic/health';
-      }
-
-      const response = await fetch(healthEndpoint, {
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      this.lastHealthCheck = Date.now();
-      
-      if (isInitialCheck) {
-        this.hasPerformedInitialHealthCheck = true;
-        console.log('✅ Initial health check completed and marked');
-      }
-      
-      if (!response.ok) {
-        if (response.status === 503) {
-          console.log('🔄 Health check failed, model needs reloading...');
-          throw new Error('Detection service not ready');
-        } else {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-      }
-
-      const result = await response.json();
-      const modelLoaded = result.status === 'healthy';
-      
-      return {
-        success: modelLoaded,
-        message: modelLoaded ? 'Detection model loaded successfully' : 'Detection model not ready'
-      };
-      
-    } catch (error) {
-      console.error('Error loading detection model:', error);
-      
-      if (error.name === 'AbortError') {
-        throw new Error('Health check timed out. Please check if the detection service is responding.');
-      }
-      
-      throw new Error(`Failed to load detection model: ${error.message}`);
-    } finally {
-      this.healthCheckInProgress = false;
+  // State management methods
+  setState(newState, reason = '') {
+    const oldState = this.state;
+    this.state = newState;
+    console.log(`🔄 State changed: ${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
+    
+    // Reset health check flags on state transitions
+    if (newState === DetectionStates.INITIALIZING) {
+      this.hasPerformedInitialHealthCheck = false;
+      this.hasPerformedPostShutdownCheck = false;
+    } else if (newState === DetectionStates.READY && oldState === DetectionStates.SHUTTING_DOWN) {
+      this.hasPerformedPostShutdownCheck = false;
     }
+    
+    // Notify all listeners
+    this.stateChangeListeners.forEach(listener => {
+      try {
+        listener(newState, oldState);
+      } catch (error) {
+        console.error('Error in state change listener:', error);
+      }
+    });
+  }
+
+  getState() {
+    return this.state;
+  }
+
+  addStateChangeListener(listener) {
+    this.stateChangeListeners.add(listener);
+    return () => this.stateChangeListeners.delete(listener);
+  }
+
+  canInitialize() {
+    return this.state === DetectionStates.INITIALIZING;
+  }
+
+  canStart() {
+    return this.state === DetectionStates.READY;
+  }
+
+  canStop() {
+    return this.state === DetectionStates.RUNNING;
+  }
+
+  canShutdown() {
+    return [DetectionStates.READY, DetectionStates.RUNNING].includes(this.state);
+  }
+
+  isOperational() {
+    return [DetectionStates.READY, DetectionStates.RUNNING].includes(this.state);
+  }
+
+  resetToInitializing(reason = 'Manual reset') {
+    this.setState(DetectionStates.INITIALIZING, reason);
+    this.isModelLoaded = false;
+    this.initializationPromise = null;
+    this.lastHealthCheck = null;
+    this.healthCheckInProgress = false;
+    this.hasPerformedInitialHealthCheck = false;
+    this.hasPerformedPostShutdownCheck = false;
+    console.log('🔄 Detection service reset to initializing state');
+  }
+
+  shouldSkipHealthCheck(isInitialCheck = false, isPostShutdownCheck = false) {
+    if (isInitialCheck && !this.hasPerformedInitialHealthCheck) {
+      console.log('🩺 Allowing initial health check during initialization');
+      return false;
+    }
+
+    if (isPostShutdownCheck && !this.hasPerformedPostShutdownCheck) {
+      console.log('🩺 Allowing post-shutdown health check');
+      return false;
+    }
+
+    if (this.state === DetectionStates.SHUTTING_DOWN) {
+      console.log('⏭️ Skipping health check - system is shutting down');
+      return true;
+    }
+
+    if (this.healthCheckInProgress) {
+      console.log('⏭️ Skipping health check - already in progress');
+      return true;
+    }
+
+    if (this.lastHealthCheck && (Date.now() - this.lastHealthCheck) < this.HEALTH_CHECK_COOLDOWN) {
+      console.log('⏭️ Skipping health check - too soon since last check');
+      return true;
+    }
+
+    return false;
+  }
+
+  async ensureInitialized() {
+    if (this.isOperational() && this.isModelLoaded) {
+      return { success: true, message: 'Already initialized', state: this.state };
+    }
+
+    if (this.state === DetectionStates.SHUTTING_DOWN) {
+      console.log('⏳ Waiting for shutdown to complete before initializing...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      this.resetToInitializing('Post-shutdown reset');
+    }
+
+    if (this.state !== DetectionStates.INITIALIZING) {
+      this.resetToInitializing('Ensure initialization');
+    }
+
+    if (this.initializationPromise) {
+      try {
+        console.log('⏳ Waiting for existing initialization to complete...');
+        return await Promise.race([
+          this.initializationPromise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Initialization timeout')), this.INITIALIZATION_TIMEOUT)
+          )
+        ]);
+      } catch (error) {
+        console.error('❌ Existing initialization failed or timed out:', error.message);
+        this.resetToInitializing('Failed initialization cleanup');
+        throw error;
+      }
+    }
+
+    this.initializationPromise = this.initializeProcessor();
+    return await this.initializationPromise;
   }
 
   async initializeProcessor() {
@@ -804,6 +740,67 @@ class DetectionService {
       }
     } finally {
       this.initializationPromise = null;
+    }
+  }
+
+  async loadModel(isInitialCheck = false) {
+    try {
+      if (this.shouldSkipHealthCheck(isInitialCheck, false)) {
+        return {
+          success: false,
+          message: 'Health check skipped due to system state'
+        };
+      }
+
+      this.healthCheckInProgress = true;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.HEALTH_CHECK_TIMEOUT);
+
+      // Choose health endpoint based on mode
+      let healthEndpoint = '/api/detection/redis/health';
+      if (this.shouldUseBasicMode()) {
+        healthEndpoint = '/api/detection/basic/health';
+      }
+
+      const response = await fetch(healthEndpoint, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      this.lastHealthCheck = Date.now();
+      
+      if (isInitialCheck) {
+        this.hasPerformedInitialHealthCheck = true;
+        console.log('✅ Initial health check completed and marked');
+      }
+      
+      if (!response.ok) {
+        if (response.status === 503) {
+          console.log('🔄 Health check failed, model needs reloading...');
+          throw new Error('Detection service not ready');
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+      }
+
+      const result = await response.json();
+      const modelLoaded = result.status === 'healthy';
+      
+      return {
+        success: modelLoaded,
+        message: modelLoaded ? 'Detection model loaded successfully' : 'Detection model not ready'
+      };
+      
+    } catch (error) {
+      console.error('Error loading detection model:', error);
+      
+      if (error.name === 'AbortError') {
+        throw new Error('Health check timed out. Please check if the detection service is responding.');
+      }
+      
+      throw new Error(`Failed to load detection model: ${error.message}`);
+    } finally {
+      this.healthCheckInProgress = false;
     }
   }
 
@@ -959,20 +956,9 @@ class DetectionService {
       // Choose shutdown endpoint based on mode
       let shutdownEndpoint = '/api/detection/detection/shutdown/graceful';
       if (this.shouldUseBasicMode()) {
-        // Basic mode doesn't need graceful shutdown, just stop streams and unfreeze
-        console.log('ℹ️ Basic mode shutdown - stopping all streams and unfreezing');
+        // Basic mode doesn't need graceful shutdown, just stop streams
+        console.log('ℹ️ Basic mode shutdown - stopping all streams');
         await this.stopAllStreams(false);
-        
-        // Unfreeze all frozen streams
-        const frozenStreams = this.getFrozenStreams();
-        for (const frozenStream of frozenStreams) {
-          try {
-            await this.unfreezeStream(frozenStream.cameraId);
-          } catch (error) {
-            console.warn(`⚠️ Error unfreezing stream ${frozenStream.cameraId} during shutdown:`, error.message);
-          }
-        }
-        
         this.isModelLoaded = false;
         this.setState(DetectionStates.READY, 'Basic mode shutdown completed');
         return {
@@ -1019,8 +1005,7 @@ class DetectionService {
         // For basic mode, return simple status based on current state
         return {
           status: this.state === DetectionStates.SHUTTING_DOWN ? 'shutting_down' : 'ready',
-          mode: 'basic',
-          frozen_streams: this.getFrozenStreams().length
+          mode: 'basic'
         };
       }
 
@@ -1032,7 +1017,7 @@ class DetectionService {
     }
   }
 
-  // Enhanced optimized detection methods with mode awareness (keeping existing methods)
+  // Enhanced optimized detection methods with mode awareness
   async startOptimizedDetectionFeed(cameraId, targetLabel, options = {}) {
     const {
       detectionFps = 5.0,
@@ -1247,18 +1232,6 @@ class DetectionService {
         console.warn('⚠️ Error calling stop_all APIs:', error.message);
       }
       
-      // Unfreeze all frozen streams in basic mode
-      if (this.shouldUseBasicMode()) {
-        const frozenStreams = this.getFrozenStreams();
-        for (const frozenStream of frozenStreams) {
-          try {
-            await this.unfreezeStream(frozenStream.cameraId);
-          } catch (error) {
-            console.warn(`⚠️ Error unfreezing stream ${frozenStream.cameraId}:`, error.message);
-          }
-        }
-      }
-      
       this.currentStreams.clear();
       this.detectionStats.clear();
       for (const cameraId of this.eventListeners.keys()) {
@@ -1324,13 +1297,6 @@ class DetectionService {
         if (this.shouldUseBasicMode()) {
           // Basic mode returns different stats format
           streamStats = response.data.stream_stats?.find(s => s.camera_id === cameraId);
-          
-          // Also get freeze status for basic mode
-          const freezeStatus = await this.getStreamFreezeStatus(cameraId);
-          if (streamStats) {
-            streamStats.is_frozen = freezeStatus.isFrozen;
-            streamStats.stream_active = freezeStatus.streamActive;
-          }
         } else {
           streamStats = response.data.streams?.[0];
         }
@@ -1349,7 +1315,6 @@ class DetectionService {
             detectionFps: streamStats.detection_interval ? (25 / streamStats.detection_interval) : currentStats.detectionFps,
             queueDepth: streamStats.detection_backlog || 0,
             isStreamActive: streamStats.is_active,
-            isFrozen: streamStats.is_frozen || false,
             mode: this.currentStreamingType
           };
 
@@ -1374,9 +1339,6 @@ class DetectionService {
     const eventData = this.eventListeners.get(cameraId);
     if (eventData?.pollInterval) {
       clearInterval(eventData.pollInterval);
-    }
-    if (eventData?.monitorInterval) {
-      clearInterval(eventData.monitorInterval);
     }
     this.eventListeners.delete(cameraId);
   };
@@ -1424,7 +1386,6 @@ class DetectionService {
         nonTargetCount: 0,
         lastDetectionTime: null,
         avgProcessingTime: 0,
-        isFrozen: this.isStreamFrozen(cameraId),
         mode: this.currentStreamingType
       };
     }
@@ -1440,7 +1401,6 @@ class DetectionService {
           total_detections: 0,
           system_load_percent: 0,
           memory_usage_mb: 0,
-          frozen_streams: this.getFrozenStreams().length,
           mode: this.currentStreamingType
         };
       }
@@ -1451,13 +1411,6 @@ class DetectionService {
       }
 
       const response = await api.get(statsEndpoint);
-      
-      // Add freeze information for basic mode
-      if (this.shouldUseBasicMode()) {
-        response.data.frozen_streams = this.getFrozenStreams().length;
-        response.data.live_streams = (response.data.total_active_streams || 0) - response.data.frozen_streams;
-      }
-      
       return { ...response.data, mode: this.currentStreamingType };
     } catch (error) { 
       console.error("❌ Error getting streaming stats:", error);
@@ -1473,14 +1426,11 @@ class DetectionService {
         return response.data;
       } else {
         // Return basic performance metrics for basic mode
-        const basicStats = await this.getAllStreamingStats();
         return {
           current_mode: 'basic',
-          basic_performance: basicStats,
+          basic_performance: await this.getAllStreamingStats(),
           optimized_performance: null,
-          recommendation: 'Basic mode - suitable for current system specifications',
-          freeze_capability: true,
-          on_demand_detection: true
+          recommendation: 'Basic mode - suitable for current system specifications'
         };
       }
     } catch (error) {
@@ -1488,344 +1438,6 @@ class DetectionService {
       throw error;
     }
   };
-
-  // System profiling methods (continuing existing methods)
-  async forceSystemProfileRefresh() {
-    try {
-      console.log('🔄 Force refreshing system profile...');
-      
-      // Force refresh cache on backend
-      await api.post('/api/artifact_keeper/system/cache/refresh');
-      
-      // Update local profile
-      await this.updateSystemProfile(true);
-      
-      return {
-        success: true,
-        profile: this.systemProfile,
-        performanceMode: this.currentPerformanceMode,
-        streamingType: this.currentStreamingType
-      };
-    } catch (error) {
-      console.error('❌ Error force refreshing system profile:', error);
-      throw error;
-    }
-  }
-
-  async runPerformanceTest(durationSeconds = 10) {
-    try {
-      console.log(`🧪 Running performance test for ${durationSeconds} seconds...`);
-      
-      const response = await api.post('/api/artifact_keeper/system/performance/test', null, {
-        params: { duration_seconds: durationSeconds }
-      });
-      
-      // Update profile after test
-      await this.updateSystemProfile(true);
-      
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error running performance test:', error);
-      throw error;
-    }
-  }
-
-  // System profile getters
-  getSystemProfile() {
-    return this.systemProfile;
-  }
-
-  getCurrentPerformanceMode() {
-    return this.currentPerformanceMode;
-  }
-
-  getCurrentStreamingType() {
-    return this.currentStreamingType;
-  }
-
-  getSystemCapabilities() {
-    return this.systemCapabilities;
-  }
-
-  shouldUseBasicMode() {
-    return this.currentStreamingType === StreamingTypes.BASIC || 
-           this.currentPerformanceMode === PerformanceModes.BASIC;
-  }
-
-  shouldUseOptimizedMode() {
-    return this.currentStreamingType === StreamingTypes.OPTIMIZED;
-  }
-
-  // Manual mode switching
-  async switchToBasicMode() {
-    try {
-      console.log('🔄 Manually switching to basic mode...');
-      
-      // Stop all current streams and unfreeze any frozen ones
-      await this.stopAllStreams(false);
-      
-      this.currentPerformanceMode = PerformanceModes.BASIC;
-      this.currentStreamingType = StreamingTypes.BASIC;
-      this.autoModeEnabled = false;
-      
-      this.notifyProfileUpdateListeners();
-      
-      console.log('✅ Switched to basic mode');
-      return { success: true, mode: 'basic' };
-    } catch (error) {
-      console.error('❌ Error switching to basic mode:', error);
-      throw error;
-    }
-  }
-
-  async switchToOptimizedMode() {
-    try {
-      console.log('🔄 Manually switching to optimized mode...');
-      
-      // Check if system supports optimized mode
-      if (!this.systemProfile || this.systemProfile.performance_score < 30) {
-        throw new Error('System does not meet minimum requirements for optimized mode');
-      }
-      
-      // Stop all current streams and unfreeze any frozen ones
-      await this.stopAllStreams(false);
-      
-      this.currentStreamingType = StreamingTypes.OPTIMIZED;
-      if (this.currentPerformanceMode === PerformanceModes.BASIC) {
-        this.currentPerformanceMode = PerformanceModes.STANDARD;
-      }
-      this.autoModeEnabled = false;
-      
-      this.notifyProfileUpdateListeners();
-      
-      console.log('✅ Switched to optimized mode');
-      return { success: true, mode: 'optimized' };
-    } catch (error) {
-      console.error('❌ Error switching to optimized mode:', error);
-      throw error;
-    }
-  }
-
-  async enableAutoMode() {
-    try {
-      console.log('🤖 Enabling automatic mode selection...');
-      this.autoModeEnabled = true;
-      
-      // Re-evaluate optimal settings
-      await this.updateSystemProfile(true);
-      
-      console.log(`✅ Auto mode enabled - Selected: ${this.currentStreamingType}`);
-      return { success: true, mode: this.currentStreamingType };
-    } catch (error) {
-      console.error('❌ Error enabling auto mode:', error);
-      throw error;
-    }
-  }
-
-  // Profile update listeners
-  addProfileUpdateListener(listener) {
-    this.profileUpdateListeners.add(listener);
-    return () => this.profileUpdateListeners.delete(listener);
-  }
-
-  notifyProfileUpdateListeners() {
-    this.profileUpdateListeners.forEach(listener => {
-      try {
-        listener({
-          profile: this.systemProfile,
-          performanceMode: this.currentPerformanceMode,
-          streamingType: this.currentStreamingType,
-          capabilities: this.systemCapabilities
-        });
-      } catch (error) {
-        console.error('Error in profile update listener:', error);
-      }
-    });
-  }
-
-
-  async startBasicDetectionPolling(cameraId, targetLabel) {
-    const pollInterval = setInterval(async () => {
-      if (this.state === DetectionStates.SHUTTING_DOWN) {
-        clearInterval(pollInterval);
-        return;
-      }
-
-      try {
-        // Perform detection on single frame
-        const response = await api.post(`/api/detection/basic/detect/${cameraId}`, {
-          target_label: targetLabel,
-          quality: 85
-        });
-
-        if (response.data.success) {
-          const detectionData = response.data.data;
-          const streamKey = `basic_${cameraId}_${targetLabel}`;
-          
-          // Update detection stats
-          const currentStats = this.detectionStats.get(streamKey) || {};
-          const updatedStats = {
-            ...currentStats,
-            objectDetected: detectionData.target_detected,
-            detectionCount: detectionData.target_detected ? (currentStats.detectionCount || 0) + 1 : (currentStats.detectionCount || 0),
-            lastDetectionTime: detectionData.target_detected ? Date.now() : currentStats.lastDetectionTime,
-            avgProcessingTime: detectionData.processing_time_ms,
-            confidence: detectionData.confidence
-          };
-
-          this.detectionStats.set(streamKey, updatedStats);
-          this.notifyStatsListeners(cameraId, updatedStats);
-        }
-      } catch (error) {
-        if (this.state !== DetectionStates.SHUTTING_DOWN) {
-          console.debug("Error in basic detection polling:", error);
-        }
-      }
-    }, 2000); // Poll every 2 seconds for basic mode
-
-    // Store interval for cleanup
-    if (!this.eventListeners.has(cameraId)) {
-      this.eventListeners.set(cameraId, { pollInterval, listeners: [] });
-    } else {
-      this.eventListeners.get(cameraId).pollInterval = pollInterval;
-    }
-  }
-
-
-
-  // ===================
-  // EXISTING METHODS (keeping all original functionality)
-  // ===================
-
-  // State management methods
-  setState(newState, reason = '') {
-    const oldState = this.state;
-    this.state = newState;
-    console.log(`🔄 State changed: ${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
-    
-    // Reset health check flags on state transitions
-    if (newState === DetectionStates.INITIALIZING) {
-      this.hasPerformedInitialHealthCheck = false;
-      this.hasPerformedPostShutdownCheck = false;
-    } else if (newState === DetectionStates.READY && oldState === DetectionStates.SHUTTING_DOWN) {
-      this.hasPerformedPostShutdownCheck = false;
-    }
-    
-    // Notify all listeners
-    this.stateChangeListeners.forEach(listener => {
-      try {
-        listener(newState, oldState);
-      } catch (error) {
-        console.error('Error in state change listener:', error);
-      }
-    });
-  }
-
-  getState() {
-    return this.state;
-  }
-
-  addStateChangeListener(listener) {
-    this.stateChangeListeners.add(listener);
-    return () => this.stateChangeListeners.delete(listener);
-  }
-
-  canInitialize() {
-    return this.state === DetectionStates.INITIALIZING;
-  }
-
-  canStart() {
-    return this.state === DetectionStates.READY;
-  }
-
-  canStop() {
-    return this.state === DetectionStates.RUNNING;
-  }
-
-  canShutdown() {
-    return [DetectionStates.READY, DetectionStates.RUNNING].includes(this.state);
-  }
-
-  isOperational() {
-    return [DetectionStates.READY, DetectionStates.RUNNING].includes(this.state);
-  }
-
-  resetToInitializing(reason = 'Manual reset') {
-    this.setState(DetectionStates.INITIALIZING, reason);
-    this.isModelLoaded = false;
-    this.initializationPromise = null;
-    this.lastHealthCheck = null;
-    this.healthCheckInProgress = false;
-    this.hasPerformedInitialHealthCheck = false;
-    this.hasPerformedPostShutdownCheck = false;
-    console.log('🔄 Detection service reset to initializing state');
-  }
-
-  shouldSkipHealthCheck(isInitialCheck = false, isPostShutdownCheck = false) {
-    if (isInitialCheck && !this.hasPerformedInitialHealthCheck) {
-      console.log('🩺 Allowing initial health check during initialization');
-      return false;
-    }
-
-    if (isPostShutdownCheck && !this.hasPerformedPostShutdownCheck) {
-      console.log('🩺 Allowing post-shutdown health check');
-      return false;
-    }
-
-    if (this.state === DetectionStates.SHUTTING_DOWN) {
-      console.log('⏭️ Skipping health check - system is shutting down');
-      return true;
-    }
-
-    if (this.healthCheckInProgress) {
-      console.log('⏭️ Skipping health check - already in progress');
-      return true;
-    }
-
-    if (this.lastHealthCheck && (Date.now() - this.lastHealthCheck) < this.HEALTH_CHECK_COOLDOWN) {
-      console.log('⏭️ Skipping health check - too soon since last check');
-      return true;
-    }
-
-    return false;
-  }
-
-  async ensureInitialized() {
-    if (this.isOperational() && this.isModelLoaded) {
-      return { success: true, message: 'Already initialized', state: this.state };
-    }
-
-    if (this.state === DetectionStates.SHUTTING_DOWN) {
-      console.log('⏳ Waiting for shutdown to complete before initializing...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      this.resetToInitializing('Post-shutdown reset');
-    }
-
-    if (this.state !== DetectionStates.INITIALIZING) {
-      this.resetToInitializing('Ensure initialization');
-    }
-
-    if (this.initializationPromise) {
-      try {
-        console.log('⏳ Waiting for existing initialization to complete...');
-        return await Promise.race([
-          this.initializationPromise,
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Initialization timeout')), this.INITIALIZATION_TIMEOUT)
-          )
-        ]);
-      } catch (error) {
-        console.error('❌ Existing initialization failed or timed out:', error.message);
-        this.resetToInitializing('Failed initialization cleanup');
-        throw error;
-      }
-    }
-
-    this.initializationPromise = this.initializeProcessor();
-    return await this.initializationPromise;
-  }
-
-
 
   // Enhanced status methods
   isReady() {
