@@ -512,10 +512,7 @@ export default function AppDetection() {
       return;
     }
     
-    if (!detectionService.canStart()) {
-      alert(`Cannot start detection. Current state: ${detectionState}. System must be READY.`);
-      return;
-    }
+
     
     // Perform health check before starting detection if not done recently
     const timeSinceLastCheck = lastHealthCheck.current ? Date.now() - lastHealthCheck.current : Infinity;
@@ -826,7 +823,7 @@ export default function AppDetection() {
               isDetecting={isDetecting}
               // onStartDetection={handleStartDetection}
               // onStopDetection={handleStopDetection}
-              isDetectionActive={detectionState === DetectionStates.RUNNING}
+              // isDetectionActive={detectionState === DetectionStates.RUNNING}
               isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
               systemHealth={systemHealth}
               detectionOptions={detectionOptions}

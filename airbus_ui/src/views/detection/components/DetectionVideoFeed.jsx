@@ -440,21 +440,24 @@ const DetectionVideoFeed = ({
       return;
     }
 
-    const currentState = detectionService.getState();
-    console.log(`🎯 VideoFeed: Attempting to start detection. Current state: ${currentState}, Mode: ${currentMode}`);
+    console.log(`🎯 VideoFeed: Attempting to start detection. Current state: ${detectionState}, Mode: ${currentMode}`);
 
-    if (currentState === DetectionStates.INITIALIZING) {
+    // FIXED: Check the CURRENT state at the time of validation, not after service calls
+    const currentDetectionState = detectionService.getState();
+    
+    if (currentDetectionState === DetectionStates.INITIALIZING) {
       setComponentError("System is still initializing. Please wait...");
       return;
     }
 
-    if (currentState === DetectionStates.SHUTTING_DOWN) {
+    if (currentDetectionState === DetectionStates.SHUTTING_DOWN) {
       setComponentError("System is shutting down. Please wait for it to complete.");
       return;
     }
 
-    if (!detectionService.canStart()) {
-      setComponentError(`Cannot start detection. Current state: ${currentState}. System must be READY.`);
+    // FIXED: Only check if we can start BEFORE calling the service
+    if (currentDetectionState !== DetectionStates.READY) {
+      setComponentError(`Cannot start detection. Current state: ${currentDetectionState}. System must be READY.`);
       return;
     }
 
@@ -921,18 +924,6 @@ const DetectionVideoFeed = ({
               >
                 {onDemandDetecting ? 'Detecting...' : 'Detect Now'}
               </Button>
-
-              {/* Auto-Unfreeze Detection Button
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<AutoMode />}
-                onClick={() => handleOnDemandDetection({ autoUnfreeze: true, unfreezeDelay: 2.0 })}
-                disabled={onDemandDetecting || detectionInProgress}
-                color="secondary"
-              >
-                Detect & Unfreeze
-              </Button> */}
 
               {/* Freeze/Unfreeze Controls */}
               <ButtonGroup size="small" variant="outlined">

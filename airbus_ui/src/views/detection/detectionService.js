@@ -425,7 +425,8 @@ class DetectionService {
       const { streamQuality = 85 } = options;
       console.log(`📺 Starting basic stream for camera ${cameraId}`);
 
-      if (!this.canStart()) {
+      // Fix: Use explicit state check instead of canStart()
+      if (this.state !== DetectionStates.READY) {
         throw new Error(`Cannot start stream in state: ${this.state}. Current state must be READY.`);
       }
 
@@ -1043,7 +1044,8 @@ class DetectionService {
     try {
       console.log(`🎯 Starting optimized detection feed for camera ${cameraId} with target: ${targetLabel}`);
 
-      if (!this.canStart()) {
+      // Fix: Use explicit state check instead of canStart()
+      if (this.state !== DetectionStates.READY) {
         throw new Error(`Cannot start detection in state: ${this.state}. Current state must be READY.`);
       }
 
@@ -1735,9 +1737,10 @@ class DetectionService {
   }
 
   canStart() {
-    return this.state === DetectionStates.READY;
+    const canStart = this.state === DetectionStates.READY;
+    console.log(`🔍 DetectionService.canStart(): state=${this.state}, canStart=${canStart}`);
+    return canStart;
   }
-
   canStop() {
     return this.state === DetectionStates.RUNNING;
   }

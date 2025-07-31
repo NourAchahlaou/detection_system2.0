@@ -109,11 +109,7 @@ const LiveDetectionView = ({
         }}
       />
       
-      {/* Enhanced Status Indicator */}
-      <StatusIndicator data-active={isStreamActive && streamStatus.isConnected}>
-        <FiberManualRecord sx={{ fontSize: 8 }} />
-        {streamStatus.isConnected ? 'OPTIMIZED DETECTION' : 'CONNECTION LOST'}
-      </StatusIndicator>
+
       
       {/* Primary Detection Stats */}
       <Box
