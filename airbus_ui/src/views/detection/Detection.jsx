@@ -1,4 +1,4 @@
-// pages/AppDetection.jsx - Enhanced with adaptive system integration
+// pages/AppDetection.jsx - Enhanced with Basic Mode Controls in System Performance Panel
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -12,6 +12,7 @@ import {
   Chip,
   Divider,
   Button,
+  ButtonGroup,
   IconButton,
   Tooltip
 } from '@mui/material';
@@ -20,9 +21,10 @@ import {
   Speed, 
   Computer, 
   Smartphone,
-  AutoMode,
-  Settings,
-  Info
+  CameraAlt,
+  AcUnit, // Freeze icon
+  Whatshot, // Unfreeze icon
+  PlayArrow
 } from '@mui/icons-material';
 
 import DetectionControls from "./components/DetectionControls";
@@ -38,13 +40,7 @@ const DetectionStates = {
   SHUTTING_DOWN: 'SHUTTING_DOWN'
 };
 
-// Performance modes
-const PerformanceModes = {
-  BASIC: 'basic',
-  STANDARD: 'standard', 
-  ENHANCED: 'enhanced',
-  HIGH_PERFORMANCE: 'high_performance'
-};
+
 
 export default function AppDetection() {
   // Core state management
@@ -71,6 +67,12 @@ export default function AppDetection() {
   const [systemCapabilities, setSystemCapabilities] = useState(null);
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
 
+  // Basic mode specific state (moved from DetectionVideoFeed)
+  const [isStreamFrozen, setIsStreamFrozen] = useState(false);
+  const [onDemandDetecting, setOnDemandDetecting] = useState(false);
+  const [lastDetectionResult, setLastDetectionResult] = useState(null);
+  const [detectionInProgress, setDetectionInProgress] = useState(false);
+
   // Performance and optimization state
   const [detectionOptions, setDetectionOptions] = useState({
     detectionFps: 5.0,
@@ -95,6 +97,7 @@ export default function AppDetection() {
   const lastHealthCheck = useRef(null);
   const stateChangeUnsubscribe = useRef(null);
   const profileUpdateUnsubscribe = useRef(null);
+  const freezeListenerUnsubscribe = useRef(null);
   const healthCheckPerformed = useRef({
     initial: false,
     postShutdown: false
@@ -161,6 +164,31 @@ export default function AppDetection() {
       }
     };
   }, []);
+
+  // Subscribe to freeze/unfreeze events for basic mode
+  useEffect(() => {
+    if (currentStreamingType !== 'basic' || !cameraId) return;
+    
+    const unsubscribe = detectionService.addFreezeListener((freezeEvent) => {
+      if (freezeEvent.cameraId !== parseInt(cameraId)) return;
+      
+      console.log(`🧊 Freeze event for camera ${cameraId}:`, freezeEvent);
+      setIsStreamFrozen(freezeEvent.status === 'frozen');
+    });
+    
+    freezeListenerUnsubscribe.current = unsubscribe;
+    
+    // Check initial freeze status
+    if (detectionService.isStreamFrozen && detectionService.isStreamFrozen(cameraId)) {
+      setIsStreamFrozen(true);
+    }
+    
+    return () => {
+      if (freezeListenerUnsubscribe.current) {
+        freezeListenerUnsubscribe.current();
+      }
+    };
+  }, [currentStreamingType, cameraId]);
 
   // Initialize system on component mount
   useEffect(() => {
@@ -311,6 +339,82 @@ export default function AppDetection() {
       setInitializationError(error.message);
     }
   }, []);
+
+  // Basic mode: On-demand detection
+  const handleOnDemandDetection = async (options = {}) => {
+    if (!cameraId || !targetLabel) {
+      alert("Camera ID and target label are required for detection.");
+      return;
+    }
+
+    if (detectionInProgress) {
+      console.log("🚫 Detection already in progress, skipping...");
+      return;
+    }
+
+    setOnDemandDetecting(true);
+    setDetectionInProgress(true);
+
+    try {
+      console.log(`🎯 Performing on-demand detection for camera ${cameraId}, target: ${targetLabel}`);
+      
+      const detectionResult = await detectionService.performOnDemandDetection(
+        parseInt(cameraId), 
+        targetLabel, 
+        {
+          quality: options.quality || 85,
+          autoUnfreeze: options.autoUnfreeze || false,
+          unfreezeDelay: options.unfreezeDelay || 2.0
+        }
+      );
+
+      setLastDetectionResult(detectionResult);
+      
+      // Update freeze status
+      if (detectionResult.streamFrozen && !detectionResult.autoUnfrozen) {
+        setIsStreamFrozen(true);
+      } else if (detectionResult.autoUnfrozen) {
+        setIsStreamFrozen(false);
+      }
+
+      console.log(`✅ On-demand detection completed. Detected: ${detectionResult.detected}, Confidence: ${detectionResult.confidence}`);
+
+    } catch (error) {
+      console.error("❌ On-demand detection failed:", error);
+      alert(`Detection failed: ${error.message}`);
+    } finally {
+      setOnDemandDetecting(false);
+      setDetectionInProgress(false);
+    }
+  };
+
+  // Basic mode: Freeze stream
+  const handleFreezeStream = async () => {
+    if (!cameraId) return;
+
+    try {
+      console.log(`🧊 Freezing stream for camera ${cameraId}`);
+      await detectionService.freezeStream(cameraId);
+      console.log(`✅ Stream frozen for camera ${cameraId}`);
+    } catch (error) {
+      console.error("❌ Error freezing stream:", error);
+      alert(`Failed to freeze stream: ${error.message}`);
+    }
+  };
+
+  // Basic mode: Unfreeze stream
+  const handleUnfreezeStream = async () => {
+    if (!cameraId) return;
+
+    try {
+      console.log(`🔥 Unfreezing stream for camera ${cameraId}`);
+      await detectionService.unfreezeStream(cameraId);
+      console.log(`✅ Stream unfrozen for camera ${cameraId}`);
+    } catch (error) {
+      console.error("❌ Error unfreezing stream:", error);
+      alert(`Failed to unfreeze stream: ${error.message}`);
+    }
+  };
 
   // Force refresh system profile
   const handleRefreshSystemProfile = useCallback(async () => {
@@ -512,8 +616,6 @@ export default function AppDetection() {
       return;
     }
     
-
-    
     // Perform health check before starting detection if not done recently
     const timeSinceLastCheck = lastHealthCheck.current ? Date.now() - lastHealthCheck.current : Infinity;
     if (timeSinceLastCheck > 30000 || !systemHealth.overall) { // 30 seconds
@@ -542,8 +644,11 @@ export default function AppDetection() {
   const handleStopDetection = useCallback(async () => {
     console.log(`Stopping ${currentStreamingType} detection...`);
     
-    // The state will be managed by the service itself
-    // Just trigger the stop, don't manage state here
+    // Reset basic mode states
+    setIsStreamFrozen(false);
+    setLastDetectionResult(null);
+    setOnDemandDetecting(false);
+    setDetectionInProgress(false);
     
     // Perform post-shutdown health check after shutdown to verify clean state
     setTimeout(async () => {
@@ -698,6 +803,8 @@ export default function AppDetection() {
 
   const stateInfo = getStateInfo();
   const modeInfo = getModeDisplayInfo();
+  const isBasicMode = currentStreamingType === 'basic';
+  const isDetectionRunning = detectionState === DetectionStates.RUNNING;
 
   return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
@@ -821,9 +928,6 @@ export default function AppDetection() {
               cameras={cameras}
               onDetectCameras={handleDetectCameras}
               isDetecting={isDetecting}
-              // onStartDetection={handleStartDetection}
-              // onStopDetection={handleStopDetection}
-              // isDetectionActive={detectionState === DetectionStates.RUNNING}
               isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
               systemHealth={systemHealth}
               detectionOptions={detectionOptions}
@@ -844,110 +948,290 @@ export default function AppDetection() {
           </Stack>
         </Grid>
 
-        {/* System Performance Panel */}
+        {/* System Performance Panel with Basic Mode Controls at Top */}
         <Grid size={{ xs: 12, md: 3 }}>
-          <Card sx={{ height: 'fit-content' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                System Performance
-              </Typography>
-              
-              <Stack spacing={2}>
-                {/* Detection State */}
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Detection State
+          <Stack spacing={2}>
+            {/* Basic Mode Detection Controls - NOW AT TOP */}
+            {isBasicMode && isDetectionRunning && (
+              <Card>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h6" gutterBottom color="primary">
+                    Basic Mode Controls
                   </Typography>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                    <Chip
-                      label={detectionState}
-                      color={stateInfo.color}
-                      size="small"
-                      icon={
-                        (detectionState === DetectionStates.INITIALIZING || detectionState === DetectionStates.SHUTTING_DOWN) ? 
-                        <CircularProgress size={16} /> : undefined
-                      }
-                    />
-                  </Stack>
-                  <Typography variant="caption" color="textSecondary">
-                    {stateInfo.message}
-                  </Typography>
-                </Box>
+                  
+                  {/* Stream Status */}
+                  <Box sx={{ mb: 2 }}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                      <Chip 
+                        label={isStreamFrozen ? "FROZEN" : "LIVE"} 
+                        size="small" 
+                        color={isStreamFrozen ? "warning" : "success"}
+                        icon={isStreamFrozen ? <AcUnit /> : <PlayArrow />}
+                      />
+                      <Typography variant="caption" color="textSecondary">
+                        Stream Status
+                      </Typography>
+                    </Stack>
+                  </Box>
 
-                {/* System Health */}
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    System Health
-                  </Typography>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                    <Chip
-                      label={
-                        detectionState === DetectionStates.INITIALIZING ? "Initializing" : 
-                        detectionState === DetectionStates.SHUTTING_DOWN ? "Shutting Down" :
-                        systemHealth.overall ? "Healthy" : "Issues Detected"
-                      }
-                      color={
-                        detectionState === DetectionStates.INITIALIZING ? "warning" :
-                        detectionState === DetectionStates.SHUTTING_DOWN ? "info" :
-                        systemHealth.overall ? "success" : "error"
-                      }
-                      size="small"
-                    />
+                  {/* Control Buttons */}
+                  <Stack spacing={1}>
+                    {/* On-Demand Detection Button */}
                     <Button
+                      variant="contained"
                       size="small"
-                      variant="text"
-                      onClick={handleManualHealthCheck}
-                      disabled={detectionState !== DetectionStates.READY}
-                      sx={{ fontSize: '0.7rem', minWidth: 'auto', p: 0.5 }}
+                      fullWidth
+                      startIcon={<CameraAlt />}
+                      onClick={() => handleOnDemandDetection({ autoUnfreeze: false })}
+                      disabled={onDemandDetecting || detectionInProgress || !targetLabel}
+                      color="primary"
                     >
-                      Check Now
+                      {onDemandDetecting ? 'Detecting...' : 'Detect Now'}
                     </Button>
+
+                    {/* Freeze/Unfreeze Controls */}
+                    <ButtonGroup size="small" variant="outlined" fullWidth>
+                      <Button
+                        onClick={handleFreezeStream}
+                        disabled={isStreamFrozen || onDemandDetecting}
+                        startIcon={<AcUnit />}
+                        sx={{ flex: 1 }}
+                      >
+                        Freeze
+                      </Button>
+                      <Button
+                        onClick={handleUnfreezeStream}
+                        disabled={!isStreamFrozen || onDemandDetecting}
+                        startIcon={<Whatshot />}
+                        sx={{ flex: 1 }}
+                      >
+                        Unfreeze
+                      </Button>
+                    </ButtonGroup>
                   </Stack>
-                  <Typography variant="caption" color="textSecondary">
-                    Last checked: {getHealthCheckAge()}
-                  </Typography>
-                </Box>
 
-                <Divider />
+                  {/* Last Detection Result */}
+                  {lastDetectionResult && (
+                    <Box sx={{ mt: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Last Detection Result
+                      </Typography>
+                      <Stack spacing={0.5}>
+                        <Typography variant="body2" color={lastDetectionResult.detected ? 'success.main' : 'text.secondary'}>
+                          {lastDetectionResult.detected ? '✅ TARGET FOUND' : '❌ NOT FOUND'}
+                        </Typography>
+                        {lastDetectionResult.confidence && (
+                          <Typography variant="caption" color="textSecondary">
+                            Confidence: {(lastDetectionResult.confidence * 100).toFixed(1)}%
+                          </Typography>
+                        )}
+                        <Typography variant="caption" color="textSecondary">
+                          Processing Time: {lastDetectionResult.processingTime}ms
+                        </Typography>
+                        {lastDetectionResult.detected && (
+                          <Typography variant="caption" color="success.main">
+                            Target "{targetLabel}" detected successfully!
+                          </Typography>
+                        )}
+                      </Stack>
+                    </Box>
+                  )}
 
+                  {/* Stream Frozen Alert */}
+                  {isStreamFrozen && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      <Typography variant="body2">
+                        Stream is frozen for detection analysis. Use controls above to unfreeze or perform detection.
+                      </Typography>
+                    </Alert>
+                  )}
 
-                {/* Current Settings */}
-                <Divider />
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Detection Settings
-                  </Typography>
-                  <Stack spacing={0.5} sx={{ mt: 1 }}>
-                    <Typography variant="caption">
-                      FPS: {detectionOptions.detectionFps}
-                    </Typography>
-                    <Typography variant="caption">
-                      Quality: {detectionOptions.streamQuality}%
-                    </Typography>
-                    <Typography variant="caption">
-                      Priority: {detectionOptions.priority}
-                    </Typography>
-                  </Stack>
-                </Box>
+                  {/* On-Demand Detection in Progress */}
+                  {onDemandDetecting && (
+                    <Alert 
+                      severity="info" 
+                      sx={{ mt: 2 }}
+                      icon={<CircularProgress size={16} />}
+                    >
+                      <Typography variant="body2">
+                        Performing on-demand detection...
+                      </Typography>
+                    </Alert>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-                {/* Health Check Status */}
-                <Divider />
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Health Check Status
-                  </Typography>
-                  <Stack spacing={0.5} sx={{ mt: 1 }}>
-                    <Typography variant="caption">
-                      Initial: {healthCheckPerformed.current.initial ? '✅ Done' : '⏳ Pending'}
+            {/* System Performance Panel */}
+            <Card sx={{ height: 'fit-content' }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  System Performance
+                </Typography>
+                
+                <Stack spacing={2}>
+                  {/* Detection State */}
+                  <Box>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      Detection State
                     </Typography>
-                    <Typography variant="caption">
-                      Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                      <Chip
+                        label={detectionState}
+                        color={stateInfo.color}
+                        size="small"
+                        icon={
+                          (detectionState === DetectionStates.INITIALIZING || detectionState === DetectionStates.SHUTTING_DOWN) ? 
+                          <CircularProgress size={16} /> : undefined
+                        }
+                      />
+                    </Stack>
+                    <Typography variant="caption" color="textSecondary">
+                      {stateInfo.message}
                     </Typography>
-                  </Stack>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
+                  </Box>
+
+                  {/* System Health */}
+                  <Box>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      System Health
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                      <Chip
+                        label={
+                          detectionState === DetectionStates.INITIALIZING ? "Initializing" : 
+                          detectionState === DetectionStates.SHUTTING_DOWN ? "Shutting Down" :
+                          systemHealth.overall ? "Healthy" : "Issues Detected"
+                        }
+                        color={
+                          detectionState === DetectionStates.INITIALIZING ? "warning" :
+                          detectionState === DetectionStates.SHUTTING_DOWN ? "info" :
+                          systemHealth.overall ? "success" : "error"
+                        }
+                        size="small"
+                      />
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={handleManualHealthCheck}
+                        disabled={detectionState !== DetectionStates.READY}
+                        sx={{ fontSize: '0.7rem', minWidth: 'auto', p: 0.5 }}
+                      >
+                        Check Now
+                      </Button>
+                    </Stack>
+                    <Typography variant="caption" color="textSecondary">
+                      Last checked: {getHealthCheckAge()}
+                    </Typography>
+                  </Box>
+
+                  <Divider />
+
+                  {/* Global Stats */}
+                  <Box>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      Global Statistics
+                    </Typography>
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      <Typography variant="caption">
+                        Active Streams: {globalStats.totalStreams}
+                      </Typography>
+                      <Typography variant="caption">
+                        Total Detections: {globalStats.totalDetections}
+                      </Typography>
+                      <Typography variant="caption">
+                        Avg Processing: {globalStats.avgProcessingTime}ms
+                      </Typography>
+                      <Typography variant="caption">
+                        System Load: {globalStats.systemLoad}%
+                      </Typography>
+                      <Typography variant="caption">
+                        Memory Usage: {globalStats.memoryUsage}MB
+                      </Typography>
+                    </Stack>
+                  </Box>
+
+                  {/* Current Settings */}
+                  <Divider />
+                  <Box>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      Detection Settings
+                    </Typography>
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      <Typography variant="caption">
+                        FPS: {detectionOptions.detectionFps}
+                      </Typography>
+                      <Typography variant="caption">
+                        Quality: {detectionOptions.streamQuality}%
+                      </Typography>
+                      <Typography variant="caption">
+                        Priority: {detectionOptions.priority}
+                      </Typography>
+                    </Stack>
+                  </Box>
+
+                  {/* Health Check Status */}
+                  <Divider />
+                  <Box>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      Health Check Status
+                    </Typography>
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      <Typography variant="caption">
+                        Initial: {healthCheckPerformed.current.initial ? '✅ Done' : '⏳ Pending'}
+                      </Typography>
+                      <Typography variant="caption">
+                        Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
+                      </Typography>
+                    </Stack>
+                  </Box>
+
+                  {/* Manual Mode Controls */}
+                  {detectionState === DetectionStates.READY && !autoModeEnabled && (
+                    <>
+                      <Divider />
+                      <Box>
+                        <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                          Manual Mode Controls
+                        </Typography>
+                        <Stack spacing={1}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={handleSwitchToBasicMode}
+                            disabled={isBasicMode}
+                            color="warning"
+                            fullWidth
+                          >
+                            Switch to Basic
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={handleSwitchToOptimizedMode}
+                            disabled={!isBasicMode}
+                            color="success"
+                            fullWidth
+                          >
+                            Switch to Optimized
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={handleEnableAutoMode}
+                            color="primary"
+                            fullWidth
+                          >
+                            Enable Auto Mode
+                          </Button>
+                        </Stack>
+                      </Box>
+                    </>
+                  )}
+                </Stack>
+              </CardContent>
+            </Card>
+          </Stack>
         </Grid>
       </Grid>
     </Box>

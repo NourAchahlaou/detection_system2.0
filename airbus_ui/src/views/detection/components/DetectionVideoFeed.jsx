@@ -5,20 +5,10 @@ import {
   Alert, 
   CircularProgress, 
   Typography, 
-  Chip, 
-  Button,
-  ButtonGroup,
-  Card,
-  CardContent,
-  IconButton,
-  Tooltip
+  Button
+
 } from "@mui/material";
-import { 
-  PlayArrow, 
-  CameraAlt, 
-  AcUnit, // Freeze icon
-  Whatshot, // Unfreeze icon
-} from "@mui/icons-material";
+
 import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
 import LiveDetectionView from "../LiveDetectionView";
@@ -78,8 +68,8 @@ const DetectionVideoFeed = ({
   const [isStreamFrozen, setIsStreamFrozen] = useState(false);
   const [onDemandDetecting, setOnDemandDetecting] = useState(false);
   const [lastDetectionResult, setLastDetectionResult] = useState(null);
-  const [freezeListenerActive, setFreezeListenerActive] = useState(false);
-  const [detectionInProgress, setDetectionInProgress] = useState(false);
+  
+
 
   
   // Health check tracking
@@ -234,7 +224,7 @@ const DetectionVideoFeed = ({
     });
     
     freezeListenerUnsubscribe.current = unsubscribe;
-    setFreezeListenerActive(true);
+
     
     // Check initial freeze status
     if (detectionService.isStreamFrozen(cameraId)) {
@@ -246,7 +236,7 @@ const DetectionVideoFeed = ({
       if (freezeListenerUnsubscribe.current) {
         freezeListenerUnsubscribe.current();
       }
-      setFreezeListenerActive(false);
+  
     };
   }, [isBasicMode, cameraId]);
 
@@ -582,105 +572,6 @@ const DetectionVideoFeed = ({
     }
   };
 
-  // Basic mode: On-demand detection
-  const handleOnDemandDetection = async (options = {}) => {
-    if (!cameraId || !targetLabel) {
-      setComponentError("Camera ID and target label are required for detection.");
-      return;
-    }
-
-    if (detectionInProgress) {
-      console.log("🚫 Detection already in progress, skipping...");
-      return;
-    }
-
-    setOnDemandDetecting(true);
-    setDetectionInProgress(true);
-    setComponentError(null);
-
-    try {
-      console.log(`🎯 VideoFeed: Performing on-demand detection for camera ${cameraId}, target: ${targetLabel}`);
-      
-      const detectionResult = await detectionService.performOnDemandDetection(
-        parseInt(cameraId), 
-        targetLabel, 
-        {
-          quality: options.quality || 85,
-          autoUnfreeze: options.autoUnfreeze || false,
-          unfreezeDelay: options.unfreezeDelay || 2.0
-        }
-      );
-
-      if (!mountedRef.current) return;
-
-      setLastDetectionResult(detectionResult);
-      
-      // Update detection stats
-      setDetectionStats(prev => ({
-        ...prev,
-        objectDetected: detectionResult.detected,
-        detectionCount: detectionResult.detected ? prev.detectionCount + 1 : prev.detectionCount,
-        lastDetectionTime: detectionResult.detected ? Date.now() : prev.lastDetectionTime,
-        avgProcessingTime: detectionResult.processingTime,
-        isFrozen: detectionResult.streamFrozen && !detectionResult.autoUnfrozen
-      }));
-
-      // Update freeze status
-      if (detectionResult.streamFrozen && !detectionResult.autoUnfrozen) {
-        setIsStreamFrozen(true);
-      } else if (detectionResult.autoUnfrozen) {
-        setIsStreamFrozen(false);
-      }
-
-      console.log(`✅ VideoFeed: On-demand detection completed. Detected: ${detectionResult.detected}, Confidence: ${detectionResult.confidence}`);
-
-    } catch (error) {
-      console.error("❌ VideoFeed: On-demand detection failed:", error);
-      if (mountedRef.current) {
-        setComponentError(`Detection failed: ${error.message}`);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setOnDemandDetecting(false);
-        setDetectionInProgress(false);
-      }
-    }
-  };
-
-  // Basic mode: Freeze stream
-  const handleFreezeStream = async () => {
-    if (!cameraId) return;
-
-    try {
-      setComponentError(null);
-      console.log(`🧊 VideoFeed: Freezing stream for camera ${cameraId}`);
-      
-      await detectionService.freezeStream(cameraId);
-      console.log(`✅ VideoFeed: Stream frozen for camera ${cameraId}`);
-      
-    } catch (error) {
-      console.error("❌ VideoFeed: Error freezing stream:", error);
-      setComponentError(`Failed to freeze stream: ${error.message}`);
-    }
-  };
-
-  // Basic mode: Unfreeze stream
-  const handleUnfreezeStream = async () => {
-    if (!cameraId) return;
-
-    try {
-      setComponentError(null);
-      console.log(`🔥 VideoFeed: Unfreezing stream for camera ${cameraId}`);
-      
-      await detectionService.unfreezeStream(cameraId);
-      console.log(`✅ VideoFeed: Stream unfrozen for camera ${cameraId}`);
-      
-    } catch (error) {
-      console.error("❌ VideoFeed: Error unfreezing stream:", error);
-      setComponentError(`Failed to unfreeze stream: ${error.message}`);
-    }
-  };
-
   // Manual mode switching functions
   const handleSwitchToBasic = useCallback(async () => {
     if (detectionState === DetectionStates.RUNNING) {
@@ -783,28 +674,7 @@ const DetectionVideoFeed = ({
   };
 
   // Get health check status for display
-  const getHealthCheckStatusText = () => {
-    const serviceStatus = detectionService.getDetailedStatus();
-    
-    if (detectionState === DetectionStates.INITIALIZING) {
-      return "Health checks pending initialization";
-    }
-    
-    if (detectionState === DetectionStates.SHUTTING_DOWN) {
-      return "Health checks paused during shutdown";
-    }
-    
-    const initialDone = healthCheckStatus.initial || serviceStatus.hasPerformedInitialHealthCheck;
-    const postShutdownDone = healthCheckStatus.postShutdown || serviceStatus.hasPerformedPostShutdownCheck;
-    
-    if (initialDone && postShutdownDone) {
-      return "All health checks completed";
-    } else if (initialDone) {
-      return "Initial check done, awaiting post-shutdown";
-    } else {
-      return "Health checks pending";
-    }
-  };
+
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -901,75 +771,7 @@ const DetectionVideoFeed = ({
         </Alert>
       )}
 
-      {/* Basic Mode Detection Controls */}
-      {isBasicMode && isDetectionActive && detectionState === DetectionStates.RUNNING && (
-        <Card sx={{ mb: 2, width: '100%' }}>
-          <CardContent sx={{ py: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Basic Mode Controls
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* On-Demand Detection Button */}
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<CameraAlt />}
-                onClick={() => handleOnDemandDetection({ autoUnfreeze: false })}
-                disabled={onDemandDetecting || detectionInProgress}
-                color="primary"
-              >
-                {onDemandDetecting ? 'Detecting...' : 'Detect Now'}
-              </Button>
 
-              {/* Freeze/Unfreeze Controls */}
-              <ButtonGroup size="small" variant="outlined">
-                <Tooltip title="Freeze stream">
-                  <IconButton
-                    onClick={handleFreezeStream}
-                    disabled={isStreamFrozen || onDemandDetecting}
-                    color={isStreamFrozen ? "default" : "info"}
-                  >
-                    <AcUnit />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Unfreeze stream">
-                  <IconButton
-                    onClick={handleUnfreezeStream}
-                    disabled={!isStreamFrozen || onDemandDetecting}
-                    color={!isStreamFrozen ? "default" : "warning"}
-                  >
-                    <Whatshot />
-                  </IconButton>
-                </Tooltip>
-              </ButtonGroup>
-
-              {/* Stream Status Indicator */}
-              <Chip 
-                label={isStreamFrozen ? "FROZEN" : "LIVE"} 
-                size="small" 
-                color={isStreamFrozen ? "warning" : "success"}
-                icon={isStreamFrozen ? <AcUnit /> : <PlayArrow />}
-              />
-            </Box>
-
-            {/* Last Detection Result */}
-            {lastDetectionResult && (
-              <Box sx={{ mt: 1, p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
-                <Typography variant="caption" display="block">
-                  Last Detection: {lastDetectionResult.detected ? '✅ FOUND' : '❌ NOT FOUND'} 
-                  {lastDetectionResult.confidence && ` (${(lastDetectionResult.confidence * 100).toFixed(1)}%)`}
-                  {` - ${lastDetectionResult.processingTime}ms`}
-                </Typography>
-                {lastDetectionResult.detected && (
-                  <Typography variant="caption" color="success.main" display="block">
-                    Target "{targetLabel}" detected successfully!
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       <VideoCard
         cameraActive={isDetectionActive && detectionState === DetectionStates.RUNNING}
