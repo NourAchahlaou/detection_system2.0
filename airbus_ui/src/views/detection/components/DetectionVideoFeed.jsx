@@ -1018,107 +1018,7 @@ const DetectionVideoFeed = ({
         )}
       </VideoCard>
 
-      {/* System Status Info with Basic Mode Features */}
-      <Box sx={{ mt: 1, width: '100%', display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Chip 
-          label={`State: ${detectionState}`} 
-          size="small" 
-          color={
-            detectionState === DetectionStates.READY ? 'success' :
-            detectionState === DetectionStates.RUNNING ? 'primary' :
-            detectionState === DetectionStates.INITIALIZING ? 'warning' :
-            'error'
-          }
-        />
-        
-        <Chip 
-          label={`Model: ${isModelLoaded ? 'Loaded' : 'Not Loaded'}`} 
-          size="small" 
-          color={isModelLoaded ? 'success' : 'warning'}
-        />
 
-        {/* Current Mode Display */}
-        <Chip 
-          label={`Mode: ${currentMode.toUpperCase()}`} 
-          size="small" 
-          color={isBasicMode ? 'warning' : 'success'}
-        />
-
-        {/* Auto Mode Status */}
-        <Chip 
-          label={detectionService.autoModeEnabled ? 'Auto Mode: ON' : 'Auto Mode: OFF'} 
-          size="small" 
-          color={detectionService.autoModeEnabled ? 'success' : 'default'}
-        />
-
-        {/* Basic Mode Specific Status */}
-        {isBasicMode && (
-          <>
-            <Chip 
-              label={`Stream: ${isStreamFrozen ? 'FROZEN' : 'LIVE'}`} 
-              size="small" 
-              color={isStreamFrozen ? 'warning' : 'info'}
-              icon={isStreamFrozen ? <AcUnit /> : <PlayArrow />}
-            />
-            
-            {freezeListenerActive && (
-              <Chip 
-                label="Freeze Listener: Active" 
-                size="small" 
-                color="info"
-              />
-            )}
-          </>
-        )}
-
-        {/* System Performance Score */}
-        {systemProfile && (
-          <Chip 
-            label={`Score: ${systemProfile.performance_score}/100`} 
-            size="small" 
-            color={
-              systemProfile.performance_score >= 70 ? 'success' :
-              systemProfile.performance_score >= 40 ? 'warning' : 'error'
-            }
-          />
-        )}
-        
-        {detectionState === DetectionStates.RUNNING && (
-          <Chip 
-            label={`Active Streams: ${detectionService.currentStreams.size}`} 
-            size="small" 
-            color="info"
-          />
-        )}
-
-        {/* Detection Stats for Basic Mode */}
-        {isBasicMode && detectionStats.detectionCount > 0 && (
-          <Chip 
-            label={`Detections: ${detectionStats.detectionCount}`} 
-            size="small" 
-            color="success"
-          />
-        )}
-        
-        {initializationAttempts > 0 && detectionState === DetectionStates.INITIALIZING && (
-          <Chip 
-            label={`Attempts: ${initializationAttempts}`} 
-            size="small" 
-            color="warning"
-          />
-        )}
-
-        {/* Health Check Status */}
-        <Chip 
-          label={getHealthCheckStatusText()} 
-          size="small" 
-          color={
-            (healthCheckStatus.initial || detectionService.getDetailedStatus().hasPerformedInitialHealthCheck) &&
-            (healthCheckStatus.postShutdown || detectionService.getDetailedStatus().hasPerformedPostShutdownCheck)
-              ? 'success' : 'info'
-          }
-        />
-      </Box>
 
       {/* Manual Mode Control Buttons */}
       {detectionState === DetectionStates.READY && !detectionService.autoModeEnabled && (
@@ -1153,17 +1053,7 @@ const DetectionVideoFeed = ({
         </Box>
       )}
 
-      {/* Basic Mode Instructions */}
-      {isBasicMode && detectionState === DetectionStates.READY && (
-        <Box sx={{ mt: 1, width: '100%' }}>
-          <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
-            <Typography variant="caption" display="block">
-              <strong>Basic Mode:</strong> Start stream first, then use "Detect Now" for on-demand detection.
-              Stream will freeze during detection - use controls to unfreeze or auto-unfreeze.
-            </Typography>
-          </Alert>
-        </Box>
-      )}
+
     </div>
   );
 };
