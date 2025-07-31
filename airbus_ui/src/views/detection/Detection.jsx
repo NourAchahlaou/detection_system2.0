@@ -31,7 +31,7 @@ import DetectionControls from "./components/DetectionControls";
 import DetectionVideoFeed from "./components/DetectionVideoFeed";
 import { cameraService } from "../captureImage/CameraService";
 import { detectionService } from "./service/DetectionService";
-
+import SystemPerformancePanel from "./components/SystemPerformancePanel";
 // Detection states from service
 const DetectionStates = {
   INITIALIZING: 'INITIALIZING',
@@ -1061,176 +1061,23 @@ export default function AppDetection() {
                 </CardContent>
               </Card>
             )}
+              {/* System Performance Panel - Collapsible Version */}
+              <SystemPerformancePanel
+                detectionState={detectionState}
+                systemHealth={systemHealth}
+                globalStats={globalStats}
+                detectionOptions={detectionOptions}
+                healthCheckPerformed={healthCheckPerformed}
+                autoModeEnabled={autoModeEnabled}
+                isBasicMode={isBasicMode}
+                getHealthCheckAge={getHealthCheckAge}
+                handleManualHealthCheck={handleManualHealthCheck}
+                handleSwitchToBasicMode={handleSwitchToBasicMode}
+                handleSwitchToOptimizedMode={handleSwitchToOptimizedMode}
+                handleEnableAutoMode={handleEnableAutoMode}
+                DetectionStates={DetectionStates}
+              />
 
-            {/* System Performance Panel */}
-            <Card sx={{ height: 'fit-content' }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  System Performance
-                </Typography>
-                
-                <Stack spacing={2}>
-                  {/* Detection State */}
-                  <Box>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Detection State
-                    </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                      <Chip
-                        label={detectionState}
-                        color={stateInfo.color}
-                        size="small"
-                        icon={
-                          (detectionState === DetectionStates.INITIALIZING || detectionState === DetectionStates.SHUTTING_DOWN) ? 
-                          <CircularProgress size={16} /> : undefined
-                        }
-                      />
-                    </Stack>
-                    <Typography variant="caption" color="textSecondary">
-                      {stateInfo.message}
-                    </Typography>
-                  </Box>
-
-                  {/* System Health */}
-                  <Box>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      System Health
-                    </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                      <Chip
-                        label={
-                          detectionState === DetectionStates.INITIALIZING ? "Initializing" : 
-                          detectionState === DetectionStates.SHUTTING_DOWN ? "Shutting Down" :
-                          systemHealth.overall ? "Healthy" : "Issues Detected"
-                        }
-                        color={
-                          detectionState === DetectionStates.INITIALIZING ? "warning" :
-                          detectionState === DetectionStates.SHUTTING_DOWN ? "info" :
-                          systemHealth.overall ? "success" : "error"
-                        }
-                        size="small"
-                      />
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={handleManualHealthCheck}
-                        disabled={detectionState !== DetectionStates.READY}
-                        sx={{ fontSize: '0.7rem', minWidth: 'auto', p: 0.5 }}
-                      >
-                        Check Now
-                      </Button>
-                    </Stack>
-                    <Typography variant="caption" color="textSecondary">
-                      Last checked: {getHealthCheckAge()}
-                    </Typography>
-                  </Box>
-
-                  <Divider />
-
-                  {/* Global Stats */}
-                  <Box>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Global Statistics
-                    </Typography>
-                    <Stack spacing={0.5} sx={{ mt: 1 }}>
-                      <Typography variant="caption">
-                        Active Streams: {globalStats.totalStreams}
-                      </Typography>
-                      <Typography variant="caption">
-                        Total Detections: {globalStats.totalDetections}
-                      </Typography>
-                      <Typography variant="caption">
-                        Avg Processing: {globalStats.avgProcessingTime}ms
-                      </Typography>
-                      <Typography variant="caption">
-                        System Load: {globalStats.systemLoad}%
-                      </Typography>
-                      <Typography variant="caption">
-                        Memory Usage: {globalStats.memoryUsage}MB
-                      </Typography>
-                    </Stack>
-                  </Box>
-
-                  {/* Current Settings */}
-                  <Divider />
-                  <Box>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Detection Settings
-                    </Typography>
-                    <Stack spacing={0.5} sx={{ mt: 1 }}>
-                      <Typography variant="caption">
-                        FPS: {detectionOptions.detectionFps}
-                      </Typography>
-                      <Typography variant="caption">
-                        Quality: {detectionOptions.streamQuality}%
-                      </Typography>
-                      <Typography variant="caption">
-                        Priority: {detectionOptions.priority}
-                      </Typography>
-                    </Stack>
-                  </Box>
-
-                  {/* Health Check Status */}
-                  <Divider />
-                  <Box>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Health Check Status
-                    </Typography>
-                    <Stack spacing={0.5} sx={{ mt: 1 }}>
-                      <Typography variant="caption">
-                        Initial: {healthCheckPerformed.current.initial ? '✅ Done' : '⏳ Pending'}
-                      </Typography>
-                      <Typography variant="caption">
-                        Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
-                      </Typography>
-                    </Stack>
-                  </Box>
-
-                  {/* Manual Mode Controls */}
-                  {detectionState === DetectionStates.READY && !autoModeEnabled && (
-                    <>
-                      <Divider />
-                      <Box>
-                        <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                          Manual Mode Controls
-                        </Typography>
-                        <Stack spacing={1}>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={handleSwitchToBasicMode}
-                            disabled={isBasicMode}
-                            color="warning"
-                            fullWidth
-                          >
-                            Switch to Basic
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={handleSwitchToOptimizedMode}
-                            disabled={!isBasicMode}
-                            color="success"
-                            fullWidth
-                          >
-                            Switch to Optimized
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={handleEnableAutoMode}
-                            color="primary"
-                            fullWidth
-                          >
-                            Enable Auto Mode
-                          </Button>
-                        </Stack>
-                      </Box>
-                    </>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
           </Stack>
         </Grid>
       </Grid>
