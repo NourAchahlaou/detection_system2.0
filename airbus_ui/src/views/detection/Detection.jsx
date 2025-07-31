@@ -28,7 +28,7 @@ import {
 import DetectionControls from "./components/DetectionControls";
 import DetectionVideoFeed from "./components/DetectionVideoFeed";
 import { cameraService } from "../captureImage/CameraService";
-import { detectionService } from "./detectionService";
+import { detectionService } from "./service/DetectionService";
 
 // Detection states from service
 const DetectionStates = {

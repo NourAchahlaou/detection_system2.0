@@ -15,18 +15,14 @@ import {
 } from "@mui/material";
 import { 
   PlayArrow, 
-  Pause, 
   CameraAlt, 
-  Refresh,
   AcUnit, // Freeze icon
   Whatshot, // Unfreeze icon
-  AutoMode,
-  Settings
 } from "@mui/icons-material";
 import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
 import LiveDetectionView from "../LiveDetectionView";
-import { detectionService } from "../detectionService";
+import { detectionService } from "../service/DetectionService";
 
 // Detection states from service
 const DetectionStates = {
@@ -84,7 +80,7 @@ const DetectionVideoFeed = ({
   const [lastDetectionResult, setLastDetectionResult] = useState(null);
   const [freezeListenerActive, setFreezeListenerActive] = useState(false);
   const [detectionInProgress, setDetectionInProgress] = useState(false);
-  const [batchDetectionMode, setBatchDetectionMode] = useState(false);
+
   
   // Health check tracking
   const [healthCheckStatus, setHealthCheckStatus] = useState({
