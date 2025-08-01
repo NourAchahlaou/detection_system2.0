@@ -1,4 +1,4 @@
-// System Performance Panel with Collapsible Sections
+// SystemPerformancePanel.jsx - Enhanced with Collapsible Panel Feature
 import React, { useState } from 'react';
 import {
   Card,
@@ -11,7 +11,9 @@ import {
   Divider,
   Collapse,
   IconButton,
-  CircularProgress
+  CircularProgress,
+  Slide,
+  Fade
 } from '@mui/material';
 import {
   ExpandMore,
@@ -20,7 +22,9 @@ import {
   Assessment,
   Settings,
   HealthAndSafety,
-  Tune
+  Tune,
+  ChevronLeft,
+  ChevronRight
 } from '@mui/icons-material';
 
 // Collapsible Section Component
@@ -77,7 +81,53 @@ const CollapsibleSection = ({
   );
 };
 
-// Updated System Performance Panel Component
+// Toggle Button Component
+const PanelToggleButton = ({ isOpen, onClick, isBasicMode, isDetectionRunning }) => {
+  return (
+    <Box
+      sx={{
+        position: 'fixed',
+        right: isOpen ? 320 : 0, // Adjust based on panel width
+        top: '50%',
+        transform: 'translateY(-50%)',
+        zIndex: 1300,
+        transition: 'right 0.3s ease-in-out'
+      }}
+    >
+      <IconButton
+        onClick={onClick}
+        sx={{
+          bgcolor: 'primary.main',
+          color: 'white',
+          width: 32,
+          height: 48,
+          borderRadius: '8px 0 0 8px',
+          '&:hover': {
+            bgcolor: 'primary.dark',
+          },
+          position: 'relative',
+          boxShadow: 2,
+          // Add notification dot for basic mode detection
+          '&::after': isBasicMode && isDetectionRunning ? {
+            content: '""',
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 8,
+            height: 8,
+            bgcolor: 'warning.main',
+            borderRadius: '50%',
+            border: '1px solid white'
+          } : {}
+        }}
+      >
+        {isOpen ? <ChevronRight fontSize="small" /> : <ChevronLeft fontSize="small" />}
+      </IconButton>
+    </Box>
+  );
+};
+
+// Updated System Performance Panel Component with Collapsible Feature
 const SystemPerformancePanel = ({
   detectionState,
   systemHealth,
@@ -91,8 +141,18 @@ const SystemPerformancePanel = ({
   handleSwitchToBasicMode,
   handleSwitchToOptimizedMode,
   handleEnableAutoMode,
-  DetectionStates
+  DetectionStates,
+  // New props for panel state
+  isPanelOpen = true,
+  onPanelToggle,
+  isDetectionRunning = false
 }) => {
+  const [internalPanelOpen, setInternalPanelOpen] = useState(true);
+  
+  // Use external state if provided, otherwise use internal state
+  const panelOpen = onPanelToggle ? isPanelOpen : internalPanelOpen;
+  const togglePanel = onPanelToggle || (() => setInternalPanelOpen(!internalPanelOpen));
+
   // Helper function to get state 
   // 
   
@@ -141,144 +201,196 @@ const SystemPerformancePanel = ({
   const stateInfo = getStateInfo();
 
   return (
-    <Card sx={{ height: 'fit-content' }}>
-      <CardContent sx={{ py: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          System Performance
-        </Typography>
-        
-        <Stack spacing={1}>
-          {/* Detection State - Always Visible */}
-          <CollapsibleSection
-            title="Detection State"
-            defaultExpanded={true}
-            icon={<Speed sx={{ fontSize: 16 }} />}
-            badge={detectionState}
-            badgeColor={stateInfo.color}
-          >
-            <Stack spacing={0.5}>
-              <Typography variant="caption" color="textSecondary">
-                {stateInfo.message}
-              </Typography>
-              <Typography variant="caption">
-                Status: {stateInfo.canOperate ? 'Operational' : 'Not Ready'}
-              </Typography>
-            </Stack>
-          </CollapsibleSection>
+    <>
+      {/* Toggle Button */}
+      <PanelToggleButton 
+        isOpen={panelOpen} 
+        onClick={togglePanel}
+        isBasicMode={isBasicMode}
+        isDetectionRunning={isDetectionRunning}
+      />
 
-          <Divider />
-
-          {/* System Health */}
-          <CollapsibleSection
-            title="System Health"
-            defaultExpanded={false}
-            icon={<HealthAndSafety sx={{ fontSize: 16 }} />}
-            badge={
-              detectionState === DetectionStates.INITIALIZING ? "Initializing" : 
-              detectionState === DetectionStates.SHUTTING_DOWN ? "Shutting Down" :
-              systemHealth.overall ? "Healthy" : "Issues"
-            }
-            badgeColor={
-              detectionState === DetectionStates.INITIALIZING ? "warning" :
-              detectionState === DetectionStates.SHUTTING_DOWN ? "info" :
-              systemHealth.overall ? "success" : "error"
-            }
-          >
+      {/* Sliding Panel */}
+      <Box
+        sx={{
+          position: 'fixed',
+          right: panelOpen ? 0 : -320,
+          top: 0,
+          width: 320,
+          height: '100vh',
+          zIndex: 1200,
+          transition: 'right 0.3s ease-in-out',
+          bgcolor: 'background.default',
+          borderLeft: panelOpen ? '1px solid' : 'none',
+          borderColor: 'divider',
+          boxShadow: panelOpen ? 3 : 0,
+          overflowY: 'auto'
+        }}
+      >
+        <Card sx={{ height: '100%', borderRadius: 0, boxShadow: 'none' }}>
+          <CardContent sx={{ py: 2 }}>
+            {/* Panel Header with Close Button */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="h6">
+                System Performance
+              </Typography>
+              <IconButton size="small" onClick={togglePanel}>
+                <ChevronRight />
+              </IconButton>
+            </Box>
+            
             <Stack spacing={1}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={handleManualHealthCheck}
-                  disabled={detectionState !== DetectionStates.READY}
-                  sx={{ fontSize: '0.7rem', py: 0.5 }}
-                >
-                  Check Now
-                </Button>
-              </Stack>
-              <Typography variant="caption" color="textSecondary">
-                Last checked: {getHealthCheckAge()}
-              </Typography>
-              <Stack spacing={0.5}>
-                <Typography variant="caption">
-                  Streaming: {systemHealth.streaming?.status || 'unknown'}
-                </Typography>
-                <Typography variant="caption">
-                  Detection: {systemHealth.detection?.status || 'unknown'}
-                </Typography>
-              </Stack>
-            </Stack>
-          </CollapsibleSection>
-
-          <Divider />
-
-          {/* Health Check Status */}
-          <CollapsibleSection
-            title="Health Check Status"
-            defaultExpanded={false}
-            icon={<HealthAndSafety sx={{ fontSize: 16 }} />}
-          >
-            <Stack spacing={0.5}>
-              <Typography variant="caption">
-                Initial: {healthCheckPerformed.current.initial ? '✅ Done' : '⏳ Pending'}
-              </Typography>
-              <Typography variant="caption">
-                Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
-              </Typography>
-            </Stack>
-          </CollapsibleSection>
-
-          {/* Manual Mode Controls - Only show when applicable */}
-          {detectionState === DetectionStates.READY && autoModeEnabled && (
-            <>
-              <Divider />
+              {/* Detection State - Always Visible */}
               <CollapsibleSection
-                title="Manual Mode Controls"
-                defaultExpanded={false}
-                icon={<Tune sx={{ fontSize: 16 }} />}
-                badge="Manual"
-                badgeColor="warning"
+                title="Detection State"
+                defaultExpanded={true}
+                icon={<Speed sx={{ fontSize: 16 }} />}
+                badge={detectionState}
+                badgeColor={stateInfo.color}
               >
-                <Stack spacing={1}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handleSwitchToBasicMode}
-                    disabled={isBasicMode}
-                    color="warning"
-                    fullWidth
-                    sx={{ fontSize: '0.75rem', py: 0.5 }}
-                  >
-                    Switch to Basic
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handleSwitchToOptimizedMode}
-                    disabled={!isBasicMode}
-                    color="success"
-                    fullWidth
-                    sx={{ fontSize: '0.75rem', py: 0.5 }}
-                  >
-                    Switch to Optimized
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handleEnableAutoMode}
-                    color="primary"
-                    fullWidth
-                    sx={{ fontSize: '0.75rem', py: 0.5 }}
-                  >
-                    Enable Auto Mode
-                  </Button>
+                <Stack spacing={0.5}>
+                  <Typography variant="caption" color="textSecondary">
+                    {stateInfo.message}
+                  </Typography>
+                  <Typography variant="caption">
+                    Status: {stateInfo.canOperate ? 'Operational' : 'Not Ready'}
+                  </Typography>
                 </Stack>
               </CollapsibleSection>
-            </>
-          )}
-        </Stack>
-      </CardContent>
-    </Card>
+
+              <Divider />
+
+              {/* System Health */}
+              <CollapsibleSection
+                title="System Health"
+                defaultExpanded={false}
+                icon={<HealthAndSafety sx={{ fontSize: 16 }} />}
+                badge={
+                  detectionState === DetectionStates.INITIALIZING ? "Initializing" : 
+                  detectionState === DetectionStates.SHUTTING_DOWN ? "Shutting Down" :
+                  systemHealth.overall ? "Healthy" : "Issues"
+                }
+                badgeColor={
+                  detectionState === DetectionStates.INITIALIZING ? "warning" :
+                  detectionState === DetectionStates.SHUTTING_DOWN ? "info" :
+                  systemHealth.overall ? "success" : "error"
+                }
+              >
+                <Stack spacing={1}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={handleManualHealthCheck}
+                      disabled={detectionState !== DetectionStates.READY}
+                      sx={{ fontSize: '0.7rem', py: 0.5 }}
+                    >
+                      Check Now
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="textSecondary">
+                    Last checked: {getHealthCheckAge()}
+                  </Typography>
+                  <Stack spacing={0.5}>
+                    <Typography variant="caption">
+                      Streaming: {systemHealth.streaming?.status || 'unknown'}
+                    </Typography>
+                    <Typography variant="caption">
+                      Detection: {systemHealth.detection?.status || 'unknown'}
+                    </Typography>
+                  </Stack>
+                </Stack>
+              </CollapsibleSection>
+
+              <Divider />
+
+              {/* Health Check Status */}
+              <CollapsibleSection
+                title="Health Check Status"
+                defaultExpanded={false}
+                icon={<HealthAndSafety sx={{ fontSize: 16 }} />}
+              >
+                <Stack spacing={0.5}>
+                  <Typography variant="caption">
+                    Initial: {healthCheckPerformed.current.initial ? '✅ Done' : '⏳ Pending'}
+                  </Typography>
+                  <Typography variant="caption">
+                    Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
+                  </Typography>
+                </Stack>
+              </CollapsibleSection>
+
+              {/* Manual Mode Controls - Only show when applicable */}
+              {detectionState === DetectionStates.READY && autoModeEnabled && (
+                <>
+                  <Divider />
+                  <CollapsibleSection
+                    title="Manual Mode Controls"
+                    defaultExpanded={false}
+                    icon={<Tune sx={{ fontSize: 16 }} />}
+                    badge="Manual"
+                    badgeColor="warning"
+                  >
+                    <Stack spacing={1}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleSwitchToBasicMode}
+                        disabled={isBasicMode}
+                        color="warning"
+                        fullWidth
+                        sx={{ fontSize: '0.75rem', py: 0.5 }}
+                      >
+                        Switch to Basic
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleSwitchToOptimizedMode}
+                        disabled={!isBasicMode}
+                        color="success"
+                        fullWidth
+                        sx={{ fontSize: '0.75rem', py: 0.5 }}
+                      >
+                        Switch to Optimized
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleEnableAutoMode}
+                        color="primary"
+                        fullWidth
+                        sx={{ fontSize: '0.75rem', py: 0.5 }}
+                      >
+                        Enable Auto Mode
+                      </Button>
+                    </Stack>
+                  </CollapsibleSection>
+                </>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      </Box>
+
+      {/* Backdrop for mobile */}
+      {panelOpen && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            bgcolor: 'rgba(0, 0, 0, 0.3)',
+            zIndex: 1100,
+            display: { xs: 'block', md: 'none' }
+          }}
+          onClick={togglePanel}
+        />
+      )}
+    </>
   );
 };
+
 export default SystemPerformancePanel;

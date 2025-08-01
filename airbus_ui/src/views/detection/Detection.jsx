@@ -1,4 +1,4 @@
-// pages/AppDetection.jsx - Enhanced with Basic Mode Controls in System Performance Panel
+// pages/AppDetection.jsx - Enhanced with Collapsible System Performance Panel
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -33,6 +33,7 @@ import { cameraService } from "../captureImage/CameraService";
 import { detectionService } from "./service/DetectionService";
 import SystemPerformancePanel from "./components/SystemPerformancePanel";
 import BasicModeControls from "./components/BasicModeControls";
+
 // Detection states from service
 const DetectionStates = {
   INITIALIZING: 'INITIALIZING',
@@ -40,8 +41,6 @@ const DetectionStates = {
   RUNNING: 'RUNNING',
   SHUTTING_DOWN: 'SHUTTING_DOWN'
 };
-
-
 
 export default function AppDetection() {
   // Core state management
@@ -73,6 +72,9 @@ export default function AppDetection() {
   const [onDemandDetecting, setOnDemandDetecting] = useState(false);
   const [lastDetectionResult, setLastDetectionResult] = useState(null);
   const [detectionInProgress, setDetectionInProgress] = useState(false);
+
+  // Panel state - NEW
+  const [isPanelOpen, setIsPanelOpen] = useState(false); // Start closed to save space
 
   // Performance and optimization state
   const [detectionOptions, setDetectionOptions] = useState({
@@ -974,17 +976,25 @@ return (
           >
             <Stack spacing={2}>
               {/* Basic Mode Detection Controls - NOW AT TOP */}
-              {isBasicMode && isDetectionRunning && (
-                <BasicModeControls
-                  isStreamFrozen={isStreamFrozen}
-                  onDemandDetecting={onDemandDetecting}
-                  detectionInProgress={detectionInProgress}
-                  lastDetectionResult={lastDetectionResult}
-                  targetLabel={targetLabel}
-                  onOnDemandDetection={handleOnDemandDetection}
-                  onFreezeStream={handleFreezeStream}
-                  onUnfreezeStream={handleUnfreezeStream}
-                />
+              {isBasicMode && isDetectionRunning && !isPanelOpen && (
+                <Box
+                  sx={{
+
+                    zIndex: 1000,
+                    maxWidth: 300
+                  }}
+                >
+                  <BasicModeControls
+                    isStreamFrozen={isStreamFrozen}
+                    onDemandDetecting={onDemandDetecting}
+                    detectionInProgress={detectionInProgress}
+                    lastDetectionResult={lastDetectionResult}
+                    targetLabel={targetLabel}
+                    onOnDemandDetection={handleOnDemandDetection}
+                    onFreezeStream={handleFreezeStream}
+                    onUnfreezeStream={handleUnfreezeStream}
+                  />
+                </Box>
               )}
               
               {/* System Performance Panel - Collapsible Version */}
@@ -1002,6 +1012,9 @@ return (
                 handleSwitchToOptimizedMode={handleSwitchToOptimizedMode}
                 handleEnableAutoMode={handleEnableAutoMode}
                 DetectionStates={DetectionStates}
+                isPanelOpen={isPanelOpen}
+                onPanelToggle={() => setIsPanelOpen(!isPanelOpen)}
+                isDetectionRunning={isDetectionRunning}
               />
             </Stack>
           </Box>
