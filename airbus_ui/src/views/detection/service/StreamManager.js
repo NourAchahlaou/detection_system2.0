@@ -278,30 +278,56 @@ export class StreamManager {
 
   async startDetectionFeedWithAutoMode(cameraId, targetLabel, options = {}) {
     try {
+      console.log(`🎯 Starting detection feed with auto mode for camera ${cameraId}`);
+      
       // Update system profile if needed
       if (!this.detectionService.systemProfile) {
         await this.detectionService.updateSystemProfile();
       }
 
-      if (this.detectionService.shouldUseBasicMode()) {
+      // Check if we should use optimized mode
+      if (this.detectionService.shouldUseOptimizedMode()) {
+        console.log(`🎯 Attempting optimized detection for camera ${cameraId}`);
+        
+        // Ensure detection service is ready before starting optimized mode
+        const readinessCheck = await this.detectionService.ensureDetectionServiceReady();
+        
+        if (readinessCheck.success) {
+          try {
+            return await this.startOptimizedDetectionFeed(cameraId, targetLabel, options);
+          } catch (optimizedError) {
+            console.log(`⚠️ Optimized mode failed: ${optimizedError.message}, falling back to basic`);
+            // Force switch to basic mode
+            await this.detectionService.switchToBasicMode();
+            return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
+          }
+        } else {
+          console.log('🎯 Detection service not ready, using basic detection');
+          // Ensure we're in basic mode
+          if (!this.detectionService.shouldUseBasicMode()) {
+            await this.detectionService.switchToBasicMode();
+          }
+          return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
+        }
+      } else {
         console.log(`🎯 Using basic detection for camera ${cameraId} (Performance mode: ${this.detectionService.currentPerformanceMode})`);
         return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
-      } else {
-        console.log(`🎯 Using optimized detection for camera ${cameraId} (Performance mode: ${this.detectionService.currentPerformanceMode})`);
-        return await this.startOptimizedDetectionFeed(cameraId, targetLabel, options);
       }
+      
     } catch (error) {
       console.error('❌ Error starting detection feed with auto mode:', error);
       
-      // Fallback to basic mode on error
-      if (!this.detectionService.shouldUseBasicMode()) {
-        console.log('⚠️ Falling back to basic mode due to error');
+      // Final fallback to basic mode
+      console.log('⚠️ Final fallback to basic mode due to error');
+      try {
+        await this.detectionService.switchToBasicMode();
         return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
+      } catch (basicError) {
+        throw new Error(`All detection modes failed: ${basicError.message}`);
       }
-      
-      throw error;
     }
   }
+
 
   async startStreamWithAutoMode(cameraId, options = {}) {
     try {
@@ -430,6 +456,7 @@ export class StreamManager {
         
         try {
           await api.post(`/api/video_streaming/video/basic/stream/${cameraId}/stop`);
+          await api.post("/api/artifact_keeper/camera/stop");
         } catch (error) {
           console.warn(`⚠️ Error stopping basic stream API for camera ${cameraId}:`, error.message);
         }
@@ -553,23 +580,44 @@ export class StreamManager {
     try {
       console.log(`🎯 Starting optimized detection feed for camera ${cameraId} with target: ${targetLabel}`);
 
-      // Fix: Use explicit state check instead of canStart()
+      // Enhanced state check
       if (this.detectionService.state !== DetectionStates.READY) {
         throw new Error(`Cannot start detection in state: ${this.detectionService.state}. Current state must be READY.`);
       }
 
-      if (!this.detectionService.isModelLoaded) {
-        throw new Error('Detection model is not loaded');
+      // More robust readiness check
+      console.log('🔧 Verifying detection service readiness...');
+      const readinessCheck = await this.detectionService.ensureDetectionServiceReady();
+      
+      if (!readinessCheck.success) {
+        if (readinessCheck.fallbackMode === 'basic') {
+          throw new Error('Detection service not ready, basic mode recommended');
+        } else {
+          throw new Error(`Detection service not ready: ${readinessCheck.message}`);
+        }
       }
 
-      // Check if system supports optimized mode
+      // Verify model is actually loaded
+      if (!this.detectionService.isModelLoaded) {
+        console.log('🔧 Model not loaded, attempting to load...');
+        const modelResult = await this.detectionService.loadModel();
+        if (!modelResult.success) {
+          throw new Error(`Failed to load model: ${modelResult.message}`);
+        }
+      }
+
+      // Double-check system supports optimized mode
       if (this.detectionService.shouldUseBasicMode()) {
-        console.log('⚠️ System in basic mode, falling back to basic detection');
-        return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
+        throw new Error('System in basic mode, cannot use optimized detection');
       }
 
       await this.ensureCameraStarted(cameraId);
+
+      // Stop any existing optimized detection
       await this.stopOptimizedDetectionFeed(cameraId, false);
+
+      // Add a small delay to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const params = new URLSearchParams({
         target_label: targetLabel,
@@ -618,7 +666,6 @@ export class StreamManager {
       throw new Error(`Failed to start optimized detection feed: ${error.message}`);
     }
   }
-
   async startOptimizedStream(cameraId, options = {}) {
     const { streamQuality = 85 } = options;
 
@@ -715,6 +762,7 @@ export class StreamManager {
         
         try {
           await api.post(`/api/video_streaming/video/optimized/stream/${cameraId}/stop`);
+          await api.post("/api/artifact_keeper/camera/stop");
         } catch (error) {
           console.warn(`⚠️ Error stopping optimized stream API for camera ${cameraId}:`, error.message);
         }
@@ -753,7 +801,7 @@ async stopAllStreams(performShutdown = true) {
         if (this.detectionService.shouldUseOptimizedMode()) {
           await api.post('/api/video_streaming/video/optimized/streams/stop_all');
         }
-        await api.post('/api/video_streaming/video/basic/streams/stop_all');
+       
       } catch (error) {
         console.warn('⚠️ Error calling stop_all APIs:', error.message);
       }

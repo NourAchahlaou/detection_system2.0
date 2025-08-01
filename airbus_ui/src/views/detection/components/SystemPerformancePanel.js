@@ -93,7 +93,16 @@ const SystemPerformancePanel = ({
   handleEnableAutoMode,
   DetectionStates
 }) => {
-  // Helper function to get state info
+  // Helper function to get state 
+  // 
+  
+    console.log('🔍 Manual Mode Controls Debug Info:', {
+    detectionState,
+    isReady: detectionState === DetectionStates.READY,
+    autoModeEnabled,
+    shouldShow: detectionState === DetectionStates.READY && autoModeEnabled,
+    DetectionStates
+  });
   const getStateInfo = () => {
     switch (detectionState) {
       case DetectionStates.INITIALIZING:
@@ -220,7 +229,7 @@ const SystemPerformancePanel = ({
           </CollapsibleSection>
 
           {/* Manual Mode Controls - Only show when applicable */}
-          {detectionState === DetectionStates.RUNNING && !autoModeEnabled && (
+          {detectionState === DetectionStates.READY && autoModeEnabled && (
             <>
               <Divider />
               <CollapsibleSection

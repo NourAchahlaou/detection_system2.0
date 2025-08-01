@@ -78,7 +78,121 @@ class DetectionService {
   // ===================
   // SYSTEM PROFILING METHODS (delegated to SystemProfiler)
   // ===================
+// Enhanced ensureDetectionServiceReady with better optimized mode handling
+  async ensureDetectionServiceReady() {
+    try {
+      console.log('🔧 Ensuring detection service is ready...');
+      
+      // More comprehensive readiness check
+      const currentState = this.getState();
+      if (currentState !== DetectionStates.READY) {
+        console.log(`⚠️ Service not in READY state (current: ${currentState})`);
+        return { 
+          success: false, 
+          message: `Service in ${currentState} state, not ready`,
+          fallbackMode: 'basic'
+        };
+      }
 
+      // FIXED: Different readiness checks based on mode
+      if (this.shouldUseBasicMode()) {
+        console.log('✅ Basic mode - service is ready');
+        return { success: true, message: 'Basic mode service ready' };
+      }
+
+      // For optimized mode, perform more thorough checks
+      console.log('🔧 Checking optimized mode readiness...');
+
+      // Check if processor initialization was successful
+      try {
+        // FIXED: Try to ping the Redis initialization endpoint instead of health
+        const initResponse = await fetch('/api/detection/redis/initialize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+          timeout: 8000
+        });
+
+        if (initResponse.ok) {
+          const initData = await initResponse.json();
+          
+          if (initData.status === 'already_running' || initData.status === 'initialized') {
+            console.log('✅ Optimized detection processor is running');
+            
+            // FIXED: Even if health check fails, if processor is running, consider it ready
+            // Try health check but don't fail on 503
+            try {
+              const healthResponse = await fetch('/api/detection/redis/health', { timeout: 5000 });
+              if (healthResponse.ok) {
+                const healthData = await healthResponse.json();
+                console.log('✅ Health check also passed');
+                return { success: true, message: 'Optimized service fully ready' };
+              } else if (healthResponse.status === 503) {
+                console.log('⚠️ Health check returned 503 but processor is initialized - considering ready');
+                return { 
+                  success: true, 
+                  message: 'Optimized service ready (health check pending)',
+                  warning: 'Health check returned 503 but processor is running'
+                };
+              }
+            } catch (healthError) {
+              console.log('⚠️ Health check failed but processor is initialized - considering ready');
+              return { 
+                success: true, 
+                message: 'Optimized service ready (health check unavailable)',
+                warning: 'Health check failed but processor is running'
+              };
+            }
+            
+            return { success: true, message: 'Optimized service ready' };
+          } else {
+            console.log(`⚠️ Processor initialization returned: ${initData.status}`);
+            return { 
+              success: false, 
+              message: `Processor status: ${initData.status}`,
+              fallbackMode: 'basic'
+            };
+          }
+        } else {
+          console.log(`⚠️ Processor initialization failed with status: ${initResponse.status}`);
+          return { 
+            success: false, 
+            message: `Processor initialization failed: ${initResponse.status}`,
+            fallbackMode: 'basic'
+          };
+        }
+
+      } catch (processorError) {
+        console.log(`⚠️ Processor check failed: ${processorError.message}`);
+        
+        // FIXED: Try recovery by attempting initialization
+        console.log('🔧 Attempting processor recovery...');
+        try {
+          const recoveryResult = await this.initializeProcessor();
+          if (recoveryResult.success) {
+            console.log('✅ Processor recovery successful');
+            return { success: true, message: 'Service recovered successfully' };
+          }
+        } catch (recoveryError) {
+          console.log(`⚠️ Recovery failed: ${recoveryError.message}`);
+        }
+
+        return { 
+          success: false, 
+          message: 'Processor check failed, basic mode recommended',
+          fallbackMode: 'basic'
+        };
+      }
+
+    } catch (error) {
+      console.error('❌ Error ensuring detection service ready:', error);
+      return { 
+        success: false, 
+        message: error.message,
+        fallbackMode: 'basic'
+      };
+    }
+  }
   async initializeSystemProfiling() {
     return this.systemProfiler.initializeSystemProfiling();
   }

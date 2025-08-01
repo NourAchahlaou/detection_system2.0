@@ -428,7 +428,6 @@ const DetectionVideoFeed = ({
 
     console.log(`🎯 VideoFeed: Attempting to start detection. Current state: ${detectionState}, Mode: ${currentMode}`);
 
-    // FIXED: Check the CURRENT state at the time of validation, not after service calls
     const currentDetectionState = detectionService.getState();
     
     if (currentDetectionState === DetectionStates.INITIALIZING) {
@@ -441,7 +440,6 @@ const DetectionVideoFeed = ({
       return;
     }
 
-    // FIXED: Only check if we can start BEFORE calling the service
     if (currentDetectionState !== DetectionStates.READY) {
       setComponentError(`Cannot start detection. Current state: ${currentDetectionState}. System must be READY.`);
       return;
@@ -459,22 +457,29 @@ const DetectionVideoFeed = ({
     try {
       let streamUrl;
       
-      if (isBasicMode) {
-        // For basic mode, start basic stream (not detection feed)
-        console.log(`📺 VideoFeed: Starting basic stream for camera ${cameraId}`);
-        streamUrl = await detectionService.startBasicStream(parseInt(cameraId), {
-          streamQuality: detectionOptions.streamQuality || 85
-        });
-      } else {
-        // For optimized mode, use detection feed
-        console.log(`🎯 VideoFeed: Starting optimized detection feed for camera ${cameraId}`);
-        streamUrl = await detectionService.startOptimizedDetectionFeed(
+      // Use the auto mode detection feed which handles fallback internally
+      console.log(`🎯 VideoFeed: Starting detection with auto-mode handling for camera ${cameraId}`);
+      
+      try {
+        // Try to start with auto mode - this will handle fallback internally
+        streamUrl = await detectionService.startDetectionFeedWithAutoMode(
           parseInt(cameraId), 
           targetLabel, 
           {
             detectionFps: detectionOptions.detectionFps || 5.0,
             streamQuality: detectionOptions.streamQuality || 85,
             priority: detectionOptions.priority || 1
+          }
+        );
+      } catch (autoModeError) {
+        console.log(`⚠️ Auto mode failed, explicitly trying basic mode: ${autoModeError.message}`);
+        
+        // If auto mode fails, explicitly try basic mode
+        streamUrl = await detectionService.startBasicDetectionFeed(
+          parseInt(cameraId), 
+          targetLabel, 
+          {
+            streamQuality: detectionOptions.streamQuality || 85
           }
         );
       }
@@ -485,6 +490,11 @@ const DetectionVideoFeed = ({
       
       // Add stats listener
       detectionService.addStatsListener(parseInt(cameraId), handleStatsUpdate);
+      
+      // Get the current mode after starting (might have changed due to fallback)
+      const actualMode = detectionService.getCurrentStreamingType();
+      setCurrentMode(actualMode);
+      setIsBasicMode(actualMode === 'basic');
       
       setDetectionStats({
         objectDetected: false,
@@ -497,17 +507,17 @@ const DetectionVideoFeed = ({
         queueDepth: 0,
         isStreamActive: true,
         isFrozen: false,
-        mode: currentMode
+        mode: actualMode
       });
 
       setStreamStatus({ isLoading: false, error: null, isConnected: true });
       setModeTransitioning(false);
       onStartDetection();
 
-      console.log(`✅ VideoFeed: Started ${currentMode} ${isBasicMode ? 'stream' : 'detection'} for camera ${cameraId}`);
+      console.log(`✅ VideoFeed: Started ${actualMode} detection for camera ${cameraId}`);
 
     } catch (error) {
-      console.error("❌ VideoFeed: Error starting adaptive detection:", error);
+      console.error("❌ VideoFeed: Error starting detection:", error);
       
       if (!mountedRef.current) return;
       
@@ -521,22 +531,21 @@ const DetectionVideoFeed = ({
     }
   };
 
+
   // Handle stopping detection
   const handleStopDetection = async () => {
     if (!mountedRef.current) return;
     
-    console.log(`🛑 VideoFeed: Stopping ${currentMode} ${isBasicMode ? 'stream' : 'detection'} for camera ${cameraId}`);
+    console.log(`🛑 VideoFeed: Stopping detection for camera ${cameraId}`);
     setStreamStatus(prev => ({ ...prev, isLoading: true }));
     setModeTransitioning(true);
 
     try {
+      // Remove stats listener first
       detectionService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
       
-      if (isBasicMode) {
-        await detectionService.stopBasicStream(parseInt(cameraId));
-      } else {
-        await detectionService.stopOptimizedDetectionFeed(parseInt(cameraId), false);
-      }
+      // Use the generic stop method that handles both modes
+      await detectionService.stopDetectionFeed(parseInt(cameraId), false);
       
       if (!mountedRef.current) return;
       
@@ -546,10 +555,12 @@ const DetectionVideoFeed = ({
       setComponentError(null);
       setModeTransitioning(false);
       setIsStreamFrozen(false);
+      setLastDetectionResult(null);
       onStopDetection();
 
-      console.log(`✅ VideoFeed: Stopped ${currentMode} ${isBasicMode ? 'stream' : 'detection'} for camera ${cameraId}`);
+      console.log(`✅ VideoFeed: Stopped detection for camera ${cameraId}`);
 
+      // Schedule post-shutdown health check
       setTimeout(() => {
         if (mountedRef.current && detectionState === DetectionStates.READY) {
           console.log("🩺 VideoFeed: Scheduling post-shutdown health check...");
@@ -562,7 +573,7 @@ const DetectionVideoFeed = ({
       }, 2000);
 
     } catch (error) {
-      console.error("❌ VideoFeed: Error stopping adaptive detection:", error);
+      console.error("❌ VideoFeed: Error stopping detection:", error);
       
       if (!mountedRef.current) return;
       
@@ -571,6 +582,7 @@ const DetectionVideoFeed = ({
       setModeTransitioning(false);
     }
   };
+
 
   // Manual mode switching functions
   const handleSwitchToBasic = useCallback(async () => {
