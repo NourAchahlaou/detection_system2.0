@@ -449,23 +449,7 @@ export class StateManager {
     }
   }
 
-  async reloadModel() {
-    try {
-      let reloadEndpoint = "/api/detection/detection/model/reload";
-      if (this.detectionService.shouldUseBasicMode()) {
-        // Basic mode reinitializes instead of reloading
-        await this.initializeProcessor();
-        return { message: "Basic detection processor reinitialized" };
-      }
 
-      const response = await api.post(reloadEndpoint);
-      console.log("✅ Model reloaded successfully:", response.data.message);
-      return response.data;
-    } catch (error) {
-      console.error("❌ Error reloading model:", error.response?.data?.detail || error.message);
-      throw error;
-    }
-  }
 
   async ensureInitialized() {
     if (this.detectionService.isOperational() && this.detectionService.isModelLoaded) {

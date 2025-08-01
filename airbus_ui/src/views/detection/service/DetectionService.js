@@ -494,9 +494,6 @@ class DetectionService {
     return this.stateManager.getShutdownStatus();
   }
 
-  async reloadModel() {
-    return this.stateManager.reloadModel();
-  }
 
   async ensureInitialized() {
     return this.stateManager.ensureInitialized();

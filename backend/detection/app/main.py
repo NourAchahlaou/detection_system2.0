@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from detection.app.api.route.detection_router import detection_router
+
 from detection.app.api.route.detection_redis_router import redis_router
 from detection.app.api.route.graceful_shutdown_endpoints import detection_shutdown_router   
 from detection.app.api.route.basic_detection_router import basic_detection_router
