@@ -807,7 +807,7 @@ export default function AppDetection() {
   const isBasicMode = currentStreamingType === 'basic';
   const isDetectionRunning = detectionState === DetectionStates.RUNNING;
 
-  return (
+return (
     <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
       {/* Adaptive System Status Alert */}
       {detectionState === DetectionStates.INITIALIZING && (
@@ -920,51 +920,73 @@ export default function AppDetection() {
       <Grid container spacing={2} columns={12} sx={{ mb: 2 }}>
         {/* Main Content */}
         <Grid size={{ xs: 12, md: 9 }}>
-          <Stack spacing={3}>
-            <DetectionControls
-              targetLabel={targetLabel}
-              onTargetLabelChange={handleTargetLabelChange}
-              selectedCameraId={selectedCameraId}
-              onCameraChange={handleCameraChange}
-              cameras={cameras}
-              onDetectCameras={handleDetectCameras}
-              isDetecting={isDetecting}
-              isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
-              systemHealth={systemHealth}
-              detectionOptions={detectionOptions}
-              onDetectionOptionsChange={handleDetectionOptionsChange}
-              detectionState={detectionState}
-            />
-            
-            <DetectionVideoFeed
-              isDetectionActive={detectionState === DetectionStates.RUNNING}
-              onStartDetection={handleStartDetection}
-              onStopDetection={handleStopDetection}
-              cameraId={cameraId}
-              targetLabel={targetLabel}
-              isSystemReady={stateInfo.canOperate}
-              detectionOptions={detectionOptions}
-              detectionState={detectionState}
-            />
-          </Stack>
+          <Box
+            sx={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center', // Centers the content vertically
+              minHeight: { xs: 'auto', md: '500px' } // Match approximate height with sidebar
+            }}
+          >
+            <Stack spacing={3}>
+              <DetectionControls
+                targetLabel={targetLabel}
+                onTargetLabelChange={handleTargetLabelChange}
+                selectedCameraId={selectedCameraId}
+                onCameraChange={handleCameraChange}
+                cameras={cameras}
+                onDetectCameras={handleDetectCameras}
+                isDetecting={isDetecting}
+                isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
+                systemHealth={systemHealth}
+                detectionOptions={detectionOptions}
+                onDetectionOptionsChange={handleDetectionOptionsChange}
+                detectionState={detectionState}
+              />
+              
+              <DetectionVideoFeed
+                isDetectionActive={detectionState === DetectionStates.RUNNING}
+                onStartDetection={handleStartDetection}
+                onStopDetection={handleStopDetection}
+                cameraId={cameraId}
+                targetLabel={targetLabel}
+                isSystemReady={stateInfo.canOperate}
+                detectionOptions={detectionOptions}
+                detectionState={detectionState}
+              />
+            </Stack>
+          </Box>
         </Grid>
 
         {/* System Performance Panel with Basic Mode Controls at Top */}
         <Grid size={{ xs: 12, md: 3 }}>
-          <Stack spacing={2}>
-            {/* Basic Mode Detection Controls - NOW AT TOP */}
-            {isBasicMode && isDetectionRunning && (
-              <BasicModeControls
-                isStreamFrozen={isStreamFrozen}
-                onDemandDetecting={onDemandDetecting}
-                detectionInProgress={detectionInProgress}
-                lastDetectionResult={lastDetectionResult}
-                targetLabel={targetLabel}
-                onOnDemandDetection={handleOnDemandDetection}
-                onFreezeStream={handleFreezeStream}
-                onUnfreezeStream={handleUnfreezeStream}
-              />
-            )}
+          <Box
+            sx={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center', // Centers vertically
+              alignItems: 'stretch', // Full width components
+              minHeight: { xs: 'auto', md: '500px' }, // Match approximate video card height
+              py: 2 // Some padding for mobile
+            }}
+          >
+            <Stack spacing={2}>
+              {/* Basic Mode Detection Controls - NOW AT TOP */}
+              {isBasicMode && isDetectionRunning && (
+                <BasicModeControls
+                  isStreamFrozen={isStreamFrozen}
+                  onDemandDetecting={onDemandDetecting}
+                  detectionInProgress={detectionInProgress}
+                  lastDetectionResult={lastDetectionResult}
+                  targetLabel={targetLabel}
+                  onOnDemandDetection={handleOnDemandDetection}
+                  onFreezeStream={handleFreezeStream}
+                  onUnfreezeStream={handleUnfreezeStream}
+                />
+              )}
+              
               {/* System Performance Panel - Collapsible Version */}
               <SystemPerformancePanel
                 detectionState={detectionState}
@@ -981,8 +1003,8 @@ export default function AppDetection() {
                 handleEnableAutoMode={handleEnableAutoMode}
                 DetectionStates={DetectionStates}
               />
-
-          </Stack>
+            </Stack>
+          </Box>
         </Grid>
       </Grid>
     </Box>
