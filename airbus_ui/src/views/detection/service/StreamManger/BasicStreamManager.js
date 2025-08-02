@@ -101,7 +101,391 @@ export class BasicStreamManager {
   }
 
   // ===================
-  // BASIC DETECTION METHODS
+  // ENHANCED DETECTION METHODS WITH DATABASE INTEGRATION
+  // ===================
+
+  async createDetectionLot(lotName, expectedPieceId, expectedPieceNumber) {
+    try {
+      console.log(`📦 Creating detection lot: '${lotName}' expecting piece ${expectedPieceNumber}`);
+      
+      const response = await api.post('/api/detection/enhanced/lots', {
+        lot_name: lotName,
+        expected_piece_id: expectedPieceId,
+        expected_piece_number: expectedPieceNumber
+      });
+
+      if (response.data.success) {
+        console.log(`✅ Created lot ${response.data.lot_id}: '${lotName}'`);
+        return {
+          success: true,
+          lotId: response.data.lot_id,
+          lotData: response.data.data,
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Failed to create detection lot');
+      }
+    } catch (error) {
+      console.error(`❌ Error creating detection lot:`, error);
+      throw new Error(`Failed to create lot: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async getDetectionLot(lotId) {
+    try {
+      console.log(`📦 Getting detection lot ${lotId}`);
+      
+      const response = await api.get(`/api/detection/enhanced/lots/${lotId}`);
+
+      if (response.data.success) {
+        return {
+          success: true,
+          lotData: response.data.data,
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Failed to get detection lot');
+      }
+    } catch (error) {
+      console.error(`❌ Error getting detection lot ${lotId}:`, error);
+      throw new Error(`Failed to get lot: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async updateLotTargetMatchStatus(lotId, isTargetMatch) {
+    try {
+      console.log(`📦 Updating lot ${lotId} target match status: ${isTargetMatch}`);
+      
+      const response = await api.put(`/api/detection/enhanced/lots/${lotId}/status`, {
+        is_target_match: isTargetMatch
+      });
+
+      if (response.data.success) {
+        console.log(`✅ Updated lot ${lotId} status: ${isTargetMatch ? 'completed' : 'needs correction'}`);
+        return {
+          success: true,
+          lotData: response.data.data,
+          isTargetMatch: response.data.is_target_match,
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Failed to update lot status');
+      }
+    } catch (error) {
+      console.error(`❌ Error updating lot ${lotId} status:`, error);
+      throw new Error(`Failed to update lot status: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async getLotDetectionSessions(lotId) {
+    try {
+      console.log(`📊 Getting detection sessions for lot ${lotId}`);
+      
+      const response = await api.get(`/api/detection/enhanced/lots/${lotId}/sessions`);
+
+      if (response.data.success) {
+        return {
+          success: true,
+          lotId: response.data.lot_id,
+          lotName: response.data.lot_name,
+          totalSessions: response.data.total_sessions,
+          successfulDetections: response.data.successful_detections,
+          sessions: response.data.sessions,
+          lotStatus: response.data.lot_status
+        };
+      } else {
+        throw new Error('Failed to get lot sessions');
+      }
+    } catch (error) {
+      console.error(`❌ Error getting lot ${lotId} sessions:`, error);
+      throw new Error(`Failed to get lot sessions: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async performDetectionWithLotTracking(cameraId, targetLabel, options = {}) {
+    try {
+      const { 
+        lotId = null, 
+        expectedPieceId = null, 
+        expectedPieceNumber = null, 
+        quality = 85 
+      } = options;
+      
+      console.log(`🎯 Performing lot-tracked detection for camera ${cameraId}, target: '${targetLabel}'${lotId ? `, lot: ${lotId}` : ''}`);
+      
+      if (!this.detectionService.isOperational()) {
+        throw new Error(`Cannot perform detection in state: ${this.detectionService.state}. Service must be ready.`);
+      }
+
+      const requestBody = {
+        target_label: targetLabel,
+        lot_id: lotId,
+        expected_piece_id: expectedPieceId,
+        expected_piece_number: expectedPieceNumber,
+        quality: quality
+      };
+
+      const response = await api.post(`/api/detection/enhanced/detect/${cameraId}`, requestBody);
+
+      if (response.data.success) {
+        const detectionData = response.data.data;
+        
+        // Update freeze status
+        if (detectionData.stream_frozen) {
+          this.detectionService.frozenStreams.set(cameraId, {
+            cameraId: parseInt(cameraId),
+            frozenAt: Date.now(),
+            status: 'frozen',
+            detectionPerformed: true,
+            lotId: detectionData.lot_id,
+            sessionId: detectionData.session_id
+          });
+          this.detectionService.notifyFreezeListeners(cameraId, 'frozen');
+        }
+
+        // Update detection stats with enhanced data
+        const streamKey = `enhanced_${cameraId}_${targetLabel}`;
+        const updatedStats = {
+          objectDetected: detectionData.detected_target,
+          detectionCount: detectionData.detected_target ? 1 : 0,
+          lastDetectionTime: detectionData.detected_target ? Date.now() : null,
+          avgProcessingTime: detectionData.processing_time_ms,
+          confidence: detectionData.confidence,
+          mode: 'enhanced_lot_tracking',
+          streamFrozen: detectionData.stream_frozen,
+          lotId: detectionData.lot_id,
+          sessionId: detectionData.session_id,
+          isTargetMatch: detectionData.is_target_match,
+          detectionRate: detectionData.detection_rate
+        };
+
+        this.detectionService.detectionStats.set(streamKey, updatedStats);
+        this.notifyStatsListeners(cameraId, updatedStats);
+
+        console.log(`✅ Lot-tracked detection completed for camera ${cameraId} - Target detected: ${detectionData.detected_target}`);
+        
+        return {
+          success: true,
+          detected: detectionData.detected_target,
+          confidence: detectionData.confidence,
+          processingTime: detectionData.processing_time_ms,
+          frameWithOverlay: detectionData.frame_with_overlay,
+          streamFrozen: detectionData.stream_frozen,
+          timestamp: detectionData.timestamp,
+          lotId: detectionData.lot_id,
+          sessionId: detectionData.session_id,
+          isTargetMatch: detectionData.is_target_match,
+          detectionRate: detectionData.detection_rate,
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Enhanced detection request failed');
+      }
+
+    } catch (error) {
+      console.error("❌ Error performing lot-tracked detection:", error);
+      throw new Error(`Failed to perform lot-tracked detection: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async createLotAndDetect(cameraId, lotName, expectedPieceId, expectedPieceNumber, targetLabel, options = {}) {
+    try {
+      const { quality = 85 } = options;
+      
+      console.log(`🚀 Creating lot and detecting for camera ${cameraId}`);
+      
+      if (!this.detectionService.isOperational()) {
+        throw new Error(`Cannot perform detection in state: ${this.detectionService.state}. Service must be ready.`);
+      }
+
+      const requestBody = {
+        lot_name: lotName,
+        expected_piece_id: expectedPieceId,
+        expected_piece_number: expectedPieceNumber,
+        target_label: targetLabel,
+        quality: quality
+      };
+
+      const response = await api.post(`/api/detection/enhanced/detect/${cameraId}/with-lot-creation`, requestBody);
+
+      if (response.data.success) {
+        const lotData = response.data.lot_created;
+        const detectionData = response.data.detection_result;
+        
+        // Update freeze status
+        if (detectionData.stream_frozen) {
+          this.detectionService.frozenStreams.set(cameraId, {
+            cameraId: parseInt(cameraId),
+            frozenAt: Date.now(),
+            status: 'frozen',
+            detectionPerformed: true,
+            lotId: lotData.lot_id,
+            sessionId: detectionData.session_id
+          });
+          this.detectionService.notifyFreezeListeners(cameraId, 'frozen');
+        }
+
+        // Update detection stats
+        const streamKey = `enhanced_${cameraId}_${targetLabel}`;
+        const updatedStats = {
+          objectDetected: detectionData.detected_target,
+          detectionCount: detectionData.detected_target ? 1 : 0,
+          lastDetectionTime: detectionData.detected_target ? Date.now() : null,
+          avgProcessingTime: detectionData.processing_time_ms,
+          confidence: detectionData.confidence,
+          mode: 'enhanced_lot_creation',
+          streamFrozen: detectionData.stream_frozen,
+          lotId: lotData.lot_id,
+          sessionId: detectionData.session_id,
+          isTargetMatch: detectionData.is_target_match,
+          detectionRate: detectionData.detection_rate
+        };
+
+        this.detectionService.detectionStats.set(streamKey, updatedStats);
+        this.notifyStatsListeners(cameraId, updatedStats);
+
+        console.log(`✅ Lot created and detection completed for camera ${cameraId}`);
+        
+        return {
+          success: true,
+          lotCreated: lotData,
+          detectionResult: {
+            detected: detectionData.detected_target,
+            confidence: detectionData.confidence,
+            processingTime: detectionData.processing_time_ms,
+            frameWithOverlay: detectionData.frame_with_overlay,
+            streamFrozen: detectionData.stream_frozen,
+            timestamp: detectionData.timestamp,
+            lotId: detectionData.lot_id,
+            sessionId: detectionData.session_id,
+            isTargetMatch: detectionData.is_target_match,
+            detectionRate: detectionData.detection_rate
+          },
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Lot creation and detection failed');
+      }
+
+    } catch (error) {
+      console.error("❌ Error creating lot and detecting:", error);
+      throw new Error(`Failed to create lot and detect: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async performDetectionWithAutoCorrection(cameraId, lotId, targetLabel, options = {}) {
+    try {
+      const { quality = 85, autoCompleteOnMatch = true } = options;
+      
+      console.log(`🔄 Performing auto-correction detection for camera ${cameraId}, lot: ${lotId}`);
+      
+      if (!this.detectionService.isOperational()) {
+        throw new Error(`Cannot perform detection in state: ${this.detectionService.state}. Service must be ready.`);
+      }
+
+      const requestBody = {
+        lot_id: lotId,
+        target_label: targetLabel,
+        quality: quality,
+        auto_complete_on_match: autoCompleteOnMatch
+      };
+
+      const response = await api.post(`/api/detection/enhanced/detect/${cameraId}/with-auto-correction`, requestBody);
+
+      if (response.data.success) {
+        const detectionData = response.data.detection_result;
+        
+        // Update freeze status
+        if (detectionData?.stream_frozen) {
+          this.detectionService.frozenStreams.set(cameraId, {
+            cameraId: parseInt(cameraId),
+            frozenAt: Date.now(),
+            status: 'frozen',
+            detectionPerformed: true,
+            lotId: detectionData.lot_id,
+            sessionId: detectionData.session_id
+          });
+          this.detectionService.notifyFreezeListeners(cameraId, 'frozen');
+        }
+
+        // Update detection stats
+        const streamKey = `enhanced_${cameraId}_${targetLabel}`;
+        const updatedStats = {
+          objectDetected: detectionData?.detected_target || false,
+          detectionCount: detectionData?.detected_target ? 1 : 0,
+          lastDetectionTime: detectionData?.detected_target ? Date.now() : null,
+          avgProcessingTime: detectionData?.processing_time_ms || 0,
+          confidence: detectionData?.confidence,
+          mode: 'enhanced_auto_correction',
+          streamFrozen: detectionData?.stream_frozen || false,
+          lotId: detectionData?.lot_id,
+          sessionId: detectionData?.session_id,
+          isTargetMatch: detectionData?.is_target_match || false,
+          detectionRate: detectionData?.detection_rate || 0,
+          correctionAction: response.data.correction_action,
+          lotCompleted: response.data.lot_completed
+        };
+
+        this.detectionService.detectionStats.set(streamKey, updatedStats);
+        this.notifyStatsListeners(cameraId, updatedStats);
+
+        console.log(`✅ Auto-correction detection completed: ${response.data.correction_action}`);
+        
+        return {
+          success: true,
+          detected: detectionData?.detected_target || false,
+          confidence: detectionData?.confidence,
+          processingTime: detectionData?.processing_time_ms || 0,
+          frameWithOverlay: detectionData?.frame_with_overlay || '',
+          streamFrozen: detectionData?.stream_frozen || false,
+          timestamp: detectionData?.timestamp || Date.now(),
+          lotId: detectionData?.lot_id,
+          sessionId: detectionData?.session_id,
+          isTargetMatch: detectionData?.is_target_match || false,
+          detectionRate: detectionData?.detection_rate || 0,
+          correctionAction: response.data.correction_action,
+          lotCompleted: response.data.lot_completed,
+          message: response.data.message,
+          detectionSkipped: response.data.detection_skipped || false
+        };
+      } else {
+        throw new Error('Auto-correction detection failed');
+      }
+
+    } catch (error) {
+      console.error("❌ Error performing auto-correction detection:", error);
+      throw new Error(`Failed to perform auto-correction detection: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async unfreezeStreamAfterDetection(cameraId) {
+    try {
+      console.log(`🔥 Unfreezing stream after detection for camera ${cameraId}`);
+      
+      const response = await api.post(`/api/detection/enhanced/stream/${cameraId}/unfreeze`);
+
+      if (response.data.success) {
+        this.detectionService.frozenStreams.delete(cameraId);
+        this.detectionService.notifyFreezeListeners(cameraId, 'unfrozen');
+        
+        console.log(`✅ Stream unfrozen after detection for camera ${cameraId}`);
+        return {
+          success: true,
+          cameraId: response.data.camera_id,
+          message: response.data.message,
+          timestamp: response.data.timestamp
+        };
+      } else {
+        throw new Error('Failed to unfreeze stream after detection');
+      }
+    } catch (error) {
+      console.error(`❌ Error unfreezing stream after detection:`, error);
+      throw new Error(`Failed to unfreeze stream: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  // ===================
+  // BASIC DETECTION METHODS (Original methods kept intact)
   // ===================
 
   async performOnDemandDetection(cameraId, targetLabel, options = {}) {
@@ -259,7 +643,7 @@ export class BasicStreamManager {
   }
 
   // ===================
-  // BASIC STREAMING METHODS
+  // BASIC STREAMING METHODS (Original methods kept intact)
   // ===================
 
   async startBasicDetectionFeed(cameraId, targetLabel, options = {}) {

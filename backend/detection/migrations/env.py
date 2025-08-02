@@ -143,31 +143,6 @@ def create_cross_schema_foreign_keys(connection):
     """
     print("Creating cross-schema foreign key constraints...")
     
-    try:
-        # Check if FK constraint already exists for detection_session.piece_id
-        result = connection.execute(text("""
-            SELECT COUNT(*) FROM information_schema.table_constraints 
-            WHERE constraint_name = 'fk_detection_session_piece_id'
-            AND table_schema = 'detection'
-        """))
-        
-        if result.scalar() == 0:
-            # Create FK constraint for detection_session.piece_id -> artifact_keeper.piece.id
-            connection.execute(text("""
-                ALTER TABLE detection.detection_session
-                ADD CONSTRAINT fk_detection_session_piece_id
-                FOREIGN KEY (piece_id)
-                REFERENCES artifact_keeper.piece(id)
-                ON DELETE CASCADE
-            """))
-            print("✓ Created FK constraint: detection_session.piece_id -> artifact_keeper.piece.id")
-        else:
-            print("✓ FK constraint already exists: detection_session.piece_id -> artifact_keeper.piece.id")
-            
-    except Exception as e:
-        print(f"⚠️  Warning: Could not create FK constraint for detection_session.piece_id: {e}")
-        print("This is expected if the referenced table doesn't exist yet.")
-        print("Run artifact_keeper migrations first, then re-run detection migrations.")
 
     try:
         # Check if FK constraint already exists for detection_lot.expected_piece_id

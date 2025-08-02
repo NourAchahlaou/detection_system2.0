@@ -10,7 +10,6 @@ const DetectionStates = {
   SHUTTING_DOWN: 'SHUTTING_DOWN'
 };
 
-
 export class StreamManager {
   constructor(detectionService) {
     this.detectionService = detectionService;
@@ -34,6 +33,42 @@ export class StreamManager {
 
   async getStreamFreezeStatus(cameraId) {
     return this.basicManager.getStreamFreezeStatus(cameraId);
+  }
+
+  // ===================
+  // ENHANCED DETECTION METHODS WITH DATABASE INTEGRATION
+  // ===================
+
+  async createDetectionLot(lotName, expectedPieceId, expectedPieceNumber) {
+    return this.basicManager.createDetectionLot(lotName, expectedPieceId, expectedPieceNumber);
+  }
+
+  async getDetectionLot(lotId) {
+    return this.basicManager.getDetectionLot(lotId);
+  }
+
+  async updateLotTargetMatchStatus(lotId, isTargetMatch) {
+    return this.basicManager.updateLotTargetMatchStatus(lotId, isTargetMatch);
+  }
+
+  async getLotDetectionSessions(lotId) {
+    return this.basicManager.getLotDetectionSessions(lotId);
+  }
+
+  async performDetectionWithLotTracking(cameraId, targetLabel, options = {}) {
+    return this.basicManager.performDetectionWithLotTracking(cameraId, targetLabel, options);
+  }
+
+  async createLotAndDetect(cameraId, lotName, expectedPieceId, expectedPieceNumber, targetLabel, options = {}) {
+    return this.basicManager.createLotAndDetect(cameraId, lotName, expectedPieceId, expectedPieceNumber, targetLabel, options);
+  }
+
+  async performDetectionWithAutoCorrection(cameraId, lotId, targetLabel, options = {}) {
+    return this.basicManager.performDetectionWithAutoCorrection(cameraId, lotId, targetLabel, options);
+  }
+
+  async unfreezeStreamAfterDetection(cameraId) {
+    return this.basicManager.unfreezeStreamAfterDetection(cameraId);
   }
 
   // ===================
@@ -377,7 +412,9 @@ export class StreamManager {
           optimized_performance: null,
           recommendation: 'Basic mode - suitable for current system specifications',
           freeze_capability: true,
-          on_demand_detection: true
+          on_demand_detection: true,
+          enhanced_detection: true,
+          database_integration: true
         };
       }
     } catch (error) {
@@ -411,6 +448,75 @@ export class StreamManager {
   };
 
   // ===================
+  // ENHANCED DETECTION SERVICE HEALTH METHODS
+  // ===================
+
+  async getEnhancedDetectionHealth() {
+    try {
+      console.log('🏥 Checking enhanced detection service health...');
+      
+      const response = await api.get('/api/detection/basic/health');
+      
+      return {
+        success: true,
+        status: response.data.status,
+        isInitialized: response.data.is_initialized,
+        device: response.data.device,
+        statistics: response.data.statistics,
+        message: response.data.message
+      };
+    } catch (error) {
+      console.error('❌ Error checking enhanced detection health:', error);
+      return {
+        success: false,
+        status: 'unhealthy',
+        error: error.response?.data?.detail || error.message
+      };
+    }
+  }
+
+  async initializeEnhancedDetectionProcessor() {
+    try {
+      console.log('🚀 Initializing enhanced detection processor...');
+      
+      const response = await api.post('/api/detection/basic/initialize');
+      
+      if (response.data.success) {
+        console.log('✅ Enhanced detection processor initialized successfully');
+        return {
+          success: true,
+          device: response.data.device,
+          isInitialized: response.data.is_initialized,
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Failed to initialize enhanced detection processor');
+      }
+    } catch (error) {
+      console.error('❌ Error initializing enhanced detection processor:', error);
+      throw new Error(`Failed to initialize processor: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  async getEnhancedDetectionStats() {
+    try {
+      console.log('📊 Getting enhanced detection statistics...');
+      
+      const response = await api.get('/api/detection/basic/stats');
+      
+      return {
+        success: true,
+        stats: response.data.stats,
+        timestamp: response.data.timestamp,
+        serviceType: response.data.service_type
+      };
+    } catch (error) {
+      console.error('❌ Error getting enhanced detection stats:', error);
+      throw new Error(`Failed to get enhanced stats: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
+  // ===================
   // CLEANUP METHODS
   // ===================
 
@@ -432,7 +538,6 @@ export class StreamManager {
       console.error("❌ Error during StreamManager cleanup:", error);
     }
   };
-
   // ===================
   // MODE-SPECIFIC DELEGATION METHODS
   // ===================

@@ -38,8 +38,8 @@ class UpdateLotStatusRequest(BaseModel):
 
 # Create the router
 basic_detection_router = APIRouter(
-    prefix="/enhanced",
-    tags=["Enhanced Detection with Database"],
+    prefix="/basic",
+    tags=["Basic Detection with Database"],
     responses={404: {"description": "Not found"}},
 )
 

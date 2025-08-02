@@ -76,42 +76,7 @@ const DetectionControls = ({
       >
         {isDetecting ? 'Detecting...' : 'Detect'}
       </Button>
-      
-      {/* {!isDetectionActive ? (
-        <Button
-          variant="contained"
-          onClick={onStartDetection}
-          disabled={!canStartDetection}
-          startIcon={<PlayArrow />}
-          sx={{ 
-            minWidth: 140,
-            backgroundColor: "#667eea",
-            "&:hover": { backgroundColor: "rgb(91, 76, 175)" }
-          }}
-        >
-          Start Detection
-        </Button>
-      ) : (
-        <Button
-          variant="contained"
-          onClick={onStopDetection}
-          startIcon={<Stop />}
-          sx={{ 
-            minWidth: 140,
-            backgroundColor: "rgba(244, 63, 94, 0.9)",
-            "&:hover": { backgroundColor: "rgba(244, 63, 94, 1)" }
-          }}
-        >
-          Stop Detection
-        </Button>
-      )} */}
-      
-      {/* <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Visibility sx={{ fontSize: 16, color: isModelLoaded ? 'success.main' : 'text.secondary' }} />
-        <Typography variant="caption" color={isModelLoaded ? 'success.main' : 'text.secondary'}>
-          {isModelLoaded ? 'Model Ready' : 'Loading Model...'}
-        </Typography>
-      </Box> */}
+
     </Stack>
   );
 };
