@@ -1,4 +1,4 @@
-import api from "../../../utils/UseAxios";
+import api from "../../../../utils/UseAxios";
 
 // Define the 4 states clearly
 const DetectionStates = {
@@ -8,21 +8,7 @@ const DetectionStates = {
   SHUTTING_DOWN: 'SHUTTING_DOWN'
 };
 
-// Performance modes based on system capabilities
-const PerformanceModes = {
-  BASIC: 'basic',
-  STANDARD: 'standard', 
-  ENHANCED: 'enhanced',
-  HIGH_PERFORMANCE: 'high_performance'
-};
-
-// Streaming types
-const StreamingTypes = {
-  BASIC: 'basic',
-  OPTIMIZED: 'optimized'
-};
-
-export class StreamManager {
+export class BasicStreamManager {
   constructor(detectionService) {
     this.detectionService = detectionService;
   }
@@ -115,7 +101,7 @@ export class StreamManager {
   }
 
   // ===================
-  // DETECTION METHODS
+  // BASIC DETECTION METHODS
   // ===================
 
   async performOnDemandDetection(cameraId, targetLabel, options = {}) {
@@ -269,90 +255,6 @@ export class StreamManager {
     } catch (error) {
       console.error("❌ Error performing batch detection:", error);
       throw new Error(`Failed to perform batch detection: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  // ===================
-  // ENHANCED STREAMING METHODS WITH AUTO MODE
-  // ===================
-
-  async startDetectionFeedWithAutoMode(cameraId, targetLabel, options = {}) {
-    try {
-      console.log(`🎯 Starting detection feed with auto mode for camera ${cameraId}`);
-      
-      // Update system profile if needed
-      if (!this.detectionService.systemProfile) {
-        await this.detectionService.updateSystemProfile();
-      }
-
-      // Check if we should use optimized mode
-      if (this.detectionService.shouldUseOptimizedMode()) {
-        console.log(`🎯 Attempting optimized detection for camera ${cameraId}`);
-        
-        // Ensure detection service is ready before starting optimized mode
-        const readinessCheck = await this.detectionService.ensureDetectionServiceReady();
-        
-        if (readinessCheck.success) {
-          try {
-            return await this.startOptimizedDetectionFeed(cameraId, targetLabel, options);
-          } catch (optimizedError) {
-            console.log(`⚠️ Optimized mode failed: ${optimizedError.message}, falling back to basic`);
-            // Force switch to basic mode
-            await this.detectionService.switchToBasicMode();
-            return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
-          }
-        } else {
-          console.log('🎯 Detection service not ready, using basic detection');
-          // Ensure we're in basic mode
-          if (!this.detectionService.shouldUseBasicMode()) {
-            await this.detectionService.switchToBasicMode();
-          }
-          return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
-        }
-      } else {
-        console.log(`🎯 Using basic detection for camera ${cameraId} (Performance mode: ${this.detectionService.currentPerformanceMode})`);
-        return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error starting detection feed with auto mode:', error);
-      
-      // Final fallback to basic mode
-      console.log('⚠️ Final fallback to basic mode due to error');
-      try {
-        await this.detectionService.switchToBasicMode();
-        return await this.startBasicDetectionFeed(cameraId, targetLabel, options);
-      } catch (basicError) {
-        throw new Error(`All detection modes failed: ${basicError.message}`);
-      }
-    }
-  }
-
-
-  async startStreamWithAutoMode(cameraId, options = {}) {
-    try {
-      // Update system profile if needed
-      if (!this.detectionService.systemProfile) {
-        await this.detectionService.updateSystemProfile();
-      }
-
-      if (this.detectionService.shouldUseBasicMode()) {
-        console.log(`📺 Using basic streaming for camera ${cameraId} (Performance mode: ${this.detectionService.currentPerformanceMode})`);
-        return await this.startBasicStream(cameraId, options);
-      } else {
-        console.log(`📺 Using optimized streaming for camera ${cameraId} (Performance mode: ${this.detectionService.currentPerformanceMode})`);
-        return await this.startOptimizedStream(cameraId, options);
-      }
-    } catch (error) {
-      console.error('❌ Error starting stream with auto mode:', error);
-      
-      // Fallback to basic mode on error
-      if (!this.detectionService.shouldUseBasicMode()) {
-        console.log('⚠️ Falling back to basic mode due to error');
-        return await this.startBasicStream(cameraId, options);
-      }
-      
-      throw error;
     }
   }
 
@@ -567,283 +469,8 @@ export class StreamManager {
   }
 
   // ===================
-  // OPTIMIZED STREAMING METHODS
+  // SHARED UTILITY METHODS
   // ===================
-
-  async startOptimizedDetectionFeed(cameraId, targetLabel, options = {}) {
-    const {
-      detectionFps = 5.0,
-      streamQuality = 85,
-      priority = 1
-    } = options;
-
-    try {
-      console.log(`🎯 Starting optimized detection feed for camera ${cameraId} with target: ${targetLabel}`);
-
-      // Enhanced state check
-      if (this.detectionService.state !== DetectionStates.READY) {
-        throw new Error(`Cannot start detection in state: ${this.detectionService.state}. Current state must be READY.`);
-      }
-
-      // More robust readiness check
-      console.log('🔧 Verifying detection service readiness...');
-      const readinessCheck = await this.detectionService.ensureDetectionServiceReady();
-      
-      if (!readinessCheck.success) {
-        if (readinessCheck.fallbackMode === 'basic') {
-          throw new Error('Detection service not ready, basic mode recommended');
-        } else {
-          throw new Error(`Detection service not ready: ${readinessCheck.message}`);
-        }
-      }
-
-      // Verify model is actually loaded
-      if (!this.detectionService.isModelLoaded) {
-        console.log('🔧 Model not loaded, attempting to load...');
-        const modelResult = await this.detectionService.loadModel();
-        if (!modelResult.success) {
-          throw new Error(`Failed to load model: ${modelResult.message}`);
-        }
-      }
-
-      // Double-check system supports optimized mode
-      if (this.detectionService.shouldUseBasicMode()) {
-        throw new Error('System in basic mode, cannot use optimized detection');
-      }
-
-      await this.ensureCameraStarted(cameraId);
-
-      // Stop any existing optimized detection
-      await this.stopOptimizedDetectionFeed(cameraId, false);
-
-      // Add a small delay to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const params = new URLSearchParams({
-        target_label: targetLabel,
-        detection_fps: detectionFps.toString(),
-        stream_quality: streamQuality.toString()
-      });
-
-      const streamUrl = `/api/video_streaming/video/optimized/stream_with_detection/${cameraId}?${params}`;
-      
-      const streamKey = `${cameraId}_${targetLabel}`;
-      this.detectionService.detectionStats.set(streamKey, {
-        objectDetected: false,
-        detectionCount: 0,
-        nonTargetCount: 0,
-        lastDetectionTime: null,
-        avgProcessingTime: 0,
-        streamQuality: streamQuality,
-        detectionFps: detectionFps,
-        mode: 'optimized'
-      });
-
-      this.detectionService.currentStreams.set(cameraId, {
-        url: streamUrl,
-        targetLabel,
-        streamKey,
-        startTime: Date.now(),
-        isActive: true,
-        type: 'optimized_detection'
-      });
-
-      this.detectionService.setState(DetectionStates.RUNNING, `Started optimized detection for camera ${cameraId}`);
-      this.startStatsMonitoring(cameraId, streamKey);
-
-      console.log(`✅ Successfully started optimized detection feed for camera ${cameraId}`);
-      return streamUrl;
-
-    } catch (error) {
-      console.error("❌ Error starting optimized detection feed:", error);
-      
-      try {
-        await this.stopOptimizedDetectionFeed(cameraId, false);
-      } catch (cleanupError) {
-        console.error("Error during cleanup:", cleanupError);
-      }
-      
-      throw new Error(`Failed to start optimized detection feed: ${error.message}`);
-    }
-  }
-  async startOptimizedStream(cameraId, options = {}) {
-    const { streamQuality = 85 } = options;
-
-    try {
-      console.log(`📺 Starting optimized stream for camera ${cameraId}`);
-
-      if (!this.detectionService.canStart()) {
-        throw new Error(`Cannot start stream in state: ${this.detectionService.state}. Current state must be READY.`);
-      }
-
-      // Check if system supports optimized mode
-      if (this.detectionService.shouldUseBasicMode()) {
-        console.log('⚠️ System in basic mode, falling back to basic stream');
-        return await this.startBasicStream(cameraId, options);
-      }
-
-      await this.ensureCameraStarted(cameraId);
-      await this.stopOptimizedStream(cameraId);
-
-      const params = new URLSearchParams({
-        stream_quality: streamQuality.toString()
-      });
-
-      const streamUrl = `/api/video_streaming/video/optimized/stream/${cameraId}?${params}`;
-      
-      this.detectionService.currentStreams.set(cameraId, {
-        url: streamUrl,
-        targetLabel: null,
-        streamKey: `optimized_stream_${cameraId}`,
-        startTime: Date.now(),
-        isActive: true,
-        type: 'optimized_stream'
-      });
-
-      if (this.detectionService.state === DetectionStates.READY) {
-        this.detectionService.setState(DetectionStates.RUNNING, `Started optimized stream for camera ${cameraId}`);
-      }
-
-      console.log(`✅ Successfully started optimized stream for camera ${cameraId}`);
-      return streamUrl;
-
-    } catch (error) {
-      console.error("❌ Error starting optimized stream:", error);
-      throw new Error(`Failed to start optimized stream: ${error.message}`);
-    }
-  }
-
-  async stopOptimizedDetectionFeed(cameraId, performShutdown = false) {
-    try {
-      const stream = this.detectionService.currentStreams.get(cameraId);
-      if (stream && stream.type && stream.type.includes('optimized')) {
-        console.log(`⏹️ Stopping optimized detection feed for camera ${cameraId}`);
-        
-        this.stopStatsMonitoring(cameraId);
-        
-        try {
-          await api.post(`/api/video_streaming/video/optimized/stream/${cameraId}/stop`);
-        } catch (error) {
-          console.warn(`⚠️ Error stopping optimized stream API for camera ${cameraId}:`, error.message);
-        }
-        
-        this.detectionService.currentStreams.delete(cameraId);
-        if (stream.streamKey) {
-          this.detectionService.detectionStats.delete(stream.streamKey);
-        }
-        
-        if (this.detectionService.currentStreams.size === 0 && this.detectionService.state === DetectionStates.RUNNING) {
-          this.detectionService.setState(DetectionStates.READY, 'All streams stopped');
-        }
-        
-        if (performShutdown && !this.detectionService.shouldUseBasicMode()) {
-          try {
-            console.log('🔄 Performing graceful detection shutdown...');
-            await this.detectionService.gracefulShutdown();
-            console.log('✅ Detection service gracefully shut down');
-          } catch (shutdownError) {
-            console.error('⚠️ Graceful shutdown failed, but stream stopped:', shutdownError.message);
-          }
-        }
-        
-        console.log(`✅ Successfully stopped optimized detection feed for camera ${cameraId}`);
-      }
-    } catch (error) {
-      console.error("❌ Error stopping optimized detection feed:", error);
-      throw error;
-    }
-  }
-
-  async stopOptimizedStream(cameraId) {
-    try {
-      const stream = this.detectionService.currentStreams.get(cameraId);
-      if (stream && stream.type && stream.type.includes('optimized')) {
-        console.log(`⏹️ Stopping optimized stream for camera ${cameraId}`);
-        
-        try {
-          await api.post(`/api/video_streaming/video/optimized/stream/${cameraId}/stop`);
-          await api.post("/api/artifact_keeper/camera/stop");
-        } catch (error) {
-          console.warn(`⚠️ Error stopping optimized stream API for camera ${cameraId}:`, error.message);
-        }
-        
-        this.detectionService.currentStreams.delete(cameraId);
-        
-        if (this.detectionService.currentStreams.size === 0 && this.detectionService.state === DetectionStates.RUNNING) {
-          this.detectionService.setState(DetectionStates.READY, 'All streams stopped');
-        }
-        
-        console.log(`✅ Successfully stopped optimized stream for camera ${cameraId}`);
-      }
-    } catch (error) {
-      console.error("❌ Error stopping optimized stream:", error);
-      throw error;
-    }
-  }
-
-async stopAllStreams(performShutdown = true) {
-    try {
-      console.log('🛑 Stopping all streams...');
-      
-      const stopPromises = Array.from(this.detectionService.currentStreams.keys()).map(cameraId => {
-        const stream = this.detectionService.currentStreams.get(cameraId);
-        if (stream.type && stream.type.startsWith('basic')) {
-          return this.stopBasicStream(cameraId);
-        } else {
-          return this.stopOptimizedDetectionFeed(cameraId, false);
-        }
-      });
-      
-      await Promise.allSettled(stopPromises);
-      
-      // Stop all streams on both endpoints
-      try {
-        if (this.detectionService.shouldUseOptimizedMode()) {
-          await api.post('/api/video_streaming/video/optimized/streams/stop_all');
-        }
-       
-      } catch (error) {
-        console.warn('⚠️ Error calling stop_all APIs:', error.message);
-      }
-      
-      // Unfreeze all frozen streams in basic mode
-      if (this.detectionService.shouldUseBasicMode()) {
-        const frozenStreams = this.detectionService.getFrozenStreams();
-        for (const frozenStream of frozenStreams) {
-          try {
-            await this.unfreezeStream(frozenStream.cameraId);
-          } catch (error) {
-            console.warn(`⚠️ Error unfreezing stream ${frozenStream.cameraId}:`, error.message);
-          }
-        }
-      }
-      
-      this.detectionService.currentStreams.clear();
-      this.detectionService.detectionStats.clear();
-      for (const cameraId of this.detectionService.eventListeners.keys()) {
-        this.stopStatsMonitoring(cameraId);
-      }
-      
-      if (this.detectionService.state === DetectionStates.RUNNING) {
-        this.detectionService.setState(DetectionStates.READY, 'All streams stopped');
-      }
-      
-      if (performShutdown) {
-        try {
-          console.log('🔄 Performing graceful detection shutdown after stopping all streams...');
-          await this.detectionService.gracefulShutdown();
-          console.log('✅ All streams stopped and detection service gracefully shut down');
-        } catch (shutdownError) {
-          console.error('⚠️ Graceful shutdown failed, but all streams stopped:', shutdownError.message);
-        }
-      }
-      
-      console.log("✅ Stopped all streams");
-    } catch (error) {
-      console.error("❌ Error stopping all streams:", error);
-      throw error;
-    }
-  }
 
   async ensureCameraStarted(cameraId) {
     try {
@@ -899,72 +526,7 @@ async stopAllStreams(performShutdown = true) {
     }
   }
 
-  // Stats monitoring methods (enhanced for mode awareness)
-  startStatsMonitoring = (cameraId, streamKey) => {
-    const pollInterval = setInterval(async () => {
-      if (this.detectionService.state === DetectionStates.SHUTTING_DOWN) {
-        console.log(`⏭️ Skipping stats update for camera ${cameraId} - system shutting down`);
-        return;
-      }
-
-      try {
-        let statsEndpoint = `/api/video_streaming/video/optimized/stats/${cameraId}`;
-        if (this.detectionService.shouldUseBasicMode()) {
-          statsEndpoint = `/api/video_streaming/video/basic/stats`;
-        }
-
-        const response = await api.get(statsEndpoint);
-        
-        let streamStats;
-        if (this.detectionService.shouldUseBasicMode()) {
-          // Basic mode returns different stats format
-          streamStats = response.data.stream_stats?.find(s => s.camera_id === cameraId);
-          
-          // Also get freeze status for basic mode
-          const freezeStatus = await this.getStreamFreezeStatus(cameraId);
-          if (streamStats) {
-            streamStats.is_frozen = freezeStatus.isFrozen;
-            streamStats.stream_active = freezeStatus.streamActive;
-          }
-        } else {
-          streamStats = response.data.streams?.[0];
-        }
-        
-        if (streamStats && this.detectionService.currentStreams.has(cameraId)) {
-          const currentStats = this.detectionService.detectionStats.get(streamKey) || {};
-          
-          const updatedStats = {
-            ...currentStats,
-            objectDetected: this.determineDetectionStatus(streamStats),
-            detectionCount: streamStats.detections_processed || currentStats.detectionCount,
-            nonTargetCount: streamStats.non_target_count || currentStats.nonTargetCount,
-            lastDetectionTime: streamStats.last_detection,
-            avgProcessingTime: streamStats.avg_detection_time_ms || streamStats.avg_processing_time || 0,
-            streamQuality: streamStats.current_quality || currentStats.streamQuality,
-            detectionFps: streamStats.detection_interval ? (25 / streamStats.detection_interval) : currentStats.detectionFps,
-            queueDepth: streamStats.detection_backlog || 0,
-            isStreamActive: streamStats.is_active,
-            isFrozen: streamStats.is_frozen || false,
-            mode: this.detectionService.currentStreamingType
-          };
-
-          this.detectionService.detectionStats.set(streamKey, updatedStats);
-          this.notifyStatsListeners(cameraId, updatedStats);
-        }
-      } catch (error) {
-        if (this.detectionService.state !== DetectionStates.SHUTTING_DOWN) {
-          console.debug("Error polling detection stats:", error);
-        }
-      }
-    }, 2000);
-
-    if (!this.detectionService.eventListeners.has(cameraId)) {
-      this.detectionService.eventListeners.set(cameraId, { pollInterval, listeners: [] });
-    } else {
-      this.detectionService.eventListeners.get(cameraId).pollInterval = pollInterval;
-    }
-  };
-
+  // Stats monitoring methods
   stopStatsMonitoring = (cameraId) => {
     const eventData = this.detectionService.eventListeners.get(cameraId);
     if (eventData?.pollInterval) {
@@ -1003,30 +565,7 @@ async stopAllStreams(performShutdown = true) {
     }
   };
 
-  determineDetectionStatus = (streamStats) => {
-    if (!streamStats.last_detection) return false;
-    const lastDetectionTime = new Date(streamStats.last_detection).getTime();
-    const now = Date.now();
-    return (now - lastDetectionTime) < 5000;
-  };
-
-  getDetectionStats = (cameraId) => {
-    const stream = this.detectionService.currentStreams.get(cameraId);
-    if (stream?.streamKey) {
-      return this.detectionService.detectionStats.get(stream.streamKey) || {
-        objectDetected: false,
-        detectionCount: 0,
-        nonTargetCount: 0,
-        lastDetectionTime: null,
-        avgProcessingTime: 0,
-        isFrozen: this.detectionService.isStreamFrozen(cameraId),
-        mode: this.detectionService.currentStreamingType
-      };
-    }
-    return null;
-  };
-
-  async getAllStreamingStats() {
+  async getAllBasicStreamingStats() {
     try {
       if (this.detectionService.state === DetectionStates.SHUTTING_DOWN) {
         return {
@@ -1036,73 +575,47 @@ async stopAllStreams(performShutdown = true) {
           system_load_percent: 0,
           memory_usage_mb: 0,
           frozen_streams: this.detectionService.getFrozenStreams().length,
-          mode: this.detectionService.currentStreamingType
+          mode: 'basic'
         };
       }
 
-      let statsEndpoint = '/api/video_streaming/video/optimized/stats';
-      if (this.detectionService.shouldUseBasicMode()) {
-        statsEndpoint = '/api/video_streaming/video/basic/stats';
-      }
-
-      const response = await api.get(statsEndpoint);
+      const response = await api.get('/api/video_streaming/video/basic/stats');
       
       // Add freeze information for basic mode
-      if (this.detectionService.shouldUseBasicMode()) {
-        response.data.frozen_streams = this.detectionService.getFrozenStreams().length;
-        response.data.live_streams = (response.data.total_active_streams || 0) - response.data.frozen_streams;
-      }
+      response.data.frozen_streams = this.detectionService.getFrozenStreams().length;
+      response.data.live_streams = (response.data.total_active_streams || 0) - response.data.frozen_streams;
       
-      return { ...response.data, mode: this.detectionService.currentStreamingType };
+      return { ...response.data, mode: 'basic' };
     } catch (error) { 
-      console.error("❌ Error getting streaming stats:", error);
+      console.error("❌ Error getting basic streaming stats:", error);
       throw error;
     }
   }
 
-  getPerformanceComparison = async () => {
-    try {
-      // Get comparison from optimized endpoint if available
-      if (this.detectionService.shouldUseOptimizedMode()) {
-        const response = await api.get('/api/video_streaming/video/optimized/performance/comparison');
-        return response.data;
-      } else {
-        // Return basic performance metrics for basic mode
-        const basicStats = await this.getAllStreamingStats();
-        return {
-          current_mode: 'basic',
-          basic_performance: basicStats,
-          optimized_performance: null,
-          recommendation: 'Basic mode - suitable for current system specifications',
-          freeze_capability: true,
-          on_demand_detection: true
-        };
-      }
-    } catch (error) {
-      console.error("❌ Error getting performance comparison:", error);
-      throw error;
-    }
-  };
-
-  // Legacy method compatibility
-  stopDetectionFeed = async (cameraId, performShutdown = true) => {
-    const stream = this.detectionService.currentStreams.get(cameraId);
-    if (stream) {
-      if (stream.type && stream.type.startsWith('basic')) {
-        return this.stopBasicStream(cameraId);
-      } else {
-        return this.stopOptimizedDetectionFeed(cameraId, performShutdown);
-      }
-    }
-  };
-
   cleanup = async () => { 
     try {
-      console.log('🧹 Starting StreamManager cleanup...');
-      await this.stopAllStreams(true);
-      console.log('✅ StreamManager cleanup completed');
+      console.log('🧹 Starting BasicStreamManager cleanup...');
+      
+      // Stop all basic streams
+      const basicStreams = Array.from(this.detectionService.currentStreams.entries())
+        .filter(([_, stream]) => stream.type && stream.type.startsWith('basic'));
+      
+      const stopPromises = basicStreams.map(([cameraId, _]) => this.stopBasicStream(cameraId));
+      await Promise.allSettled(stopPromises);
+      
+      // Unfreeze all frozen streams
+      const frozenStreams = this.detectionService.getFrozenStreams();
+      for (const frozenStream of frozenStreams) {
+        try {
+          await this.unfreezeStream(frozenStream.cameraId);
+        } catch (error) {
+          console.warn(`⚠️ Error unfreezing stream ${frozenStream.cameraId}:`, error.message);
+        }
+      }
+      
+      console.log('✅ BasicStreamManager cleanup completed');
     } catch (error) {
-      console.error("❌ Error during StreamManager cleanup:", error);
+      console.error("❌ Error during BasicStreamManager cleanup:", error);
     }
   };
 }

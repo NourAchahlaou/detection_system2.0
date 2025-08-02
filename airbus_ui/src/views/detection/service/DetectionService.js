@@ -1,6 +1,6 @@
 
 import { SystemProfiler } from './SystemProfiler';
-import { StreamManager } from './StreamManager';
+import { StreamManager } from './StreamManger/MainStreamManager';
 import { StateManager } from './StateManager';
 
 // Define the 4 states clearly
