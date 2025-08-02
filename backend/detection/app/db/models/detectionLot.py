@@ -10,11 +10,8 @@ class DetectionLot(Base):
     id = Column(Integer, primary_key=True, index=True)
     lot_name = Column(String, nullable=False)
     expected_piece_id = Column(Integer, nullable=False)
-    expected_piece_number = Column(Integer, nullable=False)
-    total_pieces_detected = Column(Integer, default=0)
-    correct_pieces_count = Column(Integer, default=0)
-    misplaced_pieces_count = Column(Integer, default=0)
-    detection_accuracy = Column(Float, default=0.0)  # Percentage
+    expected_piece_number = Column(Integer, nullable=False)  
+    is_target_match = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
     
