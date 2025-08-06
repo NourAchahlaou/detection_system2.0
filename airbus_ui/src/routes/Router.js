@@ -22,7 +22,7 @@ const Dataset = Loadable(lazy(() => import('../views/dataset/dataset')));
 const Detection = Loadable(lazy(() => import('../views/detection/Detection')));
 const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
 const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
-
+const DetectionLotsOverview = Loadable(lazy(() => import("../views/detection/DetectionLotsOverview")));
 const router = createBrowserRouter([
   // Root redirect to dashboard
   {
@@ -47,7 +47,10 @@ const router = createBrowserRouter([
         path: 'captureImage',
         element: <CaptureImage />,
       },
-
+      {
+        path: 'detectionLotsOverview',
+        element: <DetectionLotsOverview />,
+      },
       {
         path: 'profile',
         element: <UserProfile />,

@@ -68,7 +68,13 @@ class CaptureService:
         
         logger.info(f"Created/verified directory structure: {images_dir} and {labels_dir}")
         return images_dir, labels_dir
-
+    def get_piece_by_id(self, db: Session, piece_id: int) -> Piece:
+        """Get a piece by its ID."""
+        piece = db.query(Piece).filter(Piece.id == piece_id).first()
+        if not piece:
+            raise HTTPException(status_code=404, detail="Piece not found")
+        return piece
+    
     def _get_piece_images_path(self, piece_label: str) -> str:
         """Get the images directory path for a piece."""
         return os.path.join(self.dataset_piece_path, piece_label, "images", "valid")

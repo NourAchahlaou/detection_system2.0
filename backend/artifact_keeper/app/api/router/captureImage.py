@@ -44,6 +44,16 @@ async def capture_images(piece_label: str):
     """
     image_content = capture_service.capture_images(piece_label)
     return Response(content=image_content, media_type="image/jpeg")
+@captureImage_router.get("/piece_label_byid/{piece_id}", response_model=str)
+async def get_piece_labels_by_id(piece_id: int, db: db_dependency):
+    """
+    Get a piece label by its ID.    
+
+     """
+    piece = capture_service.get_piece_by_id(db, piece_id)
+    if not piece:
+        raise HTTPException(status_code=404, detail="Piece not found")
+    return piece.piece_label
 
 @captureImage_router.post("/cleanup-temp-photos", response_model=CleanupResponse)
 async def cleanup_temp_photos():
@@ -77,17 +87,11 @@ async def get_piece_by_label(piece_label: str, db: db_dependency):
     return piece
 
 @captureImage_router.get("/pieces", response_model=List[PieceResponse])
-async def get_all_pieces(db: db_dependency, skip: int = 0, limit: int = 100):
+async def get_all_pieces(db: db_dependency):
     """
     Get all pieces.
     """
-    from sqlalchemy.orm import joinedload
-    from artifact_keeper.app.db.models.piece import Piece
-    
-    pieces = db.query(Piece).options(
-        joinedload(Piece.images)
-    ).offset(skip).limit(limit).all()
-    
+    pieces = db.query(Piece).all()
     return pieces
 
 @captureImage_router.get("/circuit-breaker-status", response_model=Dict[str, CircuitBreakerStatusResponse])

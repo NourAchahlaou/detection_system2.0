@@ -50,7 +50,9 @@ export class StreamManager {
   async updateLotTargetMatchStatus(lotId, isTargetMatch) {
     return this.basicManager.updateLotTargetMatchStatus(lotId, isTargetMatch);
   }
-
+  async getAllDetectionLots() {
+    return this.basicManager.getAllDetectionLots();
+  }
   async getLotDetectionSessions(lotId) {
     return this.basicManager.getLotDetectionSessions(lotId);
   }

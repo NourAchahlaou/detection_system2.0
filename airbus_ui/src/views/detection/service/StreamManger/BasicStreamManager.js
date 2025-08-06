@@ -108,7 +108,7 @@ export class BasicStreamManager {
     try {
       console.log(`📦 Creating detection lot: '${lotName}' expecting piece ${expectedPieceNumber}`);
       
-      const response = await api.post('/api/detection/enhanced/lots', {
+      const response = await api.post('/api/detection/basic/lots', {
         lot_name: lotName,
         expected_piece_id: expectedPieceId,
         expected_piece_number: expectedPieceNumber
@@ -131,16 +131,19 @@ export class BasicStreamManager {
     }
   }
 
+  // FIXED: getDetectionLot method with consistent property naming
   async getDetectionLot(lotId) {
     try {
       console.log(`📦 Getting detection lot ${lotId}`);
       
-      const response = await api.get(`/api/detection/enhanced/lots/${lotId}`);
+      const response = await api.get(`/api/detection/basic/lots/${lotId}`);
 
       if (response.data.success) {
+        // FIXED: Return both 'lot' and 'lotData' for backward compatibility
         return {
           success: true,
-          lotData: response.data.data,
+          lot: response.data.data,        // For consistency with frontend expectations
+          lotData: response.data.data,    // For backward compatibility
           message: response.data.message
         };
       } else {
@@ -148,7 +151,19 @@ export class BasicStreamManager {
       }
     } catch (error) {
       console.error(`❌ Error getting detection lot ${lotId}:`, error);
-      throw new Error(`Failed to get lot: ${error.response?.data?.detail || error.message}`);
+      
+      // FIXED: Better error handling
+      const errorMessage = error.response?.data?.detail || 
+                          error.response?.data?.message || 
+                          error.message;
+      
+      return {
+        success: false,
+        lot: null,
+        lotData: null,
+        message: errorMessage,
+        error: errorMessage
+      };
     }
   }
 
@@ -156,7 +171,7 @@ export class BasicStreamManager {
     try {
       console.log(`📦 Updating lot ${lotId} target match status: ${isTargetMatch}`);
       
-      const response = await api.put(`/api/detection/enhanced/lots/${lotId}/status`, {
+      const response = await api.put(`/api/detection/basic/lots/${lotId}/status`, {
         is_target_match: isTargetMatch
       });
 
@@ -176,12 +191,31 @@ export class BasicStreamManager {
       throw new Error(`Failed to update lot status: ${error.response?.data?.detail || error.message}`);
     }
   }
+  async getAllDetectionLots() {
+    try {
+      console.log(`📦 Getting all detection lots`)
+      const response = await api.get('/api/detection/basic/all_lots');
+
+      if (response.data.success) {
+        return {
+          success: true,
+          lots: response.data.data,
+          message: response.data.message
+        };
+      } else {
+        throw new Error('Failed to get all detection lots');
+      }
+    } catch (error) {
+      console.error(`❌ Error getting all detection lots:`, error);
+      throw new Error(`Failed to get all lots: ${error.response?.data?.detail || error.message}`);
+    }
+  }
 
   async getLotDetectionSessions(lotId) {
     try {
       console.log(`📊 Getting detection sessions for lot ${lotId}`);
       
-      const response = await api.get(`/api/detection/enhanced/lots/${lotId}/sessions`);
+      const response = await api.get(`/api/detection/basic/lots/${lotId}/sessions`);
 
       if (response.data.success) {
         return {
@@ -225,7 +259,7 @@ export class BasicStreamManager {
         quality: quality
       };
 
-      const response = await api.post(`/api/detection/enhanced/detect/${cameraId}`, requestBody);
+      const response = await api.post(`/api/detection/basic/detect/${cameraId}`, requestBody);
 
       if (response.data.success) {
         const detectionData = response.data.data;
@@ -306,7 +340,7 @@ export class BasicStreamManager {
         quality: quality
       };
 
-      const response = await api.post(`/api/detection/enhanced/detect/${cameraId}/with-lot-creation`, requestBody);
+      const response = await api.post(`/api/detection/basic/detect/${cameraId}/with-lot-creation`, requestBody);
 
       if (response.data.success) {
         const lotData = response.data.lot_created;
@@ -390,7 +424,7 @@ export class BasicStreamManager {
         auto_complete_on_match: autoCompleteOnMatch
       };
 
-      const response = await api.post(`/api/detection/enhanced/detect/${cameraId}/with-auto-correction`, requestBody);
+      const response = await api.post(`/api/detection/basic/detect/${cameraId}/with-auto-correction`, requestBody);
 
       if (response.data.success) {
         const detectionData = response.data.detection_result;
@@ -462,7 +496,7 @@ export class BasicStreamManager {
     try {
       console.log(`🔥 Unfreezing stream after detection for camera ${cameraId}`);
       
-      const response = await api.post(`/api/detection/enhanced/stream/${cameraId}/unfreeze`);
+      const response = await api.post(`/api/detection/basic/stream/${cameraId}/unfreeze`);
 
       if (response.data.success) {
         this.detectionService.frozenStreams.delete(cameraId);

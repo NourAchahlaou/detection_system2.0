@@ -1,923 +1,710 @@
-// pages/AppDetection.jsx - Enhanced with Collapsible System Performance Panel
+// AppDetection.jsx - FIXED: Proper lot workflow initialization and state management
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { 
   Box, 
   Grid, 
   Stack, 
   Alert, 
   CircularProgress, 
-  Card,
-  CardContent,
-  Typography,
-  Chip,
-  Divider,
-  Button,
-  ButtonGroup,
-  IconButton,
-  Tooltip
-} from '@mui/material';
-import { 
-  Refresh, 
-  Speed, 
-  Computer, 
-  Smartphone,
-  CameraAlt,
-  AcUnit, // Freeze icon
-  Whatshot, // Unfreeze icon
-  PlayArrow
-} from '@mui/icons-material';
 
+  Button,
+
+  Snackbar
+} from '@mui/material';
+
+
+// Components
 import DetectionControls from "./components/DetectionControls";
 import DetectionVideoFeed from "./components/DetectionVideoFeed";
-import { cameraService } from "../captureImage/CameraService";
-import { detectionService } from "./service/DetectionService";
 import SystemPerformancePanel from "./components/SystemPerformancePanel";
-import BasicModeControls from "./components/BasicModeControls";
+import LotWorkflowPanel from "./components/LotWorkflowPanel";
+import InfoPanel from "./components/InfoPanel";
+// Services
+import { detectionService } from "./service/DetectionService";
+import { cameraService } from "../captureImage/CameraService";
 
-// Detection states from service
-const DetectionStates = {
-  INITIALIZING: 'INITIALIZING',
-  READY: 'READY', 
-  RUNNING: 'RUNNING',
-  SHUTTING_DOWN: 'SHUTTING_DOWN'
-};
+// Custom hooks
+import { 
+  useLotManagement, 
+  useDetectionSystem, 
+  useCameraManagement 
+} from "./hooks/AppDetectionHooks";
+import { 
+  useDetectionHandlers, 
+} from "./handlers/AppDetectionHandlers";
+
+// Utils
+import { 
+  initializeDetectionSystem,
+  createRetryInitialization,
+  getStateInfo,
+  getModeDisplayInfo,
+  createCleanupFunction,
+  DetectionStates
+} from "./utils/AppDetectionUtils";
 
 export default function AppDetection() {
-  // Core state management
-  const [targetLabel, setTargetLabel] = useState("");
-  const [cameraId, setCameraId] = useState("");
-  const [cameras, setCameras] = useState([]);
-  const [selectedCameraId, setSelectedCameraId] = useState('');
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   
-  // Detection service state
-  const [detectionState, setDetectionState] = useState(DetectionStates.INITIALIZING);
-  const [initializationError, setInitializationError] = useState(null);
-  const [systemHealth, setSystemHealth] = useState({
-    streaming: { status: 'unknown' },
-    detection: { status: 'unknown' },
-    overall: false
-  });
-
-  // Adaptive system state
-  const [systemProfile, setSystemProfile] = useState(null);
-  const [currentPerformanceMode, setCurrentPerformanceMode] = useState('basic');
-  const [currentStreamingType, setCurrentStreamingType] = useState('basic');
-  const [autoModeEnabled, setAutoModeEnabled] = useState(true);
-  const [systemCapabilities, setSystemCapabilities] = useState(null);
-  const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
-
-  // Basic mode specific state (moved from DetectionVideoFeed)
-  const [isStreamFrozen, setIsStreamFrozen] = useState(false);
-  const [onDemandDetecting, setOnDemandDetecting] = useState(false);
-  const [lastDetectionResult, setLastDetectionResult] = useState(null);
-  const [detectionInProgress, setDetectionInProgress] = useState(false);
-
-  // Panel state - NEW
-  const [isPanelOpen, setIsPanelOpen] = useState(false); // Start closed to save space
-
-  // Performance and optimization state
+  // UI State
+  const [targetLabel, setTargetLabel] = useState("");
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  
+  // Detection Options
   const [detectionOptions, setDetectionOptions] = useState({
     detectionFps: 5.0,
     streamQuality: 85,
     priority: 1,
     enableAdaptiveQuality: true,
-    enableFrameSkipping: true
+    enableFrameSkipping: true,
+    quality: 85
+  });
+
+  // FIXED: Enhanced lot workflow state with proper initialization tracking
+  const [selectedLotId, setSelectedLotId] = useState(null);
+  const [lotWorkflowActive, setLotWorkflowActive] = useState(false);
+  const [detectionHistory, setDetectionHistory] = useState([]);
+  const [isLotLoading, setIsLotLoading] = useState(false);
+  const [lotLoadInitialized, setLotLoadInitialized] = useState(false); // NEW: Track if lot loading was attempted
+
+  // Piece labels cache
+  const [pieceLabels, setPieceLabels] = useState(new Map());
+  const [loadingLabels, setLoadingLabels] = useState(new Set());
+
+  // Caching system
+  const lotsCache = useRef({
+    data: new Map(),
+    lastFetch: 0,
+    isValid: false,
+    fetchPromise: null
   });
   
-  const [globalStats, setGlobalStats] = useState({
-    totalStreams: 0,
-    avgProcessingTime: 0,
-    totalDetections: 0,
-    systemLoad: 0,
-    memoryUsage: 0
-  });
+  const LOTS_CACHE_DURATION = 30000; // 30 seconds cache
 
-  // Refs for lifecycle management
-  const statsInterval = useRef(null);
-  const cleanupRef = useRef(false);
-  const initializationAttempted = useRef(false);
-  const lastHealthCheck = useRef(null);
-  const stateChangeUnsubscribe = useRef(null);
-  const profileUpdateUnsubscribe = useRef(null);
-  const freezeListenerUnsubscribe = useRef(null);
-  const healthCheckPerformed = useRef({
-    initial: false,
-    postShutdown: false
-  });
+  // Custom hooks for state management
+  const lotManagement = useLotManagement(selectedLotId, lotWorkflowActive);
+  const detectionSystem = useDetectionSystem();
+  const cameraManagement = useCameraManagement();
 
-  // Subscribe to detection service state changes
-  useEffect(() => {
-    const unsubscribe = detectionService.addStateChangeListener((newState, oldState) => {
-      console.log(`🔄 Detection state changed: ${oldState} → ${newState}`);
-      setDetectionState(newState);
+  // Get StreamManager instance from detection service
+  const streamManager = detectionService.streamManager;
+
+  // Function to fetch piece label by ID
+  const fetchPieceLabel = useCallback(async (pieceId) => {
+    if (pieceLabels.has(pieceId) || loadingLabels.has(pieceId)) {
+      return pieceLabels.get(pieceId);
+    }
+
+    setLoadingLabels(prev => new Set(prev).add(pieceId));
+
+    try {
+      const response = await fetch(`/api/artifact_keeper/captureImage/piece_label_byid/${pieceId}`);
       
-      // Reset health check flags on state transitions
-      if (newState === DetectionStates.INITIALIZING) {
-        healthCheckPerformed.current.initial = false;
-        healthCheckPerformed.current.postShutdown = false;
-      } else if (newState === DetectionStates.READY && oldState === DetectionStates.SHUTTING_DOWN) {
-        // Allow post-shutdown health check
-        healthCheckPerformed.current.postShutdown = false;
+      if (response.ok) {
+        const label = await response.text();
+        const cleanLabel = label.replace(/^"|"$/g, '');
+        
+        setPieceLabels(prev => new Map(prev).set(pieceId, cleanLabel));
+        setLoadingLabels(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(pieceId);
+          return newSet;
+        });
+        
+        return cleanLabel;
+      } else {
+        throw new Error(`Failed to fetch piece label for ID ${pieceId}`);
       }
-    });
-    
-    stateChangeUnsubscribe.current = unsubscribe;
-    
-    // Get initial state
-    setDetectionState(detectionService.getState());
-    
-    return () => {
-      if (stateChangeUnsubscribe.current) {
-        stateChangeUnsubscribe.current();
-      }
-    };
-  }, []);
+    } catch (error) {
+      console.error(`Error fetching piece label for ID ${pieceId}:`, error);
+      setLoadingLabels(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(pieceId);
+        return newSet;
+      });
+      
+      const fallback = `Piece ${pieceId}`;
+      setPieceLabels(prev => new Map(prev).set(pieceId, fallback));
+      return fallback;
+    }
+  }, [pieceLabels, loadingLabels]);
 
-  // Subscribe to system profile updates
-  useEffect(() => {
-    const unsubscribe = detectionService.addProfileUpdateListener((profileData) => {
-      console.log(`📊 System profile updated`, profileData);
-      setSystemProfile(profileData.profile);
-      setCurrentPerformanceMode(profileData.performanceMode);
-      setCurrentStreamingType(profileData.streamingType);
-      setSystemCapabilities(profileData.capabilities);
-      setAutoModeEnabled(detectionService.autoModeEnabled);
-    });
-    
-    profileUpdateUnsubscribe.current = unsubscribe;
-    
-    // Get initial profile
-    const initialProfile = detectionService.getSystemProfile();
-    const initialMode = detectionService.getCurrentPerformanceMode();
-    const initialStreamingType = detectionService.getCurrentStreamingType();
-    const initialCapabilities = detectionService.getSystemCapabilities();
-    
-    if (initialProfile) {
-      setSystemProfile(initialProfile);
-      setCurrentPerformanceMode(initialMode);
-      setCurrentStreamingType(initialStreamingType);
-      setSystemCapabilities(initialCapabilities);
-      setAutoModeEnabled(detectionService.autoModeEnabled);
+  // Function to get piece label with loading state
+  const getPieceLabel = useCallback((pieceId) => {
+    if (pieceLabels.has(pieceId)) {
+      return pieceLabels.get(pieceId);
     }
     
-    return () => {
-      if (profileUpdateUnsubscribe.current) {
-        profileUpdateUnsubscribe.current();
-      }
-    };
-  }, []);
-
-  // Subscribe to freeze/unfreeze events for basic mode
-  useEffect(() => {
-    if (currentStreamingType !== 'basic' || !cameraId) return;
-    
-    const unsubscribe = detectionService.addFreezeListener((freezeEvent) => {
-      if (freezeEvent.cameraId !== parseInt(cameraId)) return;
-      
-      console.log(`🧊 Freeze event for camera ${cameraId}:`, freezeEvent);
-      setIsStreamFrozen(freezeEvent.status === 'frozen');
-    });
-    
-    freezeListenerUnsubscribe.current = unsubscribe;
-    
-    // Check initial freeze status
-    if (detectionService.isStreamFrozen && detectionService.isStreamFrozen(cameraId)) {
-      setIsStreamFrozen(true);
+    if (loadingLabels.has(pieceId)) {
+      return 'Loading...';
     }
     
-    return () => {
-      if (freezeListenerUnsubscribe.current) {
-        freezeListenerUnsubscribe.current();
+    // Trigger fetch
+    fetchPieceLabel(pieceId);
+    return `Piece ${pieceId}`;
+  }, [pieceLabels, loadingLabels, fetchPieceLabel]);
+
+  // FIXED: Enhanced lot loading function with better state management
+  const loadSelectedLot = useCallback(async (forceReload = false) => {
+    if (!selectedLotId) {
+      console.log('📋 No lot ID to load');
+      setLotLoadInitialized(true); // Mark as initialized even if no lot
+      return { success: false, message: 'No lot ID provided' };
+    }
+
+    // Don't reload if we already have the correct lot loaded unless forced
+    if (!forceReload && 
+        lotManagement.currentLot && 
+        lotManagement.currentLot.lot_id === selectedLotId &&
+        lotLoadInitialized) {
+      console.log('📋 Lot already loaded correctly:', lotManagement.currentLot.lot_name);
+      return { success: true, lot: lotManagement.currentLot };
+    }
+
+    setIsLotLoading(true);
+    
+    try {
+      console.log('📋 Loading selected lot:', selectedLotId);
+      
+      // Ensure StreamManager is available
+      if (!streamManager) {
+        throw new Error('StreamManager not available');
       }
-    };
-  }, [currentStreamingType, cameraId]);
+      
+      // Get lot details from StreamManager
+      const lotResult = await streamManager.getDetectionLot(selectedLotId);
+      
+      if (lotResult.success && (lotResult.lotData || lotResult.lot)) {
+        const lot = lotResult.lotData || lotResult.lot;
+        
+        // Fetch the piece label from API and add it to the lot object
+        let pieceLabel = lot.expected_piece_label;
+        if (!pieceLabel && lot.expected_piece_id) {
+          console.log('📋 Fetching piece label for ID:', lot.expected_piece_id);
+          pieceLabel = await fetchPieceLabel(lot.expected_piece_id);
+          lot.expected_piece_label = pieceLabel;
+        }
+        
+        // Set the current lot with the enhanced piece label
+        lotManagement.setCurrentLot(lot);
+        
+        // Set target label to the actual piece label
+        const targetLabelToUse = pieceLabel || `piece_${lot.expected_piece_id}`;
+        setTargetLabel(targetLabelToUse);
+        
+        // Activate lot workflow since we have a selected lot
+        setLotWorkflowActive(true);
+        
+        // Load detection history for this lot
+        try {
+          const historyResult = await streamManager.getLotDetectionSessions(selectedLotId);
+          if (historyResult.success) {
+            setDetectionHistory(historyResult.sessions || []);
+            console.log(`📋 Loaded ${historyResult.sessions?.length || 0} detection sessions`);
+          }
+        } catch (historyError) {
+          console.warn('📋 Failed to load detection history:', historyError);
+          setDetectionHistory([]);
+        }
+        
+        // Mark as initialized
+        setLotLoadInitialized(true);
+        
+        console.log('✅ Lot loaded successfully:', {
+          lotId: lot.lot_id,
+          lotName: lot.lot_name,
+          expectedPiece: targetLabelToUse,
+          isComplete: lot.is_target_match,
+          workflowActive: true
+        });
+        
+        return { success: true, lot };
+      } else {
+        throw new Error(`Lot not found or API error: ${lotResult.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('❌ Error loading selected lot:', error);
+      
+      let errorMessage = `Failed to load lot: ${error.message}`;
+      lotManagement.showSnackbar(errorMessage, 'error');
+      
+      // Mark as initialized even on error to prevent infinite loops
+      setLotLoadInitialized(true);
+      
+      return { success: false, error: errorMessage };
+    } finally {
+      setIsLotLoading(false);
+    }
+  }, [selectedLotId, lotManagement, streamManager, setTargetLabel, fetchPieceLabel, lotLoadInitialized]);
 
-  // Initialize system on component mount
+  // FIXED: Enhanced URL parameter handling with proper timing
   useEffect(() => {
-    const initializeSystem = async () => {
-      if (initializationAttempted.current) return;
-      initializationAttempted.current = true;
+    const lotIdFromUrl = searchParams.get('lotId');
+    const modeFromUrl = searchParams.get('mode');
+    
+    console.log('🔍 URL params check:', { 
+      lotIdFromUrl, 
+      modeFromUrl, 
+      currentSelectedLotId: selectedLotId,
+      streamManagerAvailable: !!streamManager 
+    });
+    
+    if (lotIdFromUrl && parseInt(lotIdFromUrl) !== selectedLotId) {
+      console.log('📋 New lot selected from URL:', lotIdFromUrl);
+      
+      const newLotId = parseInt(lotIdFromUrl);
+      setSelectedLotId(newLotId);
+      setLotLoadInitialized(false);
 
+    }
+  }, [searchParams, selectedLotId, streamManager]);
+
+  useEffect(() => {
+    if (selectedLotId && 
+        streamManager && 
+        (detectionSystem.detectionState === DetectionStates.READY || 
+         detectionSystem.detectionState === DetectionStates.INITIALIZING) &&
+        !lotLoadInitialized) {
+      
+      console.log('🔄 Conditions met, loading lot details:', {
+        selectedLotId,
+        detectionState: detectionSystem.detectionState,
+        lotLoadInitialized
+      });
+      
+      loadSelectedLot();
+    }
+  }, [selectedLotId, streamManager, detectionSystem.detectionState, lotLoadInitialized, loadSelectedLot]);
+
+  // Enhanced lots fetching with improved caching
+  const fetchExistingLotsEfficient = useCallback(async (forceRefresh = false) => {
+    const now = Date.now();
+    
+    if (!forceRefresh && 
+        lotsCache.current.isValid && 
+        lotsCache.current.data.size > 0 && 
+        (now - lotsCache.current.lastFetch) < LOTS_CACHE_DURATION) {
+      console.log('📋 Using cached lots data');
+      const cachedData = Array.from(lotsCache.current.data.values());
+      lotManagement.setExistingLots(cachedData);
+      return cachedData;
+    }
+
+    if (lotsCache.current.fetchPromise) {
+      console.log('📋 Fetch already in progress, waiting...');
       try {
-        console.log("🚀 Starting adaptive detection system initialization...");
-        
-        // Initialize detection processor (it will auto-select mode based on system)
-        const initResult = await detectionService.ensureInitialized();
-        
-        if (initResult.success) {
-          console.log("✅ Adaptive detection system initialized:", initResult.message);
-          console.log(`📊 Selected mode: ${initResult.mode || detectionService.getCurrentStreamingType()}`);
-          setInitializationError(null);
-          
-          // Perform initial health check right after initialization
-          await performInitialHealthCheck();
-          
-          // Start stats monitoring
-          startStatsMonitoring();
-          
-          console.log("✅ System initialization completed successfully");
-        } else {
-          throw new Error(initResult.message || 'Failed to initialize adaptive detection system');
-        }
-        
+        return await lotsCache.current.fetchPromise;
       } catch (error) {
-        console.error("❌ Error initializing adaptive system:", error);
-        setInitializationError(error.message);
+        console.warn('📋 Previous fetch failed, retrying');
+        lotsCache.current.fetchPromise = null;
       }
-    };
-
-    // Only initialize if in INITIALIZING state
-    if (detectionState === DetectionStates.INITIALIZING) {
-      initializeSystem();
     }
-    
-    return () => {
-      stopMonitoring();
-    };
-  }, [detectionState]);
 
-  // Watch for state transitions to trigger health checks
-  useEffect(() => {
-    const handleStateTransition = async () => {
-      if (detectionState === DetectionStates.READY) {
-        const serviceStatus = detectionService.getDetailedStatus();
+    // Don't fetch if StreamManager is not available yet
+    if (!streamManager) {
+      console.log('📋 StreamManager not available, skipping lots fetch');
+      return [];
+    }
+
+    lotsCache.current.fetchPromise = (async () => {
+      try {
+        console.log('📋 Fetching lots via StreamManager...');
+
+        const result = await streamManager.getAllDetectionLots();
+
+        if (result.success && result.lots) {
+          // Update cache atomically
+          lotsCache.current.data.clear();
+          result.lots.forEach(lot => {
+            lotsCache.current.data.set(lot.lot_id, lot);
+          });
+          lotsCache.current.lastFetch = now;
+          lotsCache.current.isValid = true;
+
+          // Update state
+          lotManagement.setExistingLots(result.lots);
+          
+          console.log(`✅ Fetched ${result.lots.length} lots`);
+          return result.lots;
+        } else {
+          throw new Error(result.message || 'Failed to fetch lots');
+        }
+
+      } catch (error) {
+        console.error('❌ Error fetching lots:', error);
+        lotsCache.current.isValid = false;
         
-        // If we just transitioned to READY after shutdown, perform post-shutdown health check
-        if (!healthCheckPerformed.current.postShutdown && 
-            !serviceStatus.hasPerformedPostShutdownCheck) {
-          console.log("🩺 Triggering post-shutdown health check...");
-          await performPostShutdownHealthCheck();
+        if (detectionSystem.detectionState !== DetectionStates.SHUTTING_DOWN) {
+          lotManagement.showSnackbar(`Failed to fetch lots: ${error.message}`, 'error');
         }
-        // If we just transitioned to READY after initialization, perform initial health check
-        else if (!healthCheckPerformed.current.initial && 
-                 !serviceStatus.hasPerformedInitialHealthCheck) {
-          console.log("🩺 Triggering initial health check...");
-          await performInitialHealthCheck();
-        }
+        
+        return lotManagement.existingLots;
+      } finally {
+        lotsCache.current.fetchPromise = null;
       }
-    };
+    })();
 
-    handleStateTransition();
-  }, [detectionState]);
+    return lotsCache.current.fetchPromise;
+  }, [streamManager, lotManagement, detectionSystem.detectionState]);
 
-  // Initial health check function
-  const performInitialHealthCheck = useCallback(async () => {
-    if (healthCheckPerformed.current.initial) {
-      console.log("⏭️ Initial health check already performed");
-      return;
-    }
-
-    if (detectionState === DetectionStates.SHUTTING_DOWN) {
-      console.log("⏭️ Skipping initial health check - system is shutting down");
-      return;
-    }
-
-    try {
-      console.log("🩺 Performing initial health check...");
-      const health = await detectionService.checkOptimizedHealth(true, false); // isInitialCheck = true
-      setSystemHealth(health);
-      lastHealthCheck.current = Date.now();
-      healthCheckPerformed.current.initial = true;
-      
-      console.log("✅ Initial health check completed:", health.overall ? "Healthy" : "Issues found");
-    } catch (error) {
-      console.error("Initial health check error:", error);
-      setSystemHealth({
-        streaming: { status: 'unhealthy', error: error.message },
-        detection: { status: 'unhealthy', error: error.message },
-        overall: false
-      });
-      lastHealthCheck.current = Date.now();
-      healthCheckPerformed.current.initial = true;
-    }
-  }, [detectionState]);
-
-  // Post-shutdown health check function
-  const performPostShutdownHealthCheck = useCallback(async () => {
-    if (healthCheckPerformed.current.postShutdown) {
-      console.log("⏭️ Post-shutdown health check already performed");
-      return;
-    }
-
-    try {
-      console.log("🩺 Performing post-shutdown health check...");
-      const health = await detectionService.checkOptimizedHealth(false, true); // isPostShutdownCheck = true
-      setSystemHealth(health);
-      lastHealthCheck.current = Date.now();
-      healthCheckPerformed.current.postShutdown = true;
-      
-      console.log("✅ Post-shutdown health check completed:", health.overall ? "Healthy" : "Issues found");
-    } catch (error) {
-      console.error("Post-shutdown health check error:", error);
-      setSystemHealth({
-        streaming: { status: 'unhealthy', error: error.message },
-        detection: { status: 'unhealthy', error: error.message },
-        overall: false
-      });
-      lastHealthCheck.current = Date.now();
-      healthCheckPerformed.current.postShutdown = true;
-    }
-  }, []);
-
-  // Manual retry initialization
-  const retryInitialization = useCallback(async () => {
-    initializationAttempted.current = false;
-    setInitializationError(null);
-    healthCheckPerformed.current.initial = false;
-    healthCheckPerformed.current.postShutdown = false;
+  // Enhanced detection handlers with proper lot context
+  const detectionHandlers = useDetectionHandlers({
+    cameraId: cameraManagement.cameraId,
+    targetLabel,
+    currentLot: lotManagement.currentLot,
+    detectionInProgress: detectionSystem.detectionInProgress,
+    detectionOptions,
+    detectionState: detectionSystem.detectionState,
+    currentStreamingType: detectionSystem.currentStreamingType,
+    systemHealth: detectionSystem.systemHealth,
+    cameras: cameraManagement.cameras,
+    lastHealthCheck: detectionSystem.lastHealthCheck,
+    selectedLotId,
+    lotWorkflowActive,
+    detectionHistory,
+    setIsProfileRefreshing: detectionSystem.setIsProfileRefreshing,
+    setDetectionInProgress: detectionSystem.setDetectionInProgress,
+    setOnDemandDetecting: detectionSystem.setOnDemandDetecting,
+    setLastDetectionResult: detectionSystem.setLastDetectionResult,
+    setIsStreamFrozen: detectionSystem.setIsStreamFrozen,
+    setCurrentLot: lotManagement.setCurrentLot,
+    setSelectedCameraId: cameraManagement.setSelectedCameraId,
+    setCameraId: cameraManagement.setCameraId,
+    setTargetLabel,
+    setDetectionOptions,
+    setDetectionHistory,
+    showSnackbar: lotManagement.showSnackbar,
+    fetchExistingLots: fetchExistingLotsEfficient,
+    performSingleHealthCheck: detectionSystem.performSingleHealthCheck,
+    performPostShutdownHealthCheck: detectionSystem.performPostShutdownHealthCheck,
+    loadSelectedLot,
     
-    try {
-      // Reset service to initializing state
-      detectionService.resetToInitializing('Manual retry');
-      
-      // Wait a moment for state to update
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // The useEffect will trigger initialization automatically
-      console.log("🔄 Retry initialization requested");
-      
-    } catch (error) {
-      console.error("❌ Error during retry initialization:", error);
-      setInitializationError(error.message);
-    }
-  }, []);
+    // Enhanced functions
+    streamManager,
+  });
 
-  // Basic mode: On-demand detection
-  const handleOnDemandDetection = async (options = {}) => {
-    if (!cameraId || !targetLabel) {
-      alert("Camera ID and target label are required for detection.");
-      return;
-    }
+  // Enhanced lot workflow handlers
+  const handleStartLotWorkflow = useCallback(async () => {
+    console.log('🚀 Starting lot workflow...', {
+      selectedLotId,
+      hasCurrentLot: !!lotManagement.currentLot,
+      cameraId: cameraManagement.cameraId,
+      targetLabel
+    });
 
-    if (detectionInProgress) {
-      console.log("🚫 Detection already in progress, skipping...");
-      return;
-    }
-
-    setOnDemandDetecting(true);
-    setDetectionInProgress(true);
-
-    try {
-      console.log(`🎯 Performing on-demand detection for camera ${cameraId}, target: ${targetLabel}`);
-      
-      const detectionResult = await detectionService.performOnDemandDetection(
-        parseInt(cameraId), 
-        targetLabel, 
-        {
-          quality: options.quality || 85,
-          autoUnfreeze: options.autoUnfreeze || false,
-          unfreezeDelay: options.unfreezeDelay || 2.0
-        }
-      );
-
-      setLastDetectionResult(detectionResult);
-      
-      // Update freeze status
-      if (detectionResult.streamFrozen && !detectionResult.autoUnfrozen) {
-        setIsStreamFrozen(true);
-      } else if (detectionResult.autoUnfrozen) {
-        setIsStreamFrozen(false);
-      }
-
-      console.log(`✅ On-demand detection completed. Detected: ${detectionResult.detected}, Confidence: ${detectionResult.confidence}`);
-
-    } catch (error) {
-      console.error("❌ On-demand detection failed:", error);
-      alert(`Detection failed: ${error.message}`);
-    } finally {
-      setOnDemandDetecting(false);
-      setDetectionInProgress(false);
-    }
-  };
-
-  // Basic mode: Freeze stream
-  const handleFreezeStream = async () => {
-    if (!cameraId) return;
-
-    try {
-      console.log(`🧊 Freezing stream for camera ${cameraId}`);
-      await detectionService.freezeStream(cameraId);
-      console.log(`✅ Stream frozen for camera ${cameraId}`);
-    } catch (error) {
-      console.error("❌ Error freezing stream:", error);
-      alert(`Failed to freeze stream: ${error.message}`);
-    }
-  };
-
-  // Basic mode: Unfreeze stream
-  const handleUnfreezeStream = async () => {
-    if (!cameraId) return;
-
-    try {
-      console.log(`🔥 Unfreezing stream for camera ${cameraId}`);
-      await detectionService.unfreezeStream(cameraId);
-      console.log(`✅ Stream unfrozen for camera ${cameraId}`);
-    } catch (error) {
-      console.error("❌ Error unfreezing stream:", error);
-      alert(`Failed to unfreeze stream: ${error.message}`);
-    }
-  };
-
-  // Force refresh system profile
-  const handleRefreshSystemProfile = useCallback(async () => {
-    setIsProfileRefreshing(true);
-    try {
-      console.log("🔄 Force refreshing system profile...");
-      const result = await detectionService.forceSystemProfileRefresh();
-      
-      if (result.success) {
-        console.log("✅ System profile refreshed successfully");
-        console.log(`📊 New mode: ${result.streamingType}, Performance: ${result.performanceMode}`);
-      }
-    } catch (error) {
-      console.error("❌ Error refreshing system profile:", error);
-      alert(`Failed to refresh system profile: ${error.message}`);
-    } finally {
-      setIsProfileRefreshing(false);
-    }
-  }, []);
-
-  // Manual mode switching functions
-  const handleSwitchToBasicMode = useCallback(async () => {
-    if (detectionState === DetectionStates.RUNNING) {
-      alert("Please stop detection before switching modes.");
-      return;
-    }
-
-    try {
-      const result = await detectionService.switchToBasicMode();
-      console.log("✅ Switched to basic mode:", result);
-    } catch (error) {
-      console.error("❌ Error switching to basic mode:", error);
-      alert(`Failed to switch to basic mode: ${error.message}`);
-    }
-  }, [detectionState]);
-
-  const handleSwitchToOptimizedMode = useCallback(async () => {
-    if (detectionState === DetectionStates.RUNNING) {
-      alert("Please stop detection before switching modes.");
-      return;
-    }
-
-    try {
-      const result = await detectionService.switchToOptimizedMode();
-      console.log("✅ Switched to optimized mode:", result);
-    } catch (error) {
-      console.error("❌ Error switching to optimized mode:", error);
-      alert(`Failed to switch to optimized mode: ${error.message}`);
-    }
-  }, [detectionState]);
-
-  const handleEnableAutoMode = useCallback(async () => {
-    try {
-      const result = await detectionService.enableAutoMode();
-      console.log("✅ Auto mode enabled:", result);
-    } catch (error) {
-      console.error("❌ Error enabling auto mode:", error);
-      alert(`Failed to enable auto mode: ${error.message}`);
-    }
-  }, []);
-
-  // Run performance test
-  const handleRunPerformanceTest = useCallback(async () => {
-    if (detectionState === DetectionStates.RUNNING) {
-      alert("Please stop detection before running performance test.");
-      return;
-    }
-
-    try {
-      console.log("🧪 Running performance test...");
-      const result = await detectionService.runPerformanceTest(10); // 10 seconds test
-      console.log("✅ Performance test completed:", result);
-      
-      // The profile will be updated automatically via the listener
-      alert(`Performance test completed. New performance score: ${result.performance_score}/100`);
-    } catch (error) {
-      console.error("❌ Error running performance test:", error);
-      alert(`Performance test failed: ${error.message}`);
-    }
-  }, [detectionState]);
-
-  // Stats monitoring (reduced frequency)
-  const startStatsMonitoring = useCallback(() => {
-    if (statsInterval.current) {
-      clearInterval(statsInterval.current);
-    }
-    
-    const updateGlobalStats = async () => {
-      if (detectionState === DetectionStates.SHUTTING_DOWN) {
-        console.log("⏭️ Skipping stats update - system is shutting down");
+    if (!lotManagement.currentLot && selectedLotId) {
+      console.log('📋 Current lot not loaded, loading it first...');
+      const loadResult = await loadSelectedLot();
+      if (!loadResult.success) {
+        lotManagement.showSnackbar(`Cannot start workflow: ${loadResult.error}`, 'error');
         return;
       }
-
-      try {
-        const stats = await detectionService.getAllStreamingStats();
-        
-        setGlobalStats({
-          totalStreams: stats.active_streams || 0,
-          avgProcessingTime: stats.avg_processing_time_ms || 0,
-          totalDetections: stats.total_detections || 0,
-          systemLoad: stats.system_load_percent || 0,
-          memoryUsage: stats.memory_usage_mb || 0
-        });
-      } catch (error) {
-        console.debug("Error fetching global stats:", error);
-      }
-    };
-
-    updateGlobalStats();
-    statsInterval.current = setInterval(updateGlobalStats, 10000);
-  }, [detectionState]);
-
-  // Stop all monitoring
-  const stopMonitoring = useCallback(() => {
-    console.log("🛑 Stopping all monitoring...");
-    
-    if (statsInterval.current) {
-      clearInterval(statsInterval.current);
-      statsInterval.current = null;
     }
-  }, []);
 
-  // Enhanced cleanup with proper shutdown signaling
-  useEffect(() => {
-    const handleBeforeUnload = async (event) => {
-      if (cleanupRef.current) return;
-      cleanupRef.current = true;
+    if (!selectedLotId || !lotManagement.currentLot) {
+      lotManagement.showSnackbar('Please select a lot first', 'error');
+      return;
+    }
+
+    if (!cameraManagement.cameraId) {
+      lotManagement.showSnackbar('Please select a camera first', 'error');
+      return;
+    }
+
+    setLotWorkflowActive(true);
+    console.log('✅ Starting detection with lot context');
+    await detectionHandlers.handleStartDetection();
+  }, [selectedLotId, lotManagement.currentLot, cameraManagement.cameraId, detectionHandlers, loadSelectedLot]);
+
+  const handleStopLotWorkflow = useCallback(async () => {
+    console.log('🛑 Stopping lot workflow');
+    
+    setLotWorkflowActive(false);
+    setSelectedLotId(null);
+    setDetectionHistory([]);
+    setLotLoadInitialized(false); // Reset initialization flag
+    
+    searchParams.delete('lotId');
+    searchParams.delete('mode');
+    setSearchParams(searchParams, { replace: true });
+    
+    await detectionHandlers.handleStopDetection();
+  }, [detectionHandlers, searchParams, setSearchParams]);
+
+  // Enhanced lot detection
+  const handleLotDetection = useCallback(async () => {
+    console.log('🎯 Lot detection requested...', {
+      selectedLotId,
+      hasCurrentLot: !!lotManagement.currentLot,
+      cameraId: cameraManagement.cameraId,
+      targetLabel
+    });
+
+    if (selectedLotId && !lotManagement.currentLot) {
+      console.log('📋 Loading lot before detection...');
+      const loadResult = await loadSelectedLot();
+      if (!loadResult.success) {
+        lotManagement.showSnackbar(`Cannot detect: ${loadResult.error}`, 'error');
+        return;
+      }
+    }
+
+    if (!selectedLotId || !cameraManagement.cameraId || !targetLabel) {
+      lotManagement.showSnackbar('Lot, camera, and target label are required', 'error');
+      return;
+    }
+
+    try {
+      detectionSystem.setDetectionInProgress(true);
       
-      try {
-        console.log("Performing cleanup...");
+      console.log(`🎯 Performing detection for lot ${selectedLotId}`);
+      
+      const result = await detectionHandlers.handleLotWorkflowDetection();
+
+      if (result && result.success) {
+        await loadSelectedLot(true);
         
-        // Stop all monitoring first
-        stopMonitoring();
-        
-        // Stop all detection services
-        if (detectionState === DetectionStates.RUNNING) {
-          await detectionService.stopAllStreams();
+        if (result.lotCompleted) {
+          lotManagement.showSnackbar('🎉 Lot completed successfully! All requirements met.', 'success');
+        } else {
+          lotManagement.showSnackbar(
+            result.detectionResult?.detected_target 
+              ? '✅ Target detected but lot needs verification. Continue detecting until correct.'
+              : '❌ Target not found. Please adjust the piece and try again.',
+            'info'
+          );
         }
-        
-        // Stop camera services
-        await cameraService.stopCamera();
-        await cameraService.cleanupTempPhotos();
-        
-        console.log("Cleanup completed");
-      } catch (error) {
-        console.error("Error during cleanup:", error);
+      }
+    } catch (error) {
+      console.error('❌ Error in lot detection:', error);
+      lotManagement.showSnackbar(`Detection failed: ${error.message}`, 'error');
+    } finally {
+      detectionSystem.setDetectionInProgress(false);
+    }
+  }, [selectedLotId, cameraManagement.cameraId, targetLabel, lotManagement, detectionSystem, loadSelectedLot, detectionHandlers]);
+
+  // Load initial lots once (only when StreamManager is available)
+  useEffect(() => {
+    let mounted = true;
+    
+    const loadInitialLots = async () => {
+      if (mounted && !lotsCache.current.isValid && streamManager) {
+        console.log('📋 Loading initial lots...');
+        await fetchExistingLotsEfficient(false);
       }
     };
+    
+    loadInitialLots();
+    
+    return () => {
+      mounted = false;
+    };
+  }, [streamManager, fetchExistingLotsEfficient]);
+
+  // System initialization effect
+  useEffect(() => {
+    const initialize = async () => {
+      if (detectionSystem.detectionState === DetectionStates.INITIALIZING && 
+          !detectionSystem.initializationAttempted.current) {
+        
+        await initializeDetectionSystem(
+          detectionSystem.initializationAttempted,
+          detectionSystem.setInitializationError,
+          detectionSystem.performInitialHealthCheck,
+          detectionSystem.startStatsMonitoring
+        );
+      }
+    };
+
+    initialize();
+    
+    return () => {
+      detectionSystem.stopMonitoring();
+    };
+  }, [detectionSystem.detectionState]);
+
+  // Enhanced cleanup
+  useEffect(() => {
+    const handleBeforeUnload = createCleanupFunction(
+      detectionSystem.cleanupRef,
+      detectionSystem.stopMonitoring,
+      detectionSystem.detectionState,
+      cameraService
+    );
     
     window.addEventListener("beforeunload", handleBeforeUnload);
     
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       handleBeforeUnload();
+      lotsCache.current.data.clear();
+      lotsCache.current.isValid = false;
+      if (lotsCache.current.fetchPromise) {
+        lotsCache.current.fetchPromise = null;
+      }
     };
-  }, [detectionState, stopMonitoring]);
-  
-  // Fetch available cameras with error handling
+  }, [detectionSystem.detectionState, detectionSystem.stopMonitoring, detectionSystem.cleanupRef]);
+
+  // Health check state transitions
   useEffect(() => {
-    const fetchCameras = async () => {
-      try {
-        const cameraData = await cameraService.getAllCameras();
-        setCameras(cameraData);
-        console.log(`Loaded ${cameraData.length} cameras`);
-      } catch (error) {
-        console.error("Error fetching cameras:", error);
-        setCameras([]);
-      }
-    };
-    
-    fetchCameras();
-  }, []);
-
-  // Handle camera selection with validation
-  const handleCameraChange = useCallback((event) => {
-    const selectedCameraId = event.target.value;
-    console.log("Camera selection changed:", selectedCameraId);
-    
-    const cameraExists = cameras.some(cam => cam.id.toString() === selectedCameraId.toString());
-    if (cameraExists || selectedCameraId === '') {
-      setSelectedCameraId(selectedCameraId);
-      setCameraId(selectedCameraId);
-    } else {
-      console.warn("Selected camera not found in available cameras");
-      alert("Selected camera is not available. Please choose a different camera.");
-    }
-  }, [cameras]);
-  
-  // Enhanced detection start with state validation
-  const handleStartDetection = useCallback(async () => {
-    // Comprehensive validation
-    if (!cameraId || cameraId === '') {
-      alert("Please select a camera first.");
-      return;
-    }
-    
-    if (!targetLabel || targetLabel.trim() === '') {
-      alert("Please enter a target label for detection.");
-      return;
-    }
-    
-    // Perform health check before starting detection if not done recently
-    const timeSinceLastCheck = lastHealthCheck.current ? Date.now() - lastHealthCheck.current : Infinity;
-    if (timeSinceLastCheck > 30000 || !systemHealth.overall) { // 30 seconds
-      console.log("🩺 Checking system health before starting detection...");
-      await performSingleHealthCheck();
-    }
-    
-    if (!systemHealth.overall) {
-      const proceed = window.confirm(
-        `System health check indicates issues (${currentStreamingType} mode). Do you want to proceed anyway?`
-      );
-      if (!proceed) return;
-    }
-    
-    // Validate camera still exists
-    const cameraExists = cameras.some(cam => cam.id.toString() === cameraId.toString());
-    if (!cameraExists) {
-      alert("Selected camera is no longer available. Please detect cameras and select a new one.");
-      return;
-    }
-    
-    console.log(`Starting ${currentStreamingType} detection with options:`, detectionOptions);
-  }, [cameraId, targetLabel, detectionState, systemHealth.overall, cameras, detectionOptions, currentStreamingType]);
-  
-  // Enhanced detection stop
-  const handleStopDetection = useCallback(async () => {
-    console.log(`Stopping ${currentStreamingType} detection...`);
-    
-    // Reset basic mode states
-    setIsStreamFrozen(false);
-    setLastDetectionResult(null);
-    setOnDemandDetecting(false);
-    setDetectionInProgress(false);
-    
-    // Perform post-shutdown health check after shutdown to verify clean state
-    setTimeout(async () => {
-      console.log("🩺 Checking system health after detection stop...");
-      await performPostShutdownHealthCheck();
-    }, 3000); // Wait 3 seconds for shutdown to complete
-  }, [performPostShutdownHealthCheck, currentStreamingType]);
-
-  // Single health check function (for manual checks)
-  const performSingleHealthCheck = useCallback(async () => {
-    if (detectionState === DetectionStates.SHUTTING_DOWN) {
-      console.log("⏭️ Skipping health check - system is shutting down");
-      return;
-    }
-
-    try {
-      console.log(`🩺 Performing manual health check (${currentStreamingType} mode)...`);
-      const health = await detectionService.checkOptimizedHealth();
-      setSystemHealth(health);
-      lastHealthCheck.current = Date.now();
-      
-      if (!health.overall) {
-        console.warn("System health check failed:", health);
-      }
-      
-      console.log("✅ Manual health check completed:", health.overall ? "Healthy" : "Issues found");
-    } catch (error) {
-      console.error("Manual health check error:", error);
-      setSystemHealth({
-        streaming: { status: 'unhealthy', error: error.message },
-        detection: { status: 'unhealthy', error: error.message },
-        overall: false
-      });
-      lastHealthCheck.current = Date.now();
-    }
-  }, [detectionState, currentStreamingType]);
-
-  // Handle target label changes with validation
-  const handleTargetLabelChange = useCallback((event) => {
-    const value = event.target.value;
-    const sanitizedValue = value.replace(/[<>"/\\&]/g, '');
-    setTargetLabel(sanitizedValue);
-  }, []);
-
-  // Enhanced camera detection with better error handling
-  const handleDetectCameras = useCallback(async () => {
-    setIsDetecting(true);
-    try {
-      console.log("Detecting available cameras...");
-      const detectedCameras = await cameraService.detectCameras();
-      setCameras(detectedCameras);
-      
-      if (selectedCameraId && !detectedCameras.some(cam => cam.id.toString() === selectedCameraId.toString())) {
-        console.log("Previously selected camera no longer available, resetting selection");
-        setSelectedCameraId('');
-        setCameraId('');
+    const handleStateTransition = async () => {
+      if (detectionSystem.detectionState === DetectionStates.READY) {
+        const serviceStatus = detectionService.getDetailedStatus();
         
-        if (detectionState === DetectionStates.RUNNING) {
-          alert("The camera currently in use is no longer available. Detection has been stopped.");
-          // The service will handle state transitions
+        if (!detectionSystem.healthCheckPerformed.current.postShutdown && 
+            !serviceStatus.hasPerformedPostShutdownCheck) {
+          console.log("🩺 Triggering post-shutdown health check...");
+          await detectionSystem.performPostShutdownHealthCheck();
+        } else if (!detectionSystem.healthCheckPerformed.current.initial && 
+                   !serviceStatus.hasPerformedInitialHealthCheck) {
+          console.log("🩺 Triggering initial health check...");
+          await detectionSystem.performInitialHealthCheck();
         }
       }
-      
-      console.log(`Successfully detected ${detectedCameras.length} cameras`);
-    } catch (error) {
-      console.error("Error detecting cameras:", error);
-      alert(`Camera detection failed: ${error.message}`);
-    } finally {
-      setIsDetecting(false);
-    }
-  }, [selectedCameraId, detectionState]);
-
-  // Handle detection options changes
-  const handleDetectionOptionsChange = useCallback((newOptions) => {
-    setDetectionOptions(prev => ({
-      ...prev,
-      ...newOptions
-    }));
-    console.log("Detection options updated:", newOptions);
-  }, []);
-
-  // Manual health check button handler
-  const handleManualHealthCheck = useCallback(async () => {
-    console.log("🩺 Manual health check requested...");
-    await performSingleHealthCheck();
-  }, [performSingleHealthCheck]);
-
-  // Performance status color helper
-  const getPerformanceColor = (value, thresholds) => {
-    if (value < thresholds.good) return 'success';
-    if (value < thresholds.warning) return 'warning';
-    return 'error';
-  };
-
-  // Helper to show when last health check was performed
-  const getHealthCheckAge = () => {
-    if (!lastHealthCheck.current) return 'Never';
-    const ageMs = Date.now() - lastHealthCheck.current;
-    const ageSeconds = Math.floor(ageMs / 1000);
-    if (ageSeconds < 60) return `${ageSeconds}s ago`;
-    const ageMinutes = Math.floor(ageSeconds / 60);
-    return `${ageMinutes}m ago`;
-  };
-
-  // Get state-specific styling and messages
-  const getStateInfo = () => {
-    switch (detectionState) {
-      case DetectionStates.INITIALIZING:
-        return {
-          color: 'info',
-          message: 'Initializing adaptive detection system...',
-          canOperate: false
-        };
-      case DetectionStates.READY:
-        return {
-          color: 'success',
-          message: `System ready for ${currentStreamingType} detection`,
-          canOperate: true
-        };
-      case DetectionStates.RUNNING:
-        return {
-          color: 'warning',
-          message: `${currentStreamingType.toUpperCase()} detection active`,
-          canOperate: true
-        };
-      case DetectionStates.SHUTTING_DOWN:
-        return {
-          color: 'error',
-          message: 'System shutting down...',
-          canOperate: false
-        };
-      default:
-        return {
-          color: 'default',
-          message: 'Unknown state',
-          canOperate: false
-        };
-    }
-  };
-
-  // Get mode display info
-  const getModeDisplayInfo = () => {
-    const isBasic = currentStreamingType === 'basic';
-    return {
-      icon: isBasic ? <Smartphone /> : <Computer />,
-      color: isBasic ? 'warning' : 'success',
-      description: isBasic 
-        ? 'On-Demand Detection - Captures single frames when requested' 
-        : 'Real-Time Detection - Continuous video stream analysis'
     };
-  };
 
-  const stateInfo = getStateInfo();
-  const modeInfo = getModeDisplayInfo();
-  const isBasicMode = currentStreamingType === 'basic';
-  const isDetectionRunning = detectionState === DetectionStates.RUNNING;
+    handleStateTransition();    
+  }, [detectionSystem.detectionState]);
+
+  // Enhanced camera detection
+  const handleDetectCameras = useCallback(async () => {
+    await cameraManagement.handleDetectCameras(lotManagement.showSnackbar);
+    
+    if (cameraManagement.selectedCameraId && 
+        !cameraManagement.cameras.some(cam => cam.id.toString() === cameraManagement.selectedCameraId.toString())) {
+      if (!lotWorkflowActive) {
+        lotManagement.setCurrentLot(null);
+      }
+      detectionSystem.setLastDetectionResult(null);
+      detectionSystem.setIsStreamFrozen(false);
+    }
+  }, [cameraManagement, lotManagement, detectionSystem, lotWorkflowActive]);
+  const retryInitialization = createRetryInitialization(
+    detectionSystem.initializationAttempted,
+    detectionSystem.setInitializationError,
+    detectionSystem.healthCheckPerformed
+  );
+  const stateInfo = getStateInfo(detectionSystem.detectionState, detectionSystem.currentStreamingType);
+  const modeInfo = getModeDisplayInfo(detectionSystem.currentStreamingType);
+  const isBasicMode = detectionSystem.currentStreamingType === 'basic';
+  const isDetectionRunning = detectionSystem.detectionState === DetectionStates.RUNNING;
+  const showLotWorkflowPanel = lotWorkflowActive && selectedLotId;
+  const showLotFormInSidebar = !isDetectionRunning && detectionSystem.detectionState === DetectionStates.READY && !showLotWorkflowPanel;
+  const showPerformancePanel = true;
+
+  // Debug logging
+  useEffect(() => {
+    console.log('🔍 Component state debug:', {
+      selectedLotId,
+      lotWorkflowActive,
+      hasCurrentLot: !!lotManagement.currentLot,
+      currentLotId: lotManagement.currentLot?.lot_id,
+      currentLotName: lotManagement.currentLot?.lot_name,
+      detectionState: detectionSystem.detectionState,
+      currentStreamingType: detectionSystem.currentStreamingType,
+      targetLabel,
+      isLotLoading,
+      lotLoadInitialized,
+      streamManagerAvailable: !!streamManager
+    });
+  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager]);
 
 return (
-    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-      {/* Adaptive System Status Alert */}
-      {detectionState === DetectionStates.INITIALIZING && (
-        <Alert 
-          severity="info" 
-          sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
-          icon={<CircularProgress size={20} />}
-        >
-          Initializing adaptive detection system... Analyzing system capabilities.
-        </Alert>
-      )}
+  <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
+    {/* Clean Info Panel - Replace all the Alert components */}
+    <InfoPanel
+      showLotWorkflowPanel={showLotWorkflowPanel && lotManagement.currentLot}
+      currentLot={lotManagement.currentLot}
+      detectionHistory={detectionHistory}
+      getPieceLabel={getPieceLabel}
+      onStopLotWorkflow={handleStopLotWorkflow}
+      isBasicMode={isBasicMode && lotManagement.currentLot && !showLotWorkflowPanel}
+      detectionState={detectionSystem.detectionState}
+      systemProfile={detectionSystem.systemProfile}
+      currentStreamingType={detectionSystem.currentStreamingType}
+      isProfileRefreshing={detectionSystem.isProfileRefreshing}
+      onRefreshSystemProfile={detectionHandlers.handleRefreshSystemProfile}
+      onRunPerformanceTest={detectionHandlers.handleRunPerformanceTest}
+      DetectionStates={DetectionStates}
+    />
 
-      {detectionState === DetectionStates.SHUTTING_DOWN && (
-        <Alert 
-          severity="warning" 
-          sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
-          icon={<CircularProgress size={20} />}
-        >
-          System is shutting down... Please wait.
-        </Alert>
-      )}
+    {/* Keep only the Loading indicator for lot loading */}
+    {isLotLoading && (
+      <Alert 
+        severity="info" 
+        sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
+        icon={<CircularProgress size={20} />}
+      >
+        Loading lot details for lot {selectedLotId}...
+      </Alert>
+    )}
 
-      {/* System Mode Information */}
-      {detectionState === DetectionStates.READY && systemProfile && (
-        <Alert 
-          severity="info" 
-          sx={{ mb: 2 }}
-          icon={modeInfo.icon}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-            <Box>
-              <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                {currentStreamingType.toUpperCase()} MODE SELECTED
-              </Typography>
-              <Typography variant="body2">
-                {modeInfo.description}
-              </Typography>
-              <Typography variant="caption" color="textSecondary">
-                Performance Score: {systemProfile.performance_score}/100 | 
-                CPU: {systemProfile.cpu_cores} cores | 
-                RAM: {systemProfile.available_memory_gb}GB | 
-                GPU: {systemProfile.gpu_available ? systemProfile.gpu_name : 'None'}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Tooltip title="Refresh System Profile">
-                <IconButton 
-                  size="small" 
-                  onClick={handleRefreshSystemProfile}
-                  disabled={isProfileRefreshing}
-                >
-                  <Refresh />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Run Performance Test">
-                <IconButton 
-                  size="small" 
-                  onClick={handleRunPerformanceTest}
-                  disabled={detectionState !== DetectionStates.READY}
-                >
-                  <Speed />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          </Box>
-        </Alert>
-      )}
+    {/* Keep only the System Status Alerts for initialization/shutdown */}
+    {detectionSystem.detectionState === DetectionStates.INITIALIZING && (
+      <Alert 
+        severity="info" 
+        sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
+        icon={<CircularProgress size={20} />}
+      >
+        Initializing adaptive detection system... Analyzing system capabilities.
+      </Alert>
+    )}
 
-      {/* System Status Alerts */}
-      {initializationError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Adaptive system initialization failed: {initializationError}
-          <Box sx={{ mt: 1 }}>
-            <Button 
-              variant="outlined" 
-              size="small" 
-              onClick={retryInitialization}
-              disabled={detectionState === DetectionStates.INITIALIZING || detectionState === DetectionStates.SHUTTING_DOWN}
-            >
-              {detectionState === DetectionStates.INITIALIZING ? 'Initializing...' : 'Retry Initialization'}
-            </Button>
-          </Box>
-          <br />
-          <small>If the issue persists, try refreshing the page or contact support.</small>
-        </Alert>
-      )}
-      
-      {!systemHealth.overall && detectionState === DetectionStates.READY && !initializationError && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          System health check indicates issues in {currentStreamingType} mode. Detection may not work optimally.
-          <br />
-          <small>
-            Streaming: {systemHealth.streaming.status} | 
-            Detection: {systemHealth.detection.status} | 
-            Last checked: {getHealthCheckAge()}
-          </small>
-          <Box sx={{ mt: 1 }}>
-            <Button 
-              variant="outlined" 
-              size="small" 
-              onClick={handleManualHealthCheck}
-              disabled={detectionState !== DetectionStates.READY}
-            >
-              Check Health Now
-            </Button>
-          </Box>
-        </Alert>
-      )}
+    {detectionSystem.detectionState === DetectionStates.SHUTTING_DOWN && (
+      <Alert 
+        severity="warning" 
+        sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
+        icon={<CircularProgress size={20} />}
+      >
+        System is shutting down... Please wait.
+      </Alert>
+    )}
+
+    {/* Keep only the Error and Health Alerts - these are critical */}
+    {detectionSystem.initializationError && (
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Adaptive system initialization failed: {detectionSystem.initializationError}
+        <Box sx={{ mt: 1 }}>
+          <Button 
+            variant="outlined" 
+            size="small" 
+            onClick={retryInitialization}
+            disabled={detectionSystem.detectionState === DetectionStates.INITIALIZING || 
+                     detectionSystem.detectionState === DetectionStates.SHUTTING_DOWN}
+          >
+            {detectionSystem.detectionState === DetectionStates.INITIALIZING ? 'Initializing...' : 'Retry Initialization'}
+          </Button>
+        </Box>
+        <br />
+        <small>If the issue persists, try refreshing the page or contact support.</small>
+      </Alert>
+    )}
+    
+    {!detectionSystem.systemHealth.overall && 
+     detectionSystem.detectionState === DetectionStates.READY && 
+     !detectionSystem.initializationError && (
+      <Alert severity="warning" sx={{ mb: 2 }}>
+        System health check indicates issues in {detectionSystem.currentStreamingType} mode. Detection may not work optimally.
+        <br />
+        <small>
+          Streaming: {detectionSystem.systemHealth.streaming.status} | 
+          Detection: {detectionSystem.systemHealth.detection.status} | 
+          Last checked: {detectionSystem.getHealthCheckAge()}
+        </small>
+        <Box sx={{ mt: 1 }}>
+          <Button 
+            variant="outlined" 
+            size="small" 
+            onClick={detectionHandlers.handleManualHealthCheck}
+            disabled={detectionSystem.detectionState !== DetectionStates.READY}
+          >
+            Check Health Now
+          </Button>
+        </Box>
+      </Alert>
+    )}
+
       
       <Grid container spacing={2} columns={12} sx={{ mb: 2 }}>
         {/* Main Content */}
@@ -927,99 +714,138 @@ return (
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'center', // Centers the content vertically
-              minHeight: { xs: 'auto', md: '500px' } // Match approximate height with sidebar
+              justifyContent: 'center',
+              minHeight: { xs: 'auto', md: '500px' }
             }}
           >
             <Stack spacing={3}>
               <DetectionControls
                 targetLabel={targetLabel}
-                onTargetLabelChange={handleTargetLabelChange}
-                selectedCameraId={selectedCameraId}
-                onCameraChange={handleCameraChange}
-                cameras={cameras}
+                onTargetLabelChange={detectionHandlers.handleTargetLabelChange}
+                selectedCameraId={cameraManagement.selectedCameraId}
+                onCameraChange={detectionHandlers.handleCameraChange}
+                cameras={cameraManagement.cameras}
                 onDetectCameras={handleDetectCameras}
-                isDetecting={isDetecting}
-                isSystemReady={stateInfo.canOperate && detectionState === DetectionStates.READY}
-                systemHealth={systemHealth}
+                isDetecting={cameraManagement.isDetecting}
+                isSystemReady={stateInfo.canOperate && detectionSystem.detectionState === DetectionStates.READY}
+                systemHealth={detectionSystem.systemHealth}
                 detectionOptions={detectionOptions}
-                onDetectionOptionsChange={handleDetectionOptionsChange}
-                detectionState={detectionState}
+                onDetectionOptionsChange={detectionHandlers.handleDetectionOptionsChange}
+                detectionState={detectionSystem.detectionState}
+                selectedLotId={selectedLotId}
+                lotWorkflowActive={lotWorkflowActive}
+                currentLot={lotManagement.currentLot}
               />
               
               <DetectionVideoFeed
-                isDetectionActive={detectionState === DetectionStates.RUNNING}
-                onStartDetection={handleStartDetection}
-                onStopDetection={handleStopDetection}
-                cameraId={cameraId}
+                isDetectionActive={detectionSystem.detectionState === DetectionStates.RUNNING}
+                onStartDetection={lotWorkflowActive ? handleStartLotWorkflow : detectionHandlers.handleStartDetection}
+                onStopDetection={lotWorkflowActive ? handleStopLotWorkflow : detectionHandlers.handleStopDetection}
+                cameraId={cameraManagement.cameraId}
                 targetLabel={targetLabel}
                 isSystemReady={stateInfo.canOperate}
                 detectionOptions={detectionOptions}
-                detectionState={detectionState}
+                detectionState={detectionSystem.detectionState}
+                lotWorkflowActive={lotWorkflowActive}
+                selectedLotId={selectedLotId}
+                currentLot={lotManagement.currentLot}
               />
             </Stack>
           </Box>
         </Grid>
 
-        {/* System Performance Panel with Basic Mode Controls at Top */}
+        {/* Right Sidebar - Fixed Layout */}
         <Grid size={{ xs: 12, md: 3 }}>
           <Box
             sx={{
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'center', // Centers vertically
-              alignItems: 'stretch', // Full width components
-              minHeight: { xs: 'auto', md: '500px' }, // Match approximate video card height
-              py: 2 // Some padding for mobile
+              justifyContent: 'flex-start',
+              alignItems: 'stretch',
+              minHeight: { xs: 'auto', md: '500px' },
+              py: 2,
+              position: 'relative',
+              zIndex: 'auto'
             }}
           >
-            <Stack spacing={2}>
-              {/* Basic Mode Detection Controls - NOW AT TOP */}
-              {isBasicMode && isDetectionRunning && !isPanelOpen && (
-                <Box
-                  sx={{
-
-                    zIndex: 1000,
-                    maxWidth: 300
-                  }}
-                >
-                  <BasicModeControls
-                    isStreamFrozen={isStreamFrozen}
-                    onDemandDetecting={onDemandDetecting}
-                    detectionInProgress={detectionInProgress}
-                    lastDetectionResult={lastDetectionResult}
+            <Stack spacing={2} sx={{ height: '100%' }}>
+              
+              {/* Lot Workflow Panel (highest priority) */}
+              {showLotWorkflowPanel && (
+                <Box sx={{ 
+                  position: 'static',
+                  zIndex: 'auto',
+                  maxWidth: '100%',
+                  flex: '1 1 auto'
+                }}>
+                  <LotWorkflowPanel
+                    currentLot={lotManagement.currentLot}
+                    selectedLotId={selectedLotId}
+                    detectionHistory={detectionHistory}
+                    detectionInProgress={detectionSystem.detectionInProgress}
+                    onDemandDetecting={detectionSystem.onDemandDetecting}
+                    lastDetectionResult={detectionSystem.lastDetectionResult}
+                    isStreamFrozen={detectionSystem.isStreamFrozen}
                     targetLabel={targetLabel}
-                    onOnDemandDetection={handleOnDemandDetection}
-                    onFreezeStream={handleFreezeStream}
-                    onUnfreezeStream={handleUnfreezeStream}
+                    onDetectLot={handleLotDetection}
+                    onFreezeStream={detectionHandlers.handleFreezeStream}
+                    onUnfreezeStream={detectionHandlers.handleUnfreezeStream}
+                    onStopWorkflow={handleStopLotWorkflow}
+                    onReloadHistory={() => loadSelectedLot(true)}
+                    streamManager={streamManager}
                   />
                 </Box>
               )}
               
-              {/* System Performance Panel - Collapsible Version */}
-              <SystemPerformancePanel
-                detectionState={detectionState}
-                systemHealth={systemHealth}
-                globalStats={globalStats}
-                detectionOptions={detectionOptions}
-                healthCheckPerformed={healthCheckPerformed}
-                autoModeEnabled={autoModeEnabled}
-                isBasicMode={isBasicMode}
-                getHealthCheckAge={getHealthCheckAge}
-                handleManualHealthCheck={handleManualHealthCheck}
-                handleSwitchToBasicMode={handleSwitchToBasicMode}
-                handleSwitchToOptimizedMode={handleSwitchToOptimizedMode}
-                handleEnableAutoMode={handleEnableAutoMode}
-                DetectionStates={DetectionStates}
-                isPanelOpen={isPanelOpen}
-                onPanelToggle={() => setIsPanelOpen(!isPanelOpen)}
-                isDetectionRunning={isDetectionRunning}
-              />
+              {/* System Performance Panel */}
+              {showPerformancePanel && (
+                <Box sx={{
+                  position: 'static',
+                  zIndex: 'auto',
+                  flex: showLotFormInSidebar ? '0 0 auto' : '1 1 auto'
+                }}>
+                  <SystemPerformancePanel
+                    detectionState={detectionSystem.detectionState}
+                    systemHealth={detectionSystem.systemHealth}
+                    globalStats={detectionSystem.globalStats}
+                    detectionOptions={detectionOptions}
+                    healthCheckPerformed={detectionSystem.healthCheckPerformed}
+                    autoModeEnabled={detectionSystem.autoModeEnabled}
+                    isBasicMode={isBasicMode}
+                    getHealthCheckAge={detectionSystem.getHealthCheckAge}
+                    handleManualHealthCheck={detectionHandlers.handleManualHealthCheck}
+                    handleSwitchToBasicMode={detectionHandlers.handleSwitchToBasicMode}
+                    handleSwitchToOptimizedMode={detectionHandlers.handleSwitchToOptimizedMode}
+                    handleEnableAutoMode={detectionHandlers.handleEnableAutoMode}
+                    DetectionStates={DetectionStates}
+                    isPanelOpen={isPanelOpen}
+                    onPanelToggle={() => setIsPanelOpen(!isPanelOpen)}
+                    isDetectionRunning={isDetectionRunning}
+                  />
+                </Box>
+              )}
             </Stack>
           </Box>
         </Grid>
       </Grid>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={lotManagement.snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => lotManagement.setSnackbar(prev => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => lotManagement.setSnackbar(prev => ({ ...prev, open: false }))}
+          severity={lotManagement.snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {lotManagement.snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
