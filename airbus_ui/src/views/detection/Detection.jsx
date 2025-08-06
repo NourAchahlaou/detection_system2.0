@@ -1,4 +1,4 @@
-// AppDetection.jsx - FIXED: Proper lot workflow initialization and state management
+// AppDetection.jsx - UPDATED: LotWorkflowPanel only appears in basic mode
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { 
@@ -7,12 +7,9 @@ import {
   Stack, 
   Alert, 
   CircularProgress, 
-
   Button,
-
   Snackbar
 } from '@mui/material';
-
 
 // Components
 import DetectionControls from "./components/DetectionControls";
@@ -580,6 +577,7 @@ export default function AppDetection() {
       detectionSystem.setIsStreamFrozen(false);
     }
   }, [cameraManagement, lotManagement, detectionSystem, lotWorkflowActive]);
+  
   const retryInitialization = createRetryInitialization(
     detectionSystem.initializationAttempted,
     detectionSystem.setInitializationError,
@@ -589,7 +587,9 @@ export default function AppDetection() {
   const modeInfo = getModeDisplayInfo(detectionSystem.currentStreamingType);
   const isBasicMode = detectionSystem.currentStreamingType === 'basic';
   const isDetectionRunning = detectionSystem.detectionState === DetectionStates.RUNNING;
-  const showLotWorkflowPanel = lotWorkflowActive && selectedLotId;
+  
+  // UPDATED: Only show LotWorkflowPanel in basic mode
+  const showLotWorkflowPanel = lotWorkflowActive && selectedLotId && isBasicMode;
   const showLotFormInSidebar = !isDetectionRunning && detectionSystem.detectionState === DetectionStates.READY && !showLotWorkflowPanel;
   const showPerformancePanel = true;
 
@@ -606,9 +606,11 @@ export default function AppDetection() {
       targetLabel,
       isLotLoading,
       lotLoadInitialized,
-      streamManagerAvailable: !!streamManager
+      streamManagerAvailable: !!streamManager,
+      isBasicMode,
+      showLotWorkflowPanel
     });
-  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager]);
+  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager, isBasicMode, showLotWorkflowPanel]);
 
 return (
   <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
