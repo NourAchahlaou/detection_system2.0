@@ -9,6 +9,8 @@ services:
       dockerfile: dockerfile
     image: airvision_base:latest
     command: ["echo", "Base image built successfully"]
+    networks:
+      - airvision-net
 
   # 2️⃣ Core infrastructure
   redis:
@@ -50,8 +52,10 @@ services:
   user_management:
     container_name: userManagementMicroservice
     depends_on:
-      - base_image
-      - databasePostgres
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
     build:
       context: ./backend/user_management
       dockerfile: Dockerfile
@@ -68,8 +72,10 @@ services:
   artifact_keeper:
     container_name: artifact_keeper
     depends_on:
-      - base_image
-      - databasePostgres
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
     build:
       context: ./backend/artifact_keeper
       dockerfile: Dockerfile
@@ -94,9 +100,12 @@ services:
   annotation:
     container_name: annotationMicroservice
     depends_on:
-      - base_image
-      - databasePostgres
-      - artifact_keeper
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
+      artifact_keeper:
+        condition: service_started
     build:
       context: ./backend/annotation
       dockerfile: Dockerfile
@@ -119,9 +128,12 @@ services:
   training:
     container_name: trainingMicroservice
     depends_on:
-      - base_image
-      - databasePostgres
-      - artifact_keeper
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
+      artifact_keeper:
+        condition: service_started
     build:
       context: ./backend/training
       dockerfile: Dockerfile
@@ -148,9 +160,12 @@ services:
   detection:
     container_name: detectionMicroservice
     depends_on:
-      - base_image
-      - databasePostgres
-      - redis
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     build:
       context: ./backend/detection
       dockerfile: Dockerfile
@@ -174,9 +189,12 @@ services:
   video_streaming:
     container_name: video_streaming
     depends_on:
-      - base_image
-      - databasePostgres
-      - redis
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     build:
       context: ./backend/video_streaming
       dockerfile: Dockerfile
@@ -203,7 +221,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - user_management
+      user_management:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
