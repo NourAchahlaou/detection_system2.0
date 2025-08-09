@@ -66,7 +66,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/user_management:/usr/srv/user_management
+      - ./backend/user_management/app:/usr/srv/user_management/app
       - ./.env:/usr/srv/.env
 
   artifact_keeper:
@@ -88,7 +88,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/artifact_keeper:/usr/srv/artifact_keeper
+      - ./backend/artifact_keeper/app:/usr/srv/artifact_keeper/app
       - ./.env:/usr/srv/.env
       - dataset:/app/shared/dataset
       - dataset_backup:/app/shared/backup
@@ -118,7 +118,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/annotation:/usr/srv/annotation
+      - ./backend/annotation/app:/usr/srv/annotation/app
       - ./.env:/usr/srv/.env
       - dataset:/app/shared/dataset
     user: "1001:1001"
@@ -146,7 +146,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/training:/usr/srv/training
+      - ./backend/training/app:/usr/srv/training/app
       - ./.env:/usr/srv/.env
       - dataset:/app/shared/dataset
       - training_logs:/usr/srv/logs
@@ -178,7 +178,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/detection:/usr/srv/detection
+      - ./backend/detection/app:/usr/srv/detection/app
       - ./.env:/usr/srv/.env
       - models:/app/shared/models
     user: "1001:1001"
@@ -207,7 +207,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./backend/video_streaming:/usr/srv/video_streaming
+      - ./backend/video_streaming/app:/usr/srv/video_streaming/app
       - ./.env:/usr/srv/.env
     environment:
       - REDIS_URL=redis://airvision_redis:6379
@@ -228,7 +228,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./airbus_ui:/app
+      - ./airbus_ui:/usr/srv/airbus_ui
       - /app/node_modules
     environment:
       - CHOKIDAR_USEPOLLING=true
