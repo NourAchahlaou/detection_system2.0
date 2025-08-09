@@ -2,8 +2,8 @@ FROM airvision_base:latest
 
 WORKDIR /usr/srv
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
 
 # Install system dependencies including OpenGL libraries
 RUN apt-get update && apt-get install -y \
