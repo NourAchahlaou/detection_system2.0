@@ -1,4 +1,4 @@
-// AppDetection.jsx - UPDATED: LotWorkflowPanel only appears in basic mode
+// AppDetection.jsx - UPDATED: Added DetectionStatsPanel integration
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { 
@@ -17,6 +17,8 @@ import DetectionVideoFeed from "./components/DetectionVideoFeed";
 import SystemPerformancePanel from "./components/SystemPerformancePanel";
 import LotWorkflowPanel from "./components/LotWorkflowPanel";
 import InfoPanel from "./components/InfoPanel";
+import DetectionStatsPanel from "./components/DetectionStatsPanel"; // NEW: Import DetectionStatsPanel
+
 // Services
 import { detectionService } from "./service/DetectionService";
 import { cameraService } from "../captureImage/CameraService";
@@ -47,6 +49,7 @@ export default function AppDetection() {
   // UI State
   const [targetLabel, setTargetLabel] = useState("");
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isStatsPanelOpen, setIsStatsPanelOpen] = useState(false); // NEW: Stats panel state
   
   // Detection Options
   const [detectionOptions, setDetectionOptions] = useState({
@@ -592,6 +595,7 @@ export default function AppDetection() {
   const showLotWorkflowPanel = lotWorkflowActive && selectedLotId && isBasicMode;
   const showLotFormInSidebar = !isDetectionRunning && detectionSystem.detectionState === DetectionStates.READY && !showLotWorkflowPanel;
   const showPerformancePanel = true;
+  const showStatsPanel = true; // NEW: Always show stats panel
 
   // Debug logging
   useEffect(() => {
@@ -630,6 +634,17 @@ return (
       onRunPerformanceTest={detectionHandlers.handleRunPerformanceTest}
       DetectionStates={DetectionStates}
     />
+
+    {/* Detection Statistics Panel - NEW: Added before other alerts */}
+    {showStatsPanel && (
+      <Box sx={{ mb: 2 }}>
+        <DetectionStatsPanel
+          isOpen={isStatsPanelOpen}
+          onToggle={setIsStatsPanelOpen}
+          refreshInterval={30000}
+        />
+      </Box>
+    )}
 
     {/* Keep only the Loading indicator for lot loading */}
     {isLotLoading && (
