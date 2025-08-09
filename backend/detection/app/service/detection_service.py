@@ -5,7 +5,7 @@ from detection.app.service.model_service import load_my_model
 import numpy as np
 
 class DetectionSystem:
-    def __init__(self, confidence_threshold=0.5):
+    def __init__(self, confidence_threshold=0.8):
         self.confidence_threshold = confidence_threshold
         self.device = self.get_device()  # Get the device (CPU or GPU)
         self.model = self.get_my_model()  # Load the model once

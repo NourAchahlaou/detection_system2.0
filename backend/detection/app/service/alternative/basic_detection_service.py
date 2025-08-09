@@ -1,4 +1,4 @@
-# improved_basic_detection_service.py - Better date handling and JSON serialization
+# improved_basic_detection_service.py - Enhanced lot validation logic
 
 import cv2
 import logging
@@ -65,6 +65,9 @@ class DetectionResponse:
     session_id: Optional[int] = None
     is_target_match: bool = False
     detection_rate: float = 0.0
+    # Enhanced validation fields
+    lot_validation_result: Dict[str, Any] = None
+    validation_errors: List[str] = None
 
 @dataclass
 class LotCreationRequest:
@@ -100,6 +103,30 @@ class LotResponse:
             total_sessions=total_sessions,
             successful_detections=successful_detections
         )
+
+@dataclass
+class LotValidationResult:
+    """Result of lot validation against detection results"""
+    is_valid: bool
+    expected_count: int
+    actual_correct_count: int
+    actual_incorrect_count: int
+    expected_label: str
+    detected_labels: List[str]
+    errors: List[str]
+    confidence_score: float = 0.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'is_valid': self.is_valid,
+            'expected_count': self.expected_count,
+            'actual_correct_count': self.actual_correct_count,
+            'actual_incorrect_count': self.actual_incorrect_count,
+            'expected_label': self.expected_label,
+            'detected_labels': self.detected_labels,
+            'errors': self.errors,
+            'confidence_score': self.confidence_score
+        }
 
 class VideoStreamingClient:
     """HTTP client to communicate with video streaming service"""
@@ -198,7 +225,7 @@ class VideoStreamingClient:
             await self.session.close()
 
 class BasicDetectionProcessor:
-    """Detection processor with improved database integration and date handling"""
+    """Detection processor with enhanced lot validation logic"""
     
     def __init__(self):
         self.detection_system = None
@@ -206,6 +233,8 @@ class BasicDetectionProcessor:
         self.stats = {
             'detections_performed': 0,
             'targets_detected': 0,
+            'lot_matches': 0,
+            'lot_mismatches': 0,
             'total_processing_time': 0,
             'avg_processing_time': 0,
             'lots_created': 0,
@@ -230,6 +259,79 @@ class BasicDetectionProcessor:
         except Exception as e:
             logger.error(f"❌ Failed to initialize enhanced detection system: {e}")
             raise
+    
+    def validate_lot_against_detection(self, lot_info: LotResponse, detection_results: Dict[str, Any]) -> LotValidationResult:
+        """
+        Enhanced validation logic to check if detection results match lot expectations
+        """
+        errors = []
+        
+        # Extract detection data
+        detected_target = detection_results.get('detected_target', False)
+        correct_pieces_count = detection_results.get('correct_pieces_count', 0)
+        non_target_count = detection_results.get('non_target_count', 0)
+        total_pieces_detected = detection_results.get('total_pieces_detected', 0)
+        confidence = detection_results.get('confidence', 0.0) or 0.0
+        
+        # Get expected values from lot
+        expected_count = lot_info.expected_piece_number
+        expected_label = "target"  # Assuming target label matches lot expectation
+        
+        # Validation logic
+        is_valid = True
+        
+        # 1. Check if target label was detected
+        if not detected_target:
+            errors.append(f"Expected target label not detected")
+            is_valid = False
+        
+        # 2. Check piece count matches exactly
+        if correct_pieces_count != expected_count:
+            errors.append(f"Piece count mismatch: expected {expected_count}, found {correct_pieces_count}")
+            is_valid = False
+        
+        # 3. Check no incorrect/unexpected labels are present
+        if non_target_count > 0:
+            errors.append(f"Found {non_target_count} incorrect/unexpected pieces")
+            is_valid = False
+        
+        # 4. Additional validation: total detected should match expected (no extra pieces)
+        expected_total = expected_count  # Only correct pieces should be present
+        if total_pieces_detected != expected_total:
+            errors.append(f"Total pieces mismatch: expected {expected_total}, detected {total_pieces_detected}")
+            is_valid = False
+        
+        # 5. Confidence threshold check (optional)
+        min_confidence = 0.8  # Configurable threshold
+        if confidence > 0 and confidence < min_confidence:
+            errors.append(f"Low confidence score: {confidence:.2f} below threshold {min_confidence}")
+            is_valid = False
+        
+        # Create detected labels list for reporting
+        detected_labels = []
+        if detected_target and correct_pieces_count > 0:
+            detected_labels.extend([expected_label] * correct_pieces_count)
+        if non_target_count > 0:
+            detected_labels.extend(["incorrect_label"] * non_target_count)
+        
+        validation_result = LotValidationResult(
+            is_valid=is_valid,
+            expected_count=expected_count,
+            actual_correct_count=correct_pieces_count,
+            actual_incorrect_count=non_target_count,
+            expected_label=expected_label,
+            detected_labels=detected_labels,
+            errors=errors,
+            confidence_score=confidence
+        )
+        
+        # Log validation result
+        if is_valid:
+            logger.info(f"✅ Lot validation PASSED: {correct_pieces_count}/{expected_count} correct pieces, no incorrect pieces")
+        else:
+            logger.warning(f"❌ Lot validation FAILED: {', '.join(errors)}")
+        
+        return validation_result
     
     def create_detection_lot(self, lot_request: LotCreationRequest, db: Session) -> LotResponse:
         """Create a new detection lot with improved date handling"""
@@ -297,8 +399,10 @@ class BasicDetectionProcessor:
             
             if is_match:
                 self.stats['lots_completed'] += 1
+                self.stats['lot_matches'] += 1
                 logger.info(f"✅ Lot {lot_id} marked as target match and completed!")
             else:
+                self.stats['lot_mismatches'] += 1
                 logger.info(f"🔄 Lot {lot_id} marked as not matching - needs correction")
             
             return True
@@ -308,25 +412,20 @@ class BasicDetectionProcessor:
             logger.error(f"❌ Error updating lot target match: {e}")
             return False
     
-    def create_detection_session(self, lot_id: int, detection_results: dict, db: Session) -> int:
-        """Create a detection session record with automatic timestamp"""
+    def create_detection_session(self, lot_id: int, detection_results: dict, validation_result: LotValidationResult, db: Session) -> int:
+        """Create a detection session record with validation results"""
         try:
-            # Calculate detection rate
-            total_detected = detection_results.get('total_pieces_detected', 0)
-            correct_count = detection_results.get('correct_pieces_count', 0)
-            detection_rate = (correct_count / total_detected) if total_detected > 0 else 0.0
-            
-            # Determine if this detection matches the expected target
-            is_target_match = detection_results.get('detected_target', False)
+            # Calculate detection rate based on validation
+            detection_rate = 1.0 if validation_result.is_valid else 0.0
             
             # Create detection session - created_at will be set automatically
             session = DetectionSession(
                 lot_id=lot_id,
-                correct_pieces_count=correct_count,
-                misplaced_pieces_count=detection_results.get('non_target_count', 0),
-                total_pieces_detected=total_detected,
-                confidence_score=detection_results.get('confidence', 0.0) or 0.0,
-                is_target_match=is_target_match,
+                correct_pieces_count=validation_result.actual_correct_count,
+                misplaced_pieces_count=validation_result.actual_incorrect_count,
+                total_pieces_detected=validation_result.actual_correct_count + validation_result.actual_incorrect_count,
+                confidence_score=validation_result.confidence_score,
+                is_target_match=validation_result.is_valid,  # Based on validation, not just detection
                 detection_rate=detection_rate
                 # Don't set created_at explicitly - let the database handle it
             )
@@ -335,7 +434,7 @@ class BasicDetectionProcessor:
             db.commit()
             db.refresh(session)
             
-            logger.info(f"📊 Created detection session {session.id} for lot {lot_id} - Target match: {is_target_match}")
+            logger.info(f"📊 Created detection session {session.id} for lot {lot_id} - Validation passed: {validation_result.is_valid}")
             
             return session.id
                 
@@ -345,16 +444,18 @@ class BasicDetectionProcessor:
             raise
     
     async def detect_with_lot_tracking(self, request: DetectionRequest, db: Session) -> DetectionResponse:
-        """Perform detection with lot tracking and session recording"""
+        """Perform detection with enhanced lot validation and session recording"""
         start_time = time.time()
         stream_frozen = False
         session_id = None
+        lot_validation_result = None
+        validation_errors = []
         
         try:
             if not self.is_initialized:
                 await self.initialize()
             
-            logger.info(f"🔍 Starting lot-tracked detection for camera {request.camera_id}, target: '{request.target_label}'")
+            logger.info(f"🔍 Starting enhanced lot-tracked detection for camera {request.camera_id}, target: '{request.target_label}'")
             
             # Validate lot exists if lot_id provided
             lot_info = None
@@ -362,7 +463,7 @@ class BasicDetectionProcessor:
                 lot_info = self.get_detection_lot(request.lot_id, db)
                 if not lot_info:
                     raise Exception(f"Detection lot {request.lot_id} not found")
-                logger.info(f"📦 Using lot {request.lot_id}: '{lot_info.lot_name}' expecting piece {lot_info.expected_piece_number}")
+                logger.info(f"📦 Using lot {request.lot_id}: '{lot_info.lot_name}' expecting {lot_info.expected_piece_number} pieces")
             
             # Freeze the stream
             freeze_success = await self.video_client.freeze_stream(request.camera_id)
@@ -390,14 +491,14 @@ class BasicDetectionProcessor:
                 request.target_label
             )
             
-           
+            # Parse detection results
             if isinstance(detection_results, tuple):
                 processed_frame = detection_results[0]
                 detected_target = detection_results[1] if len(detection_results) > 1 else False
                 non_target_count = detection_results[2] if len(detection_results) > 2 else 0
                 total_pieces_detected = detection_results[3] if len(detection_results) > 3 else 0
                 correct_pieces_count = detection_results[4] if len(detection_results) > 4 else 0
-                confidence = detection_results[5] if len(detection_results)>5 else 0
+                confidence = detection_results[5] if len(detection_results) > 5 else 0
             else:
                 processed_frame = detection_results
                 detected_target = False
@@ -406,6 +507,35 @@ class BasicDetectionProcessor:
                 correct_pieces_count = 0
                 confidence = 0
 
+            # Prepare detection data for validation
+            detection_session_data = {
+                'detected_target': detected_target,
+                'non_target_count': non_target_count,
+                'total_pieces_detected': total_pieces_detected,
+                'correct_pieces_count': correct_pieces_count,
+                'confidence': confidence
+            }
+            
+            # Perform lot validation if lot_id provided
+            is_target_match = False
+            if request.lot_id and lot_info:
+                validation_result = self.validate_lot_against_detection(lot_info, detection_session_data)
+                lot_validation_result = validation_result.to_dict()
+                validation_errors = validation_result.errors
+                is_target_match = validation_result.is_valid
+                
+                # Create detection session with validation results
+                session_id = self.create_detection_session(request.lot_id, detection_session_data, validation_result, db)
+                
+                # Update lot target match status only if validation passes
+                if validation_result.is_valid:
+                    self.update_lot_target_match(request.lot_id, True, db)
+                    logger.info(f"🎯 LOT VALIDATION PASSED: All criteria met for lot {request.lot_id}")
+                else:
+                    logger.warning(f"❌ LOT VALIDATION FAILED: {', '.join(validation_errors)}")
+            else:
+                # No lot validation, use simple detection result
+                is_target_match = detected_target
             
             # Update frozen frame with results
             if processed_frame is not None and stream_frozen:
@@ -416,22 +546,6 @@ class BasicDetectionProcessor:
                         await self.video_client.update_frozen_frame(request.camera_id, buffer.tobytes())
                 except Exception as e:
                     logger.error(f"❌ Error updating frozen frame: {e}")
-            
-            # Create detection session if lot_id provided
-            if request.lot_id:
-                detection_session_data = {
-                    'detected_target': detected_target,
-                    'non_target_count': non_target_count,
-                    'total_pieces_detected': total_pieces_detected,
-                    'correct_pieces_count': correct_pieces_count,
-                    'confidence': confidence
-                }
-                
-                session_id = self.create_detection_session(request.lot_id, detection_session_data, db)
-                
-                # Check if we should update lot target match status
-                if detected_target and lot_info:
-                    self.update_lot_target_match(request.lot_id, True, db)
             
             # Encode frame for response
             frame_b64 = ""
@@ -453,10 +567,9 @@ class BasicDetectionProcessor:
             
             if detected_target:
                 self.stats['targets_detected'] += 1
-                logger.info(f"🎯 TARGET DETECTED: '{request.target_label}' found in camera {request.camera_id}!")
             
-            # Calculate detection rate
-            detection_rate = 1.0 if detected_target else 0.0
+            # Calculate detection rate based on validation
+            detection_rate = 1.0 if is_target_match else 0.0
             
             response = DetectionResponse(
                 camera_id=request.camera_id,
@@ -470,16 +583,18 @@ class BasicDetectionProcessor:
                 stream_frozen=stream_frozen,
                 lot_id=request.lot_id,
                 session_id=session_id,
-                is_target_match=detected_target,
-                detection_rate=detection_rate
+                is_target_match=is_target_match,
+                detection_rate=detection_rate,
+                lot_validation_result=lot_validation_result,
+                validation_errors=validation_errors
             )
             
-            logger.info(f"✅ Lot-tracked detection completed for camera {request.camera_id} in {processing_time:.2f}ms")
+            logger.info(f"✅ Enhanced lot-tracked detection completed for camera {request.camera_id} in {processing_time:.2f}ms")
             return response
             
         except Exception as e:
             processing_time = (time.time() - start_time) * 1000
-            logger.error(f"❌ Error in lot-tracked detection for camera {request.camera_id}: {e}")
+            logger.error(f"❌ Error in enhanced lot-tracked detection for camera {request.camera_id}: {e}")
             
             return DetectionResponse(
                 camera_id=request.camera_id,
@@ -494,7 +609,9 @@ class BasicDetectionProcessor:
                 lot_id=request.lot_id,
                 session_id=session_id,
                 is_target_match=False,
-                detection_rate=0.0
+                detection_rate=0.0,
+                lot_validation_result=None,
+                validation_errors=["Detection processing failed"]
             )
     
     def get_lot_sessions(self, lot_id: int, db: Session) -> List[Dict[str, Any]]:
@@ -525,7 +642,7 @@ class BasicDetectionProcessor:
         return await self.video_client.unfreeze_stream(camera_id)
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get detection statistics"""
+        """Get enhanced detection statistics"""
         return {
             'is_initialized': self.is_initialized,
             'device': str(self.detection_system.device) if self.detection_system else "unknown",
