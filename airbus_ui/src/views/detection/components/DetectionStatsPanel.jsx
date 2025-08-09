@@ -100,7 +100,7 @@ const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading }) => {
           } : {}
         }}
       >
-        {isOpen ? <ChevronLeft fontSize="small" /> : <ChevronRight fontSize="small" />}
+        {isOpen ? <ChevronRight fontSize="small" /> : <ChevronLeft fontSize="small" />}
       </IconButton>
     </Box>
   );
@@ -165,15 +165,22 @@ const DetectionStatsPanel = ({
   onToggle,
   refreshInterval = 30000 // Increased to 30s due to service cache
 }) => {
-  const [internalPanelOpen, setInternalPanelOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = typeof isOpen === 'boolean' && typeof onToggle === 'function';
+  const panelOpen = isControlled ? isOpen : internalOpen;
 
   // Use external state if provided, otherwise use internal state
-  const panelOpen = onToggle ? isOpen : internalPanelOpen;
-  const togglePanel = onToggle || (() => setInternalPanelOpen(!internalPanelOpen));
+  const togglePanel = () => {
+    if (isControlled) {
+      onToggle(!isOpen); // Pass next value
+    } else {
+      setInternalOpen(prev => !prev);
+    }
+  };
 
   // Auto refresh effect
   useEffect(() => {
@@ -357,7 +364,7 @@ const DetectionStatsPanel = ({
             }
             action={
               <IconButton size="small" onClick={togglePanel}>
-                <ChevronLeft />
+                <ChevronRight />
               </IconButton>
             }
             sx={{ pb: 1 }}

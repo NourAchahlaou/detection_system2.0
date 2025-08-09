@@ -390,19 +390,22 @@ class BasicDetectionProcessor:
                 request.target_label
             )
             
-            # Parse detection results
-            processed_frame = None
-            detected_target = False
-            non_target_count = 0
-            confidence = None
-            
+           
             if isinstance(detection_results, tuple):
                 processed_frame = detection_results[0]
                 detected_target = detection_results[1] if len(detection_results) > 1 else False
                 non_target_count = detection_results[2] if len(detection_results) > 2 else 0
-                confidence = detection_results[3] if len(detection_results) > 3 else None
+                total_pieces_detected = detection_results[3] if len(detection_results) > 3 else 0
+                correct_pieces_count = detection_results[4] if len(detection_results) > 4 else 0
+                confidence = detection_results[5] if len(detection_results)>5 else 0
             else:
                 processed_frame = detection_results
+                detected_target = False
+                non_target_count = 0
+                total_pieces_detected = 0
+                correct_pieces_count = 0
+                confidence = 0
+
             
             # Update frozen frame with results
             if processed_frame is not None and stream_frozen:
@@ -419,8 +422,8 @@ class BasicDetectionProcessor:
                 detection_session_data = {
                     'detected_target': detected_target,
                     'non_target_count': non_target_count,
-                    'total_pieces_detected': 1 if detected_target else 0,
-                    'correct_pieces_count': 1 if detected_target else 0,
+                    'total_pieces_detected': total_pieces_detected,
+                    'correct_pieces_count': correct_pieces_count,
                     'confidence': confidence
                 }
                 
