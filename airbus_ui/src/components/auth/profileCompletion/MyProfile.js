@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../utils/UseAxios';
+import { useAuth } from '../../../context/AuthContext';
 import {
   Box,
   Button,
@@ -138,6 +139,7 @@ const days = [
 function MyProfile() {
   // Initialize navigate function from React Router
   const navigate = useNavigate();
+  const { auth, loading } = useAuth();
   
   // Form state
   const [airbusId, setAirbusId] = useState('');
@@ -145,8 +147,9 @@ function MyProfile() {
   const [mainShiftDays, setMainShiftDays] = useState([]);
   const [mainShift, setMainShift] = useState({ start: '', end: '' });
   const [specialShifts, setSpecialShifts] = useState([]);
+  
   // API related state
-  const [loading, setLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initialCompletionData, setInitialCompletionData] = useState({
     completion_percentage: 0,
@@ -163,21 +166,8 @@ function MyProfile() {
     missing_fields: []
   });
   
-  // Live completion status (updated in real-time)
-  const [liveCompletionData, setLiveCompletionData] = useState({
-    completion_percentage: 0,
-    completion_status: {
-      personal_info: {
-        airbus_id: false,
-        role: false
-      },
-      main_shift: {
-        shifts: false,
-        has_weekday_coverage: false
-      }
-    },
-    missing_fields: []
-  });
+  // Track if profile has been fetched to prevent infinite loops
+  const [profileFetched, setProfileFetched] = useState(false);
   
   const [notification, setNotification] = useState({
     open: false,
@@ -194,11 +184,9 @@ function MyProfile() {
     });
   }, []);
   
-  // Function to update live completion status based on current form state
-  const updateLiveCompletionStatus = useCallback(() => {
-    // Create a copy of the current completion data
-    const updatedCompletionData = { 
-      ...liveCompletionData,
+  // Memoize live completion data calculation to prevent infinite loops
+  const liveCompletionData = useMemo(() => {
+    const completionData = {
       completion_status: {
         personal_info: {
           airbus_id: Boolean(airbusId.trim()),
@@ -215,48 +203,59 @@ function MyProfile() {
     // Calculate missing fields
     const missingFields = [];
     
-    if (!updatedCompletionData.completion_status.personal_info.airbus_id) {
+    if (!completionData.completion_status.personal_info.airbus_id) {
       missingFields.push('Airbus ID');
     }
     
-    if (!updatedCompletionData.completion_status.personal_info.role) {
+    if (!completionData.completion_status.personal_info.role) {
       missingFields.push('Role');
     }
     
-    if (!updatedCompletionData.completion_status.main_shift.shifts) {
+    if (!completionData.completion_status.main_shift.shifts) {
       missingFields.push('Work Schedule');
     }
     
-    if (!updatedCompletionData.completion_status.main_shift.has_weekday_coverage) {
+    if (!completionData.completion_status.main_shift.has_weekday_coverage) {
       missingFields.push('Weekday Work Schedule');
     }
     
-    updatedCompletionData.missing_fields = missingFields;
+    completionData.missing_fields = missingFields;
     
     // Calculate completion percentage (4 items to complete)
-    const completedItems = Object.values(updatedCompletionData.completion_status.personal_info).filter(Boolean).length + 
-                           Object.values(updatedCompletionData.completion_status.main_shift).filter(Boolean).length;
+    const completedItems = Object.values(completionData.completion_status.personal_info).filter(Boolean).length + 
+                           Object.values(completionData.completion_status.main_shift).filter(Boolean).length;
     
-    updatedCompletionData.completion_percentage = (completedItems / 4) * 100;
+    completionData.completion_percentage = (completedItems / 4) * 100;
     
-    setLiveCompletionData(updatedCompletionData);
-    
-  }, [airbusId, role, mainShiftDays, mainShift, liveCompletionData]);
+    return completionData;
+  }, [airbusId, role, mainShiftDays, mainShift]);
   
-  // Effect to update live completion status whenever form fields change
-  useEffect(() => {
-    updateLiveCompletionStatus();
-  }, [airbusId, role, mainShiftDays, mainShift, updateLiveCompletionStatus]);
-  
+  // Fixed: Stable fetchUserProfile function without navigate in dependencies
   const fetchUserProfile = useCallback(async () => {
-    setLoading(true);
+    // Prevent multiple simultaneous requests
+    if (profileLoading || profileFetched) {
+      return;
+    }
+
+    // Check if we have valid authentication
+    if (!auth.token || !auth.user) {
+      console.log('No auth token or user, skipping profile fetch');
+      return;
+    }
+
+    setProfileLoading(true);
     try {
+      console.log('Fetching profile with token:', auth.token.substring(0, 20) + '...');
+      
       const response = await api.get('/api/users/profile/profile');
       const profileData = response.data;
       
+      console.log('Profile data received:', profileData);
+      
       // Update form state with fetched data
       setAirbusId(profileData.airbus_id || '');
-      setRole(profileData.role || '');
+      setRole(profileData.role?.toUpperCase() || '');
+
       
       // Process shifts data
       if (profileData.shifts && profileData.shifts.length > 0) {
@@ -282,22 +281,47 @@ function MyProfile() {
       // Store initial completion data from the backend
       if (profileData.completion) {
         setInitialCompletionData(profileData.completion);
-        setLiveCompletionData(profileData.completion); // Initialize live data with backend data
       }
+      
+      // Mark as fetched to prevent re-fetching
+      setProfileFetched(true);
       
     } catch (error) {
       console.error('Error fetching profile:', error);
+      
+      // Handle 401 errors properly
+      if (error.response?.status === 401) {
+        showNotification('Session expired. Please sign in again.', 'error');
+        // Use setTimeout to prevent immediate navigation during render
+        setTimeout(() => {
+          navigate('/auth/login');
+        }, 100);
+        return;
+      }
+      
       showNotification('Failed to load profile data', 'error');
     } finally {
-      setLoading(false);
+      setProfileLoading(false);
     }
-  }, [showNotification]); 
+  }, [auth.token, auth.user, profileLoading, profileFetched, showNotification]); // Removed navigate
 
+  // Fixed: Only run effect when auth state is ready and user is authenticated
   useEffect(() => {
-    fetchUserProfile();
-  }, [fetchUserProfile]);
+    // Only fetch if we have auth data and haven't fetched yet
+    if (!loading && auth.token && auth.user && !profileFetched) {
+      console.log('Auth ready, fetching profile...');
+      fetchUserProfile();
+    }
+  }, [loading, auth.token, auth.user, profileFetched, fetchUserProfile]);
 
   const handleSaveProfile = async () => {
+    // Check if user is authenticated
+    if (!auth.token || !auth.user) {
+      showNotification('Please sign in again', 'error');
+      navigate('/auth/login');
+      return;
+    }
+
     setSaving(true);
     
     try {
@@ -350,19 +374,24 @@ function MyProfile() {
       // Send update request
       await api.put('/api/users/profile/update', profileData);
       
-      // Update the initialCompletionData with our current live completion data
-      setInitialCompletionData(liveCompletionData);
-      
       showNotification('Profile updated successfully', 'success');
       
-      // FIXED: Use a timeout to ensure notification is shown before navigation
+      // Use a timeout to ensure notification is shown before navigation
       setTimeout(() => {
-        // Navigate to dashboard directly inside the handler
         navigate('/dashboard', { replace: true });
-      }, 1000); // Short delay to allow notification to be seen
+      }, 1000);
       
     } catch (error) {
       console.error('Error updating profile:', error);
+      
+      // Handle 401 errors properly
+      if (error.response?.status === 401) {
+        showNotification('Session expired. Please sign in again.', 'error');
+        setTimeout(() => {
+          navigate('/auth/login');
+        }, 100);
+        return;
+      }
       
       let errorMessage = 'Failed to update profile';
       
@@ -374,10 +403,10 @@ function MyProfile() {
       }
       
       showNotification(errorMessage, 'error');
+    } finally {
       setSaving(false);
     }
   };
-  
 
   const handleAddSpecialShift = () => {
     setSpecialShifts([
@@ -421,6 +450,30 @@ function MyProfile() {
     });
   };
 
+  // Show loading while auth is initializing
+  if (loading) {
+    return (
+      <Box sx={{ 
+        flex: 1, 
+        display: 'flex', 
+        justifyContent: 'center',
+        alignItems: 'center',
+        py: 4,
+      }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  // Redirect to sign in if not authenticated
+  if (!auth.token || !auth.user) {
+    // Use setTimeout to prevent navigation during render
+    setTimeout(() => {
+      navigate('/auth/login');
+    }, 100);
+    return null;
+  }
+
   return (
     <Box sx={{ 
       flex: 1, 
@@ -461,7 +514,7 @@ function MyProfile() {
             </Typography>
             <Divider sx={{ mb: 4 }} />
 
-            {loading ? (
+            {profileLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
                 <CircularProgress />
               </Box>
@@ -500,7 +553,7 @@ function MyProfile() {
                           error={liveCompletionData.missing_fields.includes('Role')}
                         >
                           <MenuItem value="" disabled>Select your role</MenuItem>
-                          <MenuItem value="OBSERVER">Observer</MenuItem>
+                          <MenuItem value="AUDITOR">Auditor</MenuItem>
                           <MenuItem value="TECHNICIAN">Technician</MenuItem>
                           <MenuItem value="ADMIN">Admin</MenuItem>
                         </Select>
@@ -784,7 +837,7 @@ function MyProfile() {
                 
                 <ListItem sx={{ px: 0 }}>
                   <ListItemIcon sx={{ minWidth: 36 }}>
-                    {liveCompletionData.completion_status?.main_shift?.has_weekday_coverage ? 
+                    {liveCompletionData.completion_status?.main_shift?.has_weekday_coverage ?
                       <CheckCircle color="success" fontSize="small" /> : 
                       <PendingOutlined color="action" fontSize="small" />
                     }

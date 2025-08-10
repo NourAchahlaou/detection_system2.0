@@ -228,7 +228,7 @@ services:
     networks:
       - airvision-net
     volumes:
-      - ./airbus_ui:/usr/srv/airbus_ui
+      - ./airbus_ui:/app
       - /app/node_modules
     environment:
       - CHOKIDAR_USEPOLLING=true

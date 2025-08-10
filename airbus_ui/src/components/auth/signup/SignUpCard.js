@@ -21,7 +21,8 @@ import { styled } from '@mui/material/styles';
 import { GoogleIcon } from '../CustomIcons';
 import { ReactComponent as AirVisionLogo } from '../../../assets/Airvisionlogo_updated.svg';
 import VerificationCodeDialog from './VerificationCodeDialog';
-import api from '../../../utils/UseAxios'; 
+import api from '../../../utils/UseAxios';
+import { useAuth } from '../../../context/AuthContext';
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
@@ -77,6 +78,8 @@ const UserExistsCard = ({ email, onClose, onNavigateToLogin }) => {
 
 export default function SignUpCard() {
   const navigate = useNavigate();
+  const { login } = useAuth();
+  
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState('');
   const [passwordError, setPasswordError] = React.useState(false);
@@ -86,6 +89,7 @@ export default function SignUpCard() {
   const [verificationDialogOpen, setVerificationDialogOpen] = React.useState(false);
   const [currentEmail, setCurrentEmail] = React.useState('');
   const [userExistsModalOpen, setUserExistsModalOpen] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
   const [snackbar, setSnackbar] = React.useState({
     open: false,
     message: '',
@@ -147,7 +151,45 @@ export default function SignUpCard() {
     return isValid;
   };
 
-  // Modified loginUser function to use api instance with interceptors and new endpoint path
+  // Check profile completion status - same as SignInCard
+  const checkProfileCompletion = async (accessToken) => {
+    try {
+      const response = await api.get('/api/users/auth/completion', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+      
+      console.log('Profile completion data:', response.data);
+      
+      // Check if profile is complete (100%)
+      if (response.data.completion_percentage === 100) {
+        // Profile is complete, navigate to dashboard
+        navigate('/dashboard');
+      } else {
+        // Profile is incomplete, navigate to profile completion page
+        setSnackbar({
+          open: true,
+          message: 'Please complete your profile before continuing.',
+          severity: 'info'
+        });
+        
+        // Navigate to profile page with missing fields info
+        navigate('/auth/profile', { 
+          state: { 
+            missingFields: response.data.missing_fields,
+            completionPercentage: response.data.completion_percentage
+          } 
+        });
+      }
+    } catch (error) {
+      console.error('Error checking profile completion:', error);
+      // If completion check fails, still navigate to profile since user is authenticated
+      navigate('/auth/profile');
+    }
+  };
+
+  // Updated login function to match SignInCard pattern
   const loginUser = async (credentials) => {
     try {
       console.log('Attempting login with:', { email: credentials.email, passwordLength: credentials.password?.length || 0 });
@@ -168,9 +210,8 @@ export default function SignUpCard() {
       const loginResult = loginResponse.data;
       console.log('Login successful:', loginResult);
       
-      // Store tokens in localStorage
-      localStorage.setItem('accessToken', loginResult.access_token);
-      localStorage.setItem('refreshToken', loginResult.refresh_token);
+      // Update auth context with tokens - SAME AS SIGNIN CARD
+      await login(loginResult.access_token, loginResult.refresh_token);
       
       // Clear temporary stored password
       localStorage.removeItem('tempPassword');
@@ -182,10 +223,8 @@ export default function SignUpCard() {
         severity: 'success'
       });
       
-      // Redirect to profile completion
-      setTimeout(() => {
-        navigate('/auth/profile');
-      }, 1500);
+      // Check profile completion before redirecting - SAME AS SIGNIN CARD
+      await checkProfileCompletion(loginResult.access_token);
       
       return loginResult;
     } catch (error) {
@@ -214,9 +253,11 @@ export default function SignUpCard() {
     }
   };
 
-  // Updated handleVerifyAccount function to use api instance with interceptors
+  // Updated handleVerifyAccount function
   const handleVerifyAccount = async (email, code) => {
     try {
+      setIsLoading(true);
+      
       const response = await api.post('/api/users/users/verify', {
         email,
         token: code
@@ -245,6 +286,8 @@ export default function SignUpCard() {
         severity: 'error'
       });
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -256,6 +299,7 @@ export default function SignUpCard() {
       return;
     }
 
+    setIsLoading(true);
     const formData = new FormData(event.currentTarget);
     const data = {
       name: formData.get('name'),
@@ -300,6 +344,8 @@ export default function SignUpCard() {
           severity: 'error'
         });
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -344,6 +390,7 @@ export default function SignUpCard() {
                 error={nameError}
                 helperText={nameErrorMessage}
                 color={nameError ? 'error' : 'transparent'}
+                disabled={isLoading}
               />
             </FormControl>
             <FormControl>
@@ -358,6 +405,7 @@ export default function SignUpCard() {
                 error={emailError}
                 helperText={emailErrorMessage}
                 color={emailError ? 'error' : 'transparent'}
+                disabled={isLoading}
               />
             </FormControl>
             <FormControl>
@@ -373,14 +421,20 @@ export default function SignUpCard() {
                 error={passwordError}
                 helperText={passwordErrorMessage}
                 color={passwordError ? 'error' : 'transparent'}
+                disabled={isLoading}
               />
             </FormControl>
             <FormControlLabel
-              control={<Checkbox value="allowExtraEmails" color="primary" />}
+              control={<Checkbox value="allowExtraEmails" color="primary" disabled={isLoading} />}
               label="I want to receive updates via email."
             />
-            <Button type="submit" fullWidth variant="contained">
-              Sign up
+            <Button 
+              type="submit" 
+              fullWidth 
+              variant="contained"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Please wait...' : 'Sign up'}
             </Button>
           </Box>
           <Divider>
@@ -392,6 +446,7 @@ export default function SignUpCard() {
               variant="outlined"
               onClick={() => alert('Sign up with Google')}
               startIcon={<GoogleIcon />}
+              disabled={isLoading}
             >
               Sign up with Google
             </Button>
