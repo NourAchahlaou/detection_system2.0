@@ -45,10 +45,14 @@ class CameraClient:
                 if camera_info["type"] == "regular":
                     camera_info["camera_index"] = camera_data.get("index")  # Map "index" -> "camera_index"
                 elif camera_info["type"] == "basler":
-                    # FIXED: Properly extract serial_number for Basler cameras
+                    # First check top-level
                     serial_number = camera_data.get("serial_number")
+                    # If missing, try device dict
+                    if not serial_number and "device" in camera_data:
+                        serial_number = camera_data["device"].get("serial_number")
+                    
                     if serial_number:
-                        camera_info["serial_number"] = str(serial_number)  # Ensure it's a string
+                        camera_info["serial_number"] = str(serial_number)
                         logger.info(f"Mapped serial_number for Basler camera: {serial_number}")
                     else:
                         logger.warning(f"No serial_number found for Basler camera {camera_info.get('model', 'unknown')}")
