@@ -302,7 +302,7 @@ class BasicDetectionProcessor:
             is_valid = False
         
         # 5. Confidence threshold check (optional)
-        min_confidence = 0.8  # Configurable threshold
+        min_confidence = 0.2  # Configurable threshold
         if confidence > 0 and confidence < min_confidence:
             errors.append(f"Low confidence score: {confidence:.2f} below threshold {min_confidence}")
             is_valid = False
@@ -491,16 +491,31 @@ class BasicDetectionProcessor:
                 request.target_label
             )
             
-            # Parse detection results
+            # Debug: Log the detection results structure
+            logger.info(f"🔍 Detection results type: {type(detection_results)}")
             if isinstance(detection_results, tuple):
+                logger.info(f"🔍 Detection results length: {len(detection_results)}")
+                logger.info(f"🔍 Detection results values: {detection_results[1:] if len(detection_results) > 1 else 'No additional values'}")
+            
+            # Parse detection results with better error handling
+            if isinstance(detection_results, tuple) and len(detection_results) >= 6:
                 processed_frame = detection_results[0]
-                detected_target = detection_results[1] if len(detection_results) > 1 else False
-                non_target_count = detection_results[2] if len(detection_results) > 2 else 0
-                total_pieces_detected = detection_results[3] if len(detection_results) > 3 else 0
-                correct_pieces_count = detection_results[4] if len(detection_results) > 4 else 0
-                confidence = detection_results[5] if len(detection_results) > 5 else 0
+                detected_target = detection_results[1]
+                non_target_count = detection_results[2]
+                total_pieces_detected = detection_results[3]
+                correct_pieces_count = detection_results[4]
+                confidence = detection_results[5]
+                
+                # Additional logging for debugging
+                logger.info(f"🔍 Parsed results - detected_target: {detected_target}, "
+                        f"correct_pieces_count: {correct_pieces_count}, "
+                        f"non_target_count: {non_target_count}, "
+                        f"total_pieces_detected: {total_pieces_detected}, "
+                        f"confidence: {confidence}")
             else:
-                processed_frame = detection_results
+                # Fallback if tuple structure is unexpected
+                logger.warning(f"❌ Unexpected detection results structure: {detection_results}")
+                processed_frame = detection_results[0] if isinstance(detection_results, tuple) else detection_results
                 detected_target = False
                 non_target_count = 0
                 total_pieces_detected = 0
@@ -515,6 +530,9 @@ class BasicDetectionProcessor:
                 'correct_pieces_count': correct_pieces_count,
                 'confidence': confidence
             }
+            
+            # Log detection session data for debugging
+            logger.info(f"🔍 Detection session data: {detection_session_data}")
             
             # Perform lot validation if lot_id provided
             is_target_match = False

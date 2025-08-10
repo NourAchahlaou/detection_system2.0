@@ -80,7 +80,7 @@ def create_training_session(db: Session, piece_labels: list) -> TrainingSession:
         training_session = TrainingSession(
             session_name=session_name,
             model_type="YOLOV8X",
-            epochs=25,
+            epochs=30,
             batch_size=8,
             learning_rate=0.0001,
             image_size=640,

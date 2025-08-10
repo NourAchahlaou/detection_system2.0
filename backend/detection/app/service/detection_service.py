@@ -5,7 +5,7 @@ from detection.app.service.model_service import load_my_model
 import numpy as np
 
 class DetectionSystem:
-    def __init__(self, confidence_threshold=0.8):
+    def __init__(self, confidence_threshold=0.5):
         self.confidence_threshold = confidence_threshold
         self.device = self.get_device()  # Get the device (CPU or GPU)
         self.model = self.get_my_model()  # Load the model once
@@ -44,7 +44,7 @@ class DetectionSystem:
             results = self.model(frame_tensor.unsqueeze(0))[0]  # Batch dim
         except Exception as e:
             print(f"Detection failed: {e}")
-            return frame, False, 0, 0, 0, 0  # Return zeros for counts
+            return frame, False, 0, 0, 0, 0.0  # Return zeros for counts and confidence
 
         class_names = self.model.names
         target_color = (0, 255, 0)  # Green
@@ -54,9 +54,18 @@ class DetectionSystem:
         non_target_count = 0
         total_pieces_detected = 0
         correct_pieces_count = 0
+        max_confidence = 0.0  # Initialize confidence variable
+
+        # Check if there are any detection boxes
+        if results.boxes is None or len(results.boxes) == 0:
+            return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
 
         for box in results.boxes:
             confidence = box.conf.item()
+            
+            # Update max_confidence regardless of threshold
+            max_confidence = max(max_confidence, confidence)
+            
             if confidence < self.confidence_threshold:
                 continue
 
@@ -94,8 +103,9 @@ class DetectionSystem:
             cv2.putText(frame, label, (label_x, label_y - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-        return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count,confidence
+        return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
 
+    @staticmethod
     def resize_frame_optimized(frame: np.ndarray, target_size=(640, 480)) -> np.ndarray:
         """Optimized frame resizing with better interpolation."""
         if frame.shape[:2] != target_size[::-1]:  # Check if resize is needed

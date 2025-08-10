@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 stop_event = asyncio.Event()
 stop_sign = False
 
+# FIXED: Consistent image size matching detection system
+DETECTION_IMAGE_SIZE = 640  # Fixed size to match detection system (640, 480) -> use 640 as YOLO standard
+
 async def stop_training():
     """Set the stop event to signal training to stop."""
     global stop_sign
@@ -57,30 +60,24 @@ def select_device():
         return torch.device('cpu')
 
 def adjust_batch_size(device, base_batch_size=8):
-    """Adjust batch size based on the available device."""
+    """Adjust batch size based on the available device and fixed image size."""
     if device.type == 'cuda':
         total_memory = torch.cuda.get_device_properties(0).total_memory
-        if total_memory > 8 * 1024**3:  # If GPU has more than 8GB of memory
-            return base_batch_size * 2
-        elif total_memory > 4 * 1024**3:  # If GPU has more than 4GB of memory
-            return base_batch_size
+        # Adjust batch size based on memory, considering fixed 640x640 image size
+        if total_memory > 12 * 1024**3:  # If GPU has more than 12GB of memory
+            return base_batch_size * 2  # 16
+        elif total_memory > 8 * 1024**3:  # If GPU has more than 8GB of memory
+            return base_batch_size  # 8
+        elif total_memory > 6 * 1024**3:  # If GPU has more than 6GB of memory
+            return max(4, base_batch_size // 2)  # 4
         else:
-            return base_batch_size // 2
+            return max(2, base_batch_size // 4)  # 2 minimum
     else:
-        return base_batch_size // 2
+        return max(1, base_batch_size // 4)  # CPU with smaller batch
 
-def adjust_imgsz(device):
-    """Adjust image size based on available GPU memory."""
-    if torch.cuda.is_available():
-        total_memory = torch.cuda.get_device_properties(0).total_memory
-        if total_memory > 8 * 1024**3:  # If GPU has more than 8GB of memory
-            return 1024  # Larger image size
-        elif total_memory >= 4 * 1024**3:  # If GPU has more than 4GB of memory
-            return 640  # Medium image size
-        else:
-            return 416  # Smaller image size
-    else:
-        return 320  # Default for CPU
+def get_training_image_size():
+    """Return fixed image size for training to match detection system."""
+    return DETECTION_IMAGE_SIZE
 
 def validate_dataset(data_yaml_path):
     """Validate dataset for label consistency and data split ratio."""
@@ -143,6 +140,11 @@ def train_model(piece_labels: list, db: Session, session_id: int):
         # Select device and update session
         device = select_device()
         training_session.device_used = str(device)
+        
+        # FIXED: Set consistent image size
+        fixed_image_size = get_training_image_size()
+        training_session.image_size = fixed_image_size
+        training_session.add_log("INFO", f"Using fixed image size: {fixed_image_size}x{fixed_image_size} to match detection system")
         safe_commit(db)
 
         # Count total images across all pieces (only if not already set)
@@ -339,44 +341,47 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
                 model = YOLO("yolov8m.pt")  # Load a base YOLO model
 
         model.to(device)
+        
+        # FIXED: Use consistent image size and adjusted batch size
+        imgsz = get_training_image_size()  # Fixed 640
         batch_size = adjust_batch_size(device)
-        imgsz = adjust_imgsz(device)
         
         # Update training session with configuration
         training_session.batch_size = batch_size
         training_session.image_size = imgsz
+        training_session.add_log("INFO", f"Training configuration - Image size: {imgsz}, Batch size: {batch_size}, Device: {device}")
         db.commit()
 
-        # Hyperparameters setup
+        # FIXED: Optimized hyperparameters for consistent 640x640 training
         hyperparameters = {
             "cos_lr": False,
-            "lr0": 0.0001,  # Decreased learning rate for finer updates
+            "lr0": 0.0001,  # Conservative learning rate for fine-tuning
             "lrf": 0.01,
             "momentum": 0.937,
             "weight_decay": 0.0005,
             "dropout": 0.2, 
-            "warmup_epochs": 10.0,  # Increased warmup for fine-tuning
+            "warmup_epochs": 5.0,  # Reduced warmup for faster convergence at fixed size
             "warmup_momentum": 0.8,
             "warmup_bias_lr": 0.1,
             "label_smoothing": 0.1,
         }
 
-        # Augmentation parameters
+        # FIXED: Optimized augmentation parameters for 640x640 fixed size
         augmentations = {
             "hsv_h": 0.015,  
             "hsv_s": 0.7,  
             "hsv_v": 0.4,  
-            "degrees": 10.0,  # Increase rotation degree for better variance
-            "translate": 0.2,  # Increase translation range
-            "scale": 0.3,  # Slightly higher scaling to improve generalization
+            "degrees": 15.0,  # Slightly increased rotation for better variance at fixed size
+            "translate": 0.15,  # Moderate translation to avoid border issues
+            "scale": 0.2,  # Conservative scaling to maintain object proportions
             "shear": 0.0,
             "perspective": 0.0,
             "flipud": 0.0,
-            "fliplr": 0.7,  # Increase horizontal flip probability
-            "mosaic": 0.7,  # Increase mosaic strength
-            "mixup": 0.1,  # Consider adding mixup for even better generalization
-            "copy_paste": 0.0,
-            "erasing": 0.5,  # Increase image erasing to reduce overfitting
+            "fliplr": 0.5,  # Standard horizontal flip
+            "mosaic": 0.8,  # Higher mosaic for better multi-object detection
+            "mixup": 0.15,  # Moderate mixup for regularization
+            "copy_paste": 0.1,  # Light copy-paste augmentation
+            "erasing": 0.4,  # Moderate erasing to improve robustness
             "crop_fraction": 1.0,
         }
 
@@ -391,8 +396,8 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
         else:
             # Start from epoch 1 for new training
             start_epoch = 1
-            logger.info(f"Starting training for piece: {piece_label} with {training_session.epochs} epochs")
-            training_session.add_log("INFO", f"Starting training for piece: {piece_label} with {training_session.epochs} epochs")
+            logger.info(f"Starting training for piece: {piece_label} with {training_session.epochs} epochs at fixed size {imgsz}")
+            training_session.add_log("INFO", f"Starting training for piece: {piece_label} with {training_session.epochs} epochs at fixed size {imgsz}")
         
         db.commit()
         
@@ -409,7 +414,7 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
                 db.commit()
                 break
             
-            logger.info(f"Starting training for piece {piece_label}: Epoch {current_epoch_num}/{training_session.epochs}")  
+            logger.info(f"Starting training for piece {piece_label}: Epoch {current_epoch_num}/{training_session.epochs} at size {imgsz}")  
             
             # Update current epoch and progress BEFORE training
             training_session.current_epoch = current_epoch_num
@@ -417,14 +422,14 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
             training_session.progress_percentage = epoch_progress
             
             logger.info(f"Training piece {piece_label}: Epoch {current_epoch_num}/{training_session.epochs} - Progress: {epoch_progress:.2f}%")
-            training_session.add_log("INFO", f"Starting epoch {current_epoch_num}/{training_session.epochs} for piece {piece_label}")
+            training_session.add_log("INFO", f"Starting epoch {current_epoch_num}/{training_session.epochs} for piece {piece_label} (size: {imgsz}, batch: {batch_size})")
             db.commit()
 
             # Start the training process for this epoch
             results = model.train(
                 data=data_yaml_path,
                 epochs=1,  # Train for 1 epoch at a time
-                imgsz=imgsz,
+                imgsz=imgsz,  # FIXED: Use consistent image size
                 batch=batch_size,
                 device=device,
                 project=os.path.dirname(model_save_path),
@@ -461,7 +466,7 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
                 
                 validation_results = model.val(
                     data=data_yaml_path,
-                    imgsz=imgsz,
+                    imgsz=imgsz,  # FIXED: Use consistent image size for validation
                     batch=batch_size,
                     device=device,
                 )
@@ -477,7 +482,7 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
 
         # After the loop, check if training completed successfully
         if current_epoch_num == training_session.epochs:
-            training_session.add_log("INFO", f"Training completed for piece {piece_label} after {current_epoch_num} epochs")    
+            training_session.add_log("INFO", f"Training completed for piece {piece_label} after {current_epoch_num} epochs at size {imgsz}")    
             piece.is_yolo_trained = True
             db.commit()
             training_session.add_log("INFO", f"Updated piece {piece_label} is_yolo_trained status to True")
