@@ -45,10 +45,15 @@ class CameraClient:
                 if camera_info["type"] == "regular":
                     camera_info["camera_index"] = camera_data.get("index")  # Map "index" -> "camera_index"
                 elif camera_info["type"] == "basler":
-                    # FIXED: Properly extract serial_number for Basler cameras
+                    # Try top-level first
                     serial_number = camera_data.get("serial_number")
+
+                    # If not found, try inside "device"
+                    if not serial_number and isinstance(camera_data.get("device"), dict):
+                        serial_number = camera_data["device"].get("serial_number")
+
                     if serial_number:
-                        camera_info["serial_number"] = str(serial_number)  # Ensure it's a string
+                        camera_info["serial_number"] = str(serial_number)
                         logger.info(f"Mapped serial_number for Basler camera: {serial_number}")
                     else:
                         logger.warning(f"No serial_number found for Basler camera {camera_info.get('model', 'unknown')}")
@@ -98,7 +103,8 @@ class CameraClient:
     def start_basler_camera(self, serial_number: str):
         """Start Basler camera."""
         try:
-            response = requests.post(f"{self.base_url}/camera/basler/start/{serial_number}")
+            response = requests.post(f"{self.base_url}/camera/basler/start",
+            json={"serial_number": serial_number}                     )
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
