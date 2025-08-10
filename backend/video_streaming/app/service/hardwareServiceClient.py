@@ -12,6 +12,7 @@ class CameraClient:
         self.base_url = base_url
         logger.info(f"Initializing CameraClient with base URL: {base_url}")
         
+            
     def detect_cameras(self) -> List[Dict[str, Any]]:
         """
         Detect available cameras and normalize the response format to match
@@ -27,13 +28,14 @@ class CameraClient:
             
             # Log the raw response for debugging
             raw_data = response.json()
+            logger.info(f"Raw hardware service response: {raw_data}")
             
             cameras = []
             for idx, camera_data in enumerate(raw_data):
 
                 # CRITICAL FIX: The hardware service returns different field names
-                # Hardware service returns: "caption", "index"  
-                # We need to map to: "model", "camera_index"
+                # Hardware service returns: "caption", "index", "serial_number"  
+                # We need to map to: "model", "camera_index", "serial_number"
                 
                 camera_info = {
                     "type": camera_data.get("type"),
@@ -44,7 +46,14 @@ class CameraClient:
                 if camera_info["type"] == "regular":
                     camera_info["camera_index"] = camera_data.get("index")  # Map "index" -> "camera_index"
                 elif camera_info["type"] == "basler":
-                    camera_info["serial_number"] = camera_data.get("serial_number")
+                    # FIXED: Properly extract serial_number for Basler cameras
+                    serial_number = camera_data.get("serial_number")
+                    if serial_number:
+                        camera_info["serial_number"] = str(serial_number)  # Ensure it's a string
+                        logger.info(f"Mapped serial_number for Basler camera: {serial_number}")
+                    else:
+                        logger.warning(f"No serial_number found for Basler camera {camera_info.get('model', 'unknown')}")
+                        camera_info["serial_number"] = None
                 
                 # CRITICAL FIX: Process settings from hardware service
                 hardware_settings = camera_data.get("settings", {})
@@ -65,6 +74,7 @@ class CameraClient:
                     logger.warning(f"  - No valid settings found for camera {camera_info.get('model', 'unknown')}")
                     camera_info["settings"] = {}
                 
+                logger.info(f"Final camera_info for {camera_info.get('model', 'unknown')}: {camera_info}")
                 cameras.append(camera_info)
                 
             return cameras
