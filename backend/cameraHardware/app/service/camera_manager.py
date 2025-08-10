@@ -233,18 +233,26 @@ class CameraManager:
                     }
 
                     # Retrieve camera information
+# Retrieve camera information
                     camera_info = camera.GetDeviceInfo()
                     serial_number = camera_info.GetSerialNumber() if camera_info.GetSerialNumber() else "unknown"
-                    logger.info(f"Retrieved Basler serial number: {serial_number}")
 
-                    # Return in the format expected by the API - with 'type' and 'caption' fields
+                    device_dict = {
+                        "model_name": device.GetModelName(),
+                        "serial_number": device.GetSerialNumber(),
+                        "vendor_name": device.GetVendorName(),
+                        "device_class": device.GetDeviceClass(),
+                        "full_name": device.GetFullName(),
+                    }
+
                     result = {
-                        "type": "basler",  # Changed from 'camera_type' to 'type'
-                        "caption": model_name,  # Changed from 'model' to 'caption'
+                        "type": "basler",
+                        "caption": model_name,
                         "serial_number": serial_number,
                         "settings": settings,
-                        "device": str(device)  # Include device info in serializable form
+                        "device": device_dict
                     }
+
                     
                     logger.info(f"Successfully retrieved Basler camera info")
                     return result
