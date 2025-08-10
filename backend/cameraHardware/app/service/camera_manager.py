@@ -235,12 +235,12 @@ class CameraManager:
 
                     # Retrieve camera information - Fix the serial number retrieval
                     camera_info = camera.GetDeviceInfo()
-                    retrieved_serial_number = camera_info.GetSerialNumber() if camera_info.GetSerialNumber() else "unknown"
+                    serial_number = camera_info.GetSerialNumber() if camera_info.GetSerialNumber() else "unknown"
 
                     # Create device dictionary with proper information
                     device_dict = {
                         "model_name": device.GetModelName(),
-                        "serial_number": retrieved_serial_number,  # This should match retrieved_serial_number
+                        "serial_number": serial_number,  # This should match retrieved_serial_number
                         "vendor_name": device.GetVendorName(),
                         "device_class": device.GetDeviceClass(),
                         "full_name": device.GetFullName(),
@@ -249,12 +249,12 @@ class CameraManager:
                     result = {
                         "type": "basler",
                         "caption": model_name,
-                        "serial_number": retrieved_serial_number,  # Make sure this is included
+                        "serial_number": serial_number,  # Make sure this is included
                         "settings": settings,
                         "device": device_dict
                     }
 
-                    logger.info(f"Successfully retrieved Basler camera info with serial number: {retrieved_serial_number}")
+                    logger.info(f"Successfully retrieved Basler camera info with serial number: {serial_number}")
                     return result
 
                 except Exception as e:
