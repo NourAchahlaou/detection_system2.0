@@ -96,7 +96,6 @@ class CameraManager:
 
         logger.info(f"Total cameras with retrieved information: {len(detected_cameras)}")
         return detected_cameras
-
     @staticmethod
     def get_camera_info(camera_index: Optional[int], serial_number: Optional[str], model_name: str, camera_type: str, device: Optional[pylon.DeviceInfo] = None) -> Optional[Dict]:
         """
@@ -186,34 +185,42 @@ class CameraManager:
                     node_map = camera.GetNodeMap()
                     logger.info("Retrieved node map from Basler camera")
                     
-                    # Get nodes with more error checking
+                    # Get nodes with proper error checking and correct method calls
                     exposure_value = None
                     try:
                         exposure_node = node_map.GetNode("ExposureTime")
-                        if exposure_node and exposure_node.IsWritable():
-                            exposure_node.SetValue(40000)
-                            exposure_value = 40000
-                            logger.info("Successfully set exposure to 40000")
+                        if exposure_node and pylon.IsWritable(exposure_node):  # Use pylon.IsWritable
+                            exposure_node.SetValue(40000.0)  # Ensure it's a float
+                            exposure_value = 40000.0
+                            logger.info("Successfully set exposure to 40000.0")
                         else:
                             logger.warning("Exposure node not available or not writable")
+                            # Try to get current value even if not writable
+                            if exposure_node and pylon.IsReadable(exposure_node):
+                                exposure_value = exposure_node.GetValue()
+                                logger.info(f"Current exposure value: {exposure_value}")
                     except Exception as e:
                         logger.warning(f"Could not set exposure: {e}")
                     
                     gain_value = None
                     try:
                         gain_node = node_map.GetNode("Gain")
-                        if gain_node and gain_node.IsWritable():
-                            gain_node.SetValue(0.8)
-                            gain_value = 0.8
-                            logger.info("Successfully set gain to 0.8")
+                        if gain_node and pylon.IsWritable(gain_node):  # Use pylon.IsWritable
+                            gain_node.SetValue(1.0)  # Set to 1.0 as requested
+                            gain_value = 1.0
+                            logger.info("Successfully set gain to 1.0")
                         else:
                             logger.warning("Gain node not available or not writable")
+                            # Try to get current value even if not writable
+                            if gain_node and pylon.IsReadable(gain_node):
+                                gain_value = gain_node.GetValue()
+                                logger.info(f"Current gain value: {gain_value}")
                     except Exception as e:
                         logger.warning(f"Could not set gain: {e}")
                     
                     try:
                         acquisition_mode_node = node_map.GetNode("AcquisitionMode")
-                        if acquisition_mode_node and acquisition_mode_node.IsWritable():
+                        if acquisition_mode_node and pylon.IsWritable(acquisition_mode_node):  # Use pylon.IsWritable
                             acquisition_mode_node.SetValue("Continuous")
                             logger.info("Successfully set acquisition mode to Continuous")
                         else:
@@ -221,25 +228,25 @@ class CameraManager:
                     except Exception as e:
                         logger.warning(f"Could not set acquisition mode: {e}")
 
-                    # Retrieve camera settings with values we successfully set or None if we failed
+                    # Retrieve camera settings with values we successfully set or current values
                     settings = {
                         "exposure": exposure_value,
-                        "contrast": None,
-                        "brightness": None,
-                        "focus": None,
-                        "aperture": None,
+                        "contrast": None,  # Not available for Basler cameras
+                        "brightness": None,  # Not available for Basler cameras  
+                        "focus": None,  # Not available for Basler cameras
+                        "aperture": None,  # Not available for Basler cameras
                         "gain": gain_value,
-                        "white_balance": None,
+                        "white_balance": None,  # Could be implemented if needed
                     }
 
-                    # Retrieve camera information
-# Retrieve camera information
+                    # Retrieve camera information - Fix the serial number retrieval
                     camera_info = camera.GetDeviceInfo()
-                    serial_number = camera_info.GetSerialNumber() if camera_info.GetSerialNumber() else "unknown"
+                    retrieved_serial_number = camera_info.GetSerialNumber() if camera_info.GetSerialNumber() else "unknown"
 
+                    # Create device dictionary with proper information
                     device_dict = {
                         "model_name": device.GetModelName(),
-                        "serial_number": device.GetSerialNumber(),
+                        "serial_number": device.GetSerialNumber(),  # This should match retrieved_serial_number
                         "vendor_name": device.GetVendorName(),
                         "device_class": device.GetDeviceClass(),
                         "full_name": device.GetFullName(),
@@ -248,13 +255,12 @@ class CameraManager:
                     result = {
                         "type": "basler",
                         "caption": model_name,
-                        "serial_number": serial_number,
+                        "serial_number": retrieved_serial_number,  # Make sure this is included
                         "settings": settings,
                         "device": device_dict
                     }
 
-                    
-                    logger.info(f"Successfully retrieved Basler camera info")
+                    logger.info(f"Successfully retrieved Basler camera info with serial number: {retrieved_serial_number}")
                     return result
 
                 except Exception as e:
