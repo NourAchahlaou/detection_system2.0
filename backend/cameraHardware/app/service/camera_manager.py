@@ -189,42 +189,36 @@ class CameraManager:
                     exposure_value = None
                     try:
                         exposure_node = node_map.GetNode("ExposureTime")
-                        if exposure_node and pylon.IsWritable(exposure_node):  # Use pylon.IsWritable
-                            exposure_node.SetValue(40000.0)  # Ensure it's a float
-                            exposure_value = 40000.0
-                            logger.info("Successfully set exposure to 40000.0")
-                        else:
-                            logger.warning("Exposure node not available or not writable")
+                        # Use pylon.IsWritable
+                        exposure_node.SetValue(40000.0)  # Ensure it's a float
+                        exposure_value = 40000.0
+                        logger.info("Successfully set exposure to 40000.0")
+                   
                             # Try to get current value even if not writable
-                            if exposure_node and pylon.IsReadable(exposure_node):
-                                exposure_value = exposure_node.GetValue()
-                                logger.info(f"Current exposure value: {exposure_value}")
+                        if exposure_node and pylon.IsReadable(exposure_node):
+                            exposure_value = exposure_node.GetValue()
+                            logger.info(f"Current exposure value: {exposure_value}")
                     except Exception as e:
                         logger.warning(f"Could not set exposure: {e}")
                     
                     gain_value = None
                     try:
                         gain_node = node_map.GetNode("Gain")
-                        if gain_node and pylon.IsWritable(gain_node):  # Use pylon.IsWritable
-                            gain_node.SetValue(1.0)  # Set to 1.0 as requested
-                            gain_value = 1.0
-                            logger.info("Successfully set gain to 1.0")
-                        else:
-                            logger.warning("Gain node not available or not writable")
+                        gain_node.SetValue(1.0)  # Set to 1.0 as requested
+                        gain_value = 1.0
+                        logger.info("Successfully set gain to 1.0")
                             # Try to get current value even if not writable
-                            if gain_node and pylon.IsReadable(gain_node):
-                                gain_value = gain_node.GetValue()
-                                logger.info(f"Current gain value: {gain_value}")
+                        if gain_node and pylon.IsReadable(gain_node):
+                            gain_value = gain_node.GetValue()
+                            logger.info(f"Current gain value: {gain_value}")
                     except Exception as e:
                         logger.warning(f"Could not set gain: {e}")
                     
                     try:
                         acquisition_mode_node = node_map.GetNode("AcquisitionMode")
-                        if acquisition_mode_node and pylon.IsWritable(acquisition_mode_node):  # Use pylon.IsWritable
-                            acquisition_mode_node.SetValue("Continuous")
-                            logger.info("Successfully set acquisition mode to Continuous")
-                        else:
-                            logger.warning("Acquisition mode node not available or not writable")
+                        acquisition_mode_node.SetValue("Continuous")
+                        logger.info("Successfully set acquisition mode to Continuous")
+                        
                     except Exception as e:
                         logger.warning(f"Could not set acquisition mode: {e}")
 
@@ -246,7 +240,7 @@ class CameraManager:
                     # Create device dictionary with proper information
                     device_dict = {
                         "model_name": device.GetModelName(),
-                        "serial_number": device.GetSerialNumber(),  # This should match retrieved_serial_number
+                        "serial_number": retrieved_serial_number,  # This should match retrieved_serial_number
                         "vendor_name": device.GetVendorName(),
                         "device_class": device.GetDeviceClass(),
                         "full_name": device.GetFullName(),
