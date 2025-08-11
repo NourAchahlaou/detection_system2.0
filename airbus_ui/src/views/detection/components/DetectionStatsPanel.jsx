@@ -12,61 +12,50 @@ import {
   IconButton,
   Tooltip,
   CircularProgress,
-  Collapse,
   Grid,
   Paper,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Divider,
-  Badge,
-  LinearProgress
+  Divider
 } from '@mui/material';
 import {
   Analytics,
-  Inventory,
-  CheckCircle,
-  Warning,
-  Error,
-  TrendingUp,
-  TrendingDown,
-  ExpandLess,
-  ExpandMore,
   Refresh,
-  Info,
-  PlayArrow,
-  Pause,
-  Category,
-  Numbers,
-  Assessment,
-  PieChart,
-  BarChart,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckCircle,
+  Error as ErrorIcon,
+  AccessTime,
+  Category,
+  TrendingUp,
+  PlayArrow,
+  BarChart
 } from '@mui/icons-material';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, Legend } from 'recharts';
+import { PieChart } from '@mui/x-charts/PieChart';
 
-// Import your detection statistics service
+// Import your updated detection statistics service
 import { detectionStatisticsService } from '../service/statistics/DetectionStatisticsService';
 
-const COLORS = {
-  correct: '#4caf50',
-  misplaced: '#ff9800',
-  pending: '#2196f3',
-  error: '#f44336',
-  completed: '#8bc34a'
-};
+// Colors for the pie charts - Green for correct, Red for incorrect
+const LOT_MATCHING_COLORS = ['#4caf50', '#f44336']; // Green for correct, Red for incorrect
 
-const PIE_COLORS = [COLORS.correct, COLORS.misplaced];
+// Center Label Component for Pie Charts
+const PieCenterLabel = ({ primaryText, secondaryText }) => (
+  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central">
+    <tspan x="50%" dy="-0.3em" fontSize="24" fontWeight="bold" fill="#333">
+      {primaryText}
+    </tspan>
+    <tspan x="50%" dy="1.2em" fontSize="14" fill="#666">
+      {secondaryText}
+    </tspan>
+  </text>
+);
 
-// Toggle Button Component for Left Side
-const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading }) => {
+// Toggle Button Component
+const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading, isDetectionActive }) => {
   return (
     <Box
       sx={{
         position: 'fixed',
-        right: isOpen ? 320 : 0, // Adjust based on panel width
+        right: isOpen ? 400 : 0,
         top: '30%',
         transform: 'translateY(-50%)',
         zIndex: 1300,
@@ -76,18 +65,17 @@ const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading }) => {
       <IconButton
         onClick={onClick}
         sx={{
-          bgcolor: 'secondary.main',
+          bgcolor: 'primary.main',
           color: 'white',
           width: 32,
           height: 48,
           borderRadius: '8px 0 0 8px',
           '&:hover': {
-            bgcolor: 'secondary.dark',
+            bgcolor: 'primary.dark',
           },
           position: 'relative',
           boxShadow: 2,
-          // Add notification dot when there's data
-          '&::after': hasData && !isLoading ? {
+          '&::after': hasData && isDetectionActive && !isLoading ? {
             content: '""',
             position: 'absolute',
             top: 4,
@@ -106,116 +94,121 @@ const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading }) => {
   );
 };
 
-// Collapsible Section Component
-const CollapsibleSection = ({ 
-  title, 
-  children, 
-  defaultExpanded = false, 
-  icon,
-  badge,
-  badgeColor = "primary"
-}) => {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-
-  return (
-    <Box>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          py: 1,
-          '&:hover': {
-            bgcolor: 'action.hover',
-            borderRadius: 1
-          }
-        }}
-        onClick={() => setExpanded(!expanded)}
+// No Detection State Component
+const NoDetectionState = ({ onStartDetection }) => (
+  <Box sx={{ textAlign: 'center', py: 4 }}>
+    <BarChart sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+    <Typography variant="h6" color="text.secondary" gutterBottom>
+      No Detection Statistics Available
+    </Typography>
+    <Typography variant="body2" color="text.disabled" sx={{ mb: 3, maxWidth: 300, mx: 'auto' }}>
+      Detection statistics will be available once you start running detection on your selected lot.
+    </Typography>
+    <Alert severity="info" sx={{ mb: 2 }}>
+      <Typography variant="body2">
+        <strong>Start Detection</strong> to see real-time statistics about your current lot matching and session details.
+      </Typography>
+    </Alert>
+    {onStartDetection && (
+      <Button
+        variant="contained"
+        startIcon={<PlayArrow />}
+        onClick={onStartDetection}
+        sx={{ mt: 1 }}
       >
-        <Stack direction="row" spacing={1} alignItems="center">
-          {icon}
-          <Typography variant="subtitle2" color="textSecondary">
-            {title}
-          </Typography>
-          {badge && (
-            <Chip
-              label={badge}
-              size="small"
-              color={badgeColor}
-              sx={{ height: 18, fontSize: '0.7rem' }}
-            />
-          )}
-        </Stack>
-        <IconButton size="small" sx={{ p: 0.5 }}>
-          {expanded ? <ExpandLess /> : <ExpandMore />}
-        </IconButton>
-      </Box>
-      <Collapse in={expanded}>
-        <Box sx={{ pl: 1, pb: 1 }}>
-          {children}
-        </Box>
-      </Collapse>
-    </Box>
-  );
-};
+        Start Detection
+      </Button>
+    )}
+  </Box>
+);
 
 const DetectionStatsPanel = ({ 
   isOpen = false,
   onToggle,
-  refreshInterval = 30000 // Increased to 30s due to service cache
+  refreshInterval = 30000,
+  isDetectionActive = false,
+  onStartDetection = null,
+  currentLotId = null // NEW: Current lot ID prop
 }) => {
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState(null);
+  const [lotSummary, setLotSummary] = useState(null);
+  const [lastSessions, setLastSessions] = useState([]);
   const [error, setError] = useState(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [internalOpen, setInternalOpen] = useState(false);
+  const [hasEverDetected, setHasEverDetected] = useState(false);
+  
   const isControlled = typeof isOpen === 'boolean' && typeof onToggle === 'function';
   const panelOpen = isControlled ? isOpen : internalOpen;
 
-  // Use external state if provided, otherwise use internal state
   const togglePanel = () => {
     if (isControlled) {
-      onToggle(!isOpen); // Pass next value
+      onToggle(!isOpen);
     } else {
       setInternalOpen(prev => !prev);
     }
   };
 
-  // Auto refresh effect
+  // Auto refresh effect - only when detection is active
   useEffect(() => {
     let interval;
-    if (autoRefresh && panelOpen) {
-      interval = setInterval(fetchStats, refreshInterval);
+    if (panelOpen && isDetectionActive && currentLotId) {
+      interval = setInterval(fetchAllData, refreshInterval);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, panelOpen, refreshInterval]);
+  }, [panelOpen, refreshInterval, isDetectionActive, currentLotId]);
 
-  // Initial load when panel opens
+  // Initial load when panel opens and detection is active
   useEffect(() => {
-    if (panelOpen && !stats) {
-      fetchStats();
+    if (panelOpen && isDetectionActive && currentLotId) {
+      fetchAllData();
     }
-  }, [panelOpen]);
+  }, [panelOpen, isDetectionActive, currentLotId]);
 
-  const fetchStats = async () => {
+  // Track if detection has ever been active
+  useEffect(() => {
+    if (isDetectionActive) {
+      setHasEverDetected(true);
+    }
+  }, [isDetectionActive]);
+
+  const fetchAllData = async () => {
+    // Only fetch data if detection is active and we have a lot ID
+    if (!isDetectionActive || !currentLotId) {
+      console.log('🔍 Skipping stats fetch - detection not active or no lot ID');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     
     try {
-      // Use the getDashboardData convenience method to get all data in one call
-      const dashboardResult = await detectionStatisticsService.getDashboardData({
-        analyticsDays: 7
-      });
-
-      if (dashboardResult.success) {
-        const transformedStats = transformApiDataToComponentFormat(dashboardResult.data);
-        setStats(transformedStats);
+      // Fetch lot summary for the current lot
+      const summaryResult = await detectionStatisticsService.getLotSummary(currentLotId);
+      if (summaryResult.success) {
+        setLotSummary(summaryResult.data);
+        console.log("lotsummery :)",summaryResult)
+      } else if (summaryResult.notFound) {
+        setError(`Lot ${currentLotId} not found`);
+        return;
       } else {
-        throw new Error(dashboardResult.error || 'Failed to load dashboard data');
+        console.warn('Failed to fetch lot summary:', summaryResult.error);
       }
+
+      // Fetch last sessions per lot to get current lot's session
+      const sessionsResult = await detectionStatisticsService.getLastSessionsPerLot();
+      if (sessionsResult.success) {
+        // Filter for current lot only
+        const currentLotSessions = sessionsResult.data.filter(session => 
+          session.lot_id === currentLotId
+        );
+        console.log("currentLotSessions",currentLotSessions,"sessionsResult",sessionsResult)
+        setLastSessions(currentLotSessions);
+      } else {
+        console.warn('Failed to fetch last sessions:', sessionsResult.error);
+      }
+
     } catch (err) {
       console.error('Error fetching detection stats:', err);
       setError(err.message || 'Failed to load detection statistics');
@@ -224,103 +217,61 @@ const DetectionStatsPanel = ({
     }
   };
 
-  // Transform API data to match component's expected format
-  const transformApiDataToComponentFormat = (apiData) => {
-    const { overview, realTime, analytics, activeLots } = apiData;
-
-    // Transform active lots data
-    const transformedActiveLots = activeLots?.map(lot => ({
-      lot_id: lot.lot_id,
-      lot_name: lot.lot_name || `Lot ${lot.lot_id}`,
-      expected_piece_label: lot.expected_piece_label,
-      expected_piece_number: lot.expected_piece_number,
-      current_correct_count: lot.current_correct_count,
-      current_misplaced_count: lot.current_misplaced_count,
-      total_detected: lot.total_detected,
-      completion_percentage: lot.completion_percentage,
-      is_target_match: lot.is_target_match,
-      last_detection_time: lot.last_detection_time,
-      detection_rate: lot.detection_rate || (lot.current_correct_count / lot.total_detected),
-      sessions_count: lot.sessions_count || 0
-    })) || [];
-
-    // Calculate overall stats
-    const totalCorrect = overview?.total_correct_pieces || 0;
-    const totalMisplaced = overview?.total_misplaced_pieces || 0;
-    const totalPieces = totalCorrect + totalMisplaced;
-    const overallAccuracy = totalPieces > 0 ? Math.round((totalCorrect / totalPieces) * 100 * 10) / 10 : 0;
-
-    const overallStats = {
-      total_lots: overview?.total_lots || 0,
-      completed_lots: overview?.completed_lots || 0,
-      active_lots: overview?.active_lots || activeLots?.length || 0,
-      pending_lots: overview?.pending_lots || 0,
-      total_pieces_detected: totalPieces,
-      total_correct_pieces: totalCorrect,
-      total_misplaced_pieces: totalMisplaced,
-      overall_accuracy: overallAccuracy,
-      average_detection_rate: overview?.average_detection_rate || 0
-    };
-
-    // Transform recent detections
-    const recentDetections = realTime?.recent_detections?.map(detection => ({
-      piece_label: detection.piece_label,
-      detected_count: detection.detected_count || 1,
-      timestamp: new Date(detection.timestamp).toLocaleTimeString()
-    })) || [];
-
-    return {
-      activeLots: transformedActiveLots,
-      overallStats,
-      recentDetections,
-      fromCache: apiData.fromCache || false,
-      timestamp: new Date().toISOString()
-    };
-  };
-
-  const calculatePieData = (lot) => {
-    const total = lot.total_detected || (lot.current_correct_count + lot.current_misplaced_count);
-    if (total === 0) return [];
+  // Transform lot summary data for pie chart (correct vs incorrect pieces)
+  const getLotMatchingChartData = () => {
+    if (!lotSummary) return [];
+    
+    const correctPieces = lotSummary.correct_pieces_count || 0;
+    const totalDetected = lotSummary.total_detections || 0;
+    const incorrectPieces = totalDetected - correctPieces;
     
     return [
-      { 
-        name: 'Correct Pieces', 
-        value: lot.current_correct_count, 
-        percentage: Math.round((lot.current_correct_count / total) * 100) 
+      {
+        id: 'correct',
+        value: correctPieces,
+        label: 'Correct Pieces',
+        color: LOT_MATCHING_COLORS[0] // Green
       },
-      { 
-        name: 'Misplaced Pieces', 
-        value: lot.current_misplaced_count, 
-        percentage: Math.round((lot.current_misplaced_count / total) * 100) 
+      {
+        id: 'incorrect',
+        value: incorrectPieces,
+        label: 'Incorrect Pieces',
+        color: LOT_MATCHING_COLORS[1] // Red
       }
-    ];
+    ].filter(item => item.value > 0); // Only show non-zero values
   };
 
-  const getStatusColor = (lot) => {
-    if (lot.is_target_match) return 'success';
-    if (lot.completion_percentage >= 80) return 'warning';
-    return 'info';
+  // Calculate matching percentage
+  const getMatchingPercentage = () => {
+    if (!lotSummary || !lotSummary.total_detections) return 0;
+    
+    const correctPieces = lotSummary.correct_pieces_count || 0;
+    const totalDetected = lotSummary.total_detections || 0;
+    
+    return totalDetected > 0 ? Math.round((correctPieces / totalDetected) * 100) : 0;
   };
 
-  const getStatusIcon = (lot) => {
-    if (lot.is_target_match) return <CheckCircle />;
-    if (lot.completion_percentage >= 80) return <Warning />;
-    return <Info />;
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleString();
   };
 
-  // Calculate overall pie data
-  const overallPieData = stats ? [
-    { 
-      name: 'Correct Pieces', 
-      value: stats.overallStats.total_correct_pieces,
-      percentage: Math.round((stats.overallStats.total_correct_pieces / stats.overallStats.total_pieces_detected) * 100) || 0
-    },
-    { 
-      name: 'Misplaced Pieces', 
-      value: stats.overallStats.total_misplaced_pieces,
-      percentage: Math.round((stats.overallStats.total_misplaced_pieces / stats.overallStats.total_pieces_detected) * 100) || 0
-    }
-  ] : [];
+  const formatDuration = (startTime, endTime) => {
+    if (!startTime || !endTime) return 'N/A';
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const durationMs = end - start;
+    const minutes = Math.floor(durationMs / 60000);
+    const seconds = Math.floor((durationMs % 60000) / 1000);
+    return `${minutes}m ${seconds}s`;
+  };
+
+  const hasData = lotSummary || lastSessions.length > 0;
+  const shouldShowStats = isDetectionActive && hasData && currentLotId;
+  const shouldShowNoDetectionState = !isDetectionActive && !hasEverDetected;
+  const shouldShowWaitingState = (!isDetectionActive && hasEverDetected) || (!currentLotId && isDetectionActive);
+  const currentSession = lastSessions.length > 0 ? lastSessions[0] : null;
 
   return (
     <>
@@ -328,22 +279,23 @@ const DetectionStatsPanel = ({
       <StatsToggleButton 
         isOpen={panelOpen} 
         onClick={togglePanel}
-        hasData={!!stats}
+        hasData={!!hasData}
         isLoading={loading}
+        isDetectionActive={isDetectionActive}
       />
 
       {/* Sliding Panel */}
       <Box
         sx={{
           position: 'fixed',
-          right: panelOpen ? 0 : -320,
+          right: panelOpen ? 0 : -400,
           top: 0,
-          width: 320,
+          width: 400,
           height: '100vh',
           zIndex: 1200,
           transition: 'right 0.3s ease-in-out',
           bgcolor: 'background.default',
-          borderRight: panelOpen ? '1px solid' : 'none',
+          borderLeft: panelOpen ? '1px solid' : 'none',
           borderColor: 'divider',
           boxShadow: panelOpen ? 3 : 0,
           overflowY: 'auto'
@@ -352,304 +304,311 @@ const DetectionStatsPanel = ({
         <Card sx={{ height: '100%', borderRadius: 0, boxShadow: 'none' }}>
           {/* Panel Header */}
           <CardHeader
-            avatar={
-              <Badge badgeContent={stats?.activeLots?.length || 0} color="primary">
-                <Analytics color="primary" />
-              </Badge>
-            }
+            avatar={<Analytics color="primary" />}
             title={
-              <Typography variant="h6" sx={{ fontSize: '1rem' }}>
-                Detection Statistics
+              <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>
+                Lot Detection Statistics
+                {isDetectionActive && (
+                  <Chip 
+                    label="LIVE" 
+                    size="small" 
+                    color="success" 
+                    sx={{ ml: 1, fontSize: '0.75rem' }}
+                  />
+                )}
               </Typography>
             }
+            subheader={
+              currentLotId && lotSummary && (
+                <Typography variant="body2" color="text.secondary">
+                  {lotSummary.lot_name} (ID: {currentLotId})
+                </Typography>
+              )
+            }
             action={
-              <IconButton size="small" onClick={togglePanel}>
-                <ChevronRight />
-              </IconButton>
+              <Stack direction="row" spacing={1}>
+                {isDetectionActive && currentLotId && (
+                  <Tooltip title="Refresh data">
+                    <IconButton size="small" onClick={fetchAllData} disabled={loading}>
+                      {loading ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <IconButton size="small" onClick={togglePanel}>
+                  <ChevronRight />
+                </IconButton>
+              </Stack>
             }
             sx={{ pb: 1 }}
           />
 
           <CardContent sx={{ pt: 0, pb: 2 }}>
-            {/* Header Controls */}
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-              {stats && (
-                <Chip
-                  size="small"
-                  label={`${stats.overallStats.overall_accuracy}% Accuracy`}
-                  color={stats.overallStats.overall_accuracy >= 90 ? 'success' : 'warning'}
-                  sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}
-                />
-              )}
-              {stats?.fromCache && (
-                <Chip
-                  size="small"
-                  label="Cached"
-                  variant="outlined"
-                  color="info"
-                  sx={{ fontSize: '0.7rem' }}
-                />
-              )}
-              <Box sx={{ flexGrow: 1 }} />
-              <Tooltip title={autoRefresh ? "Pause auto-refresh" : "Resume auto-refresh"}>
-                <IconButton 
-                  size="small" 
-                  onClick={() => setAutoRefresh(!autoRefresh)}
-                  color={autoRefresh ? "primary" : "default"}
-                >
-                  {autoRefresh ? <Pause fontSize="small" /> : <PlayArrow fontSize="small" />}
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Refresh now">
-                <IconButton size="small" onClick={fetchStats} disabled={loading}>
-                  {loading ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
-                </IconButton>
-              </Tooltip>
-            </Stack>
+            {/* No Detection State */}
+            {shouldShowNoDetectionState && (
+              <NoDetectionState onStartDetection={onStartDetection} />
+            )}
+
+            {/* Waiting for Detection State */}
+            {shouldShowWaitingState && (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <AccessTime sx={{ fontSize: 60, color: 'warning.main', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  {!currentLotId ? 'No Lot Selected' : 'Detection Stopped'}
+                </Typography>
+                <Typography variant="body2" color="text.disabled" sx={{ mb: 3 }}>
+                  {!currentLotId 
+                    ? 'Select a lot and start detection to see statistics.'
+                    : 'Statistics are paused. Start detection again to see live updates.'
+                  }
+                </Typography>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    Lot-specific statistics are only updated during active detection sessions.
+                  </Typography>
+                </Alert>
+                {onStartDetection && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<PlayArrow />}
+                    onClick={onStartDetection}
+                    sx={{ mt: 1 }}
+                  >
+                    {!currentLotId ? 'Start Detection' : 'Resume Detection'}
+                  </Button>
+                )}
+              </Box>
+            )}
 
             {/* Error State */}
-            {error && (
-              <Alert severity="error" sx={{ mb: 2, fontSize: '0.8rem' }} action={
-                <Button size="small" onClick={fetchStats}>Retry</Button>
+            {error && isDetectionActive && (
+              <Alert severity="error" sx={{ mb: 2 }} action={
+                <Button size="small" onClick={fetchAllData}>Retry</Button>
               }>
                 {error}
               </Alert>
             )}
 
             {/* Loading State */}
-            {loading && !stats && (
+            {loading && isDetectionActive && !hasData && (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress size={24} />
+                <CircularProgress />
               </Box>
             )}
 
-            {/* No Data State */}
-            {!loading && !stats && !error && (
+            {/* No Data State (during active detection) */}
+            {!loading && !hasData && !error && isDetectionActive && currentLotId && (
               <Alert severity="info" action={
-                <Button size="small" onClick={fetchStats}>Load Data</Button>
+                <Button size="small" onClick={fetchAllData}>Load Data</Button>
               }>
-                No detection statistics available.
+                No detection statistics available yet for this lot. Continue detecting to generate data.
               </Alert>
             )}
 
-            {/* Stats Content */}
-            {stats && (
-              <Stack spacing={1}>
-                {/* Overall Performance */}
-                <CollapsibleSection
-                  title="Overall Performance"
-                  defaultExpanded={true}
-                  icon={<Assessment sx={{ fontSize: 16 }} />}
-                  badge={`${stats.overallStats.total_lots} lots`}
-                  badgeColor="primary"
-                >
-                  <Stack spacing={1}>
-                    {/* Quick Stats Grid */}
-                    <Grid container spacing={1}>
+            {/* Stats Content - Only show during active detection */}
+            {shouldShowStats && (
+              <Stack spacing={3}>
+                {/* Lot Matching Pie Chart */}
+                {lotSummary && lotSummary.total_detections > 0 && (
+                  <Box>
+                    <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                      Lot Matching Results
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      Expected: {lotSummary.expected_piece_count} pieces
+                    </Typography>
+                    
+                    <Box sx={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
+                      <PieChart
+                        colors={LOT_MATCHING_COLORS}
+                        margin={{ left: 80, right: 80, top: 80, bottom: 80 }}
+                        series={[
+                          {
+                            data: getLotMatchingChartData(),
+                            innerRadius: 75,
+                            outerRadius: 100,
+                            paddingAngle: 2,
+                            highlightScope: { faded: 'global', highlighted: 'item' }
+                          }
+                        ]}
+                        height={260}
+                        width={260}
+                        slotProps={{
+                          legend: { hidden: true }
+                        }}
+                      >
+                        <PieCenterLabel 
+                          primaryText={`${getMatchingPercentage()}%`}
+                          secondaryText="Match Rate"
+                        />
+                      </PieChart>
+                    </Box>
+
+                    {/* Stats Summary */}
+                    <Grid container spacing={2} sx={{ mt: 1 }}>
                       <Grid item xs={6}>
-                        <Paper elevation={0} sx={{ p: 1, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
-                          <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '1rem' }}>
-                            {stats.overallStats.completed_lots}
+                        <Paper elevation={0} sx={{ p: 2, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText', borderRadius: 2 }}>
+                          <Typography variant="h5" fontWeight="bold">
+                            {lotSummary.correct_pieces_count || 0}
                           </Typography>
-                          <Typography variant="caption">
-                            Completed
+                          <Typography variant="body2">
+                            Correct Pieces
                           </Typography>
                         </Paper>
                       </Grid>
                       <Grid item xs={6}>
-                        <Paper elevation={0} sx={{ p: 1, textAlign: 'center', bgcolor: 'info.light', color: 'info.contrastText' }}>
-                          <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '1rem' }}>
-                            {stats.overallStats.active_lots}
+                        <Paper elevation={0} sx={{ p: 2, textAlign: 'center', bgcolor: 'error.light', color: 'error.contrastText', borderRadius: 2 }}>
+                          <Typography variant="h5" fontWeight="bold">
+                            {(lotSummary.total_detections || 0) - (lotSummary.correct_pieces_count || 0)}
                           </Typography>
-                          <Typography variant="caption">
-                            Active
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Paper elevation={0} sx={{ p: 1, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                          <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '1rem' }}>
-                            {stats.overallStats.total_correct_pieces}
-                          </Typography>
-                          <Typography variant="caption">
-                            Correct
+                          <Typography variant="body2">
+                            Incorrect Pieces
                           </Typography>
                         </Paper>
                       </Grid>
-                      <Grid item xs={6}>
-                        <Paper elevation={0} sx={{ p: 1, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
-                          <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '1rem' }}>
-                            {stats.overallStats.total_misplaced_pieces}
-                          </Typography>
-                          <Typography variant="caption">
-                            Misplaced
-                          </Typography>
-                        </Paper>
+                      <Grid item xs={12}>
+                        <Chip
+                          icon={lotSummary.is_completed ? <CheckCircle /> : <AccessTime />}
+                          label={lotSummary.is_completed ? 'Lot Completed' : 'Detection In Progress'}
+                          color={lotSummary.is_completed ? 'success' : 'primary'}
+                          sx={{ width: '100%', py: 1 }}
+                        />
                       </Grid>
                     </Grid>
+                  </Box>
+                )}
 
-                    {/* Overall Accuracy Progress */}
-                    <Box sx={{ mt: 1 }}>
-                      <Typography variant="caption" color="textSecondary" gutterBottom>
-                        Average Detection Rate: {Math.round(stats.overallStats.average_detection_rate * 100)}%
-                      </Typography>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={stats.overallStats.average_detection_rate * 100} 
-                        color="primary"
-                        sx={{ height: 6, borderRadius: 3 }}
-                      />
-                    </Box>
-
-                    {/* Overall Pie Chart - Compact */}
-                    {overallPieData.length > 0 && overallPieData[0].value > 0 && (
-                      <Box sx={{ textAlign: 'center', mt: 1 }}>
-                        <ResponsiveContainer width="100%" height={120}>
-                          <RechartsPieChart>
-                            <Pie
-                              data={overallPieData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={20}
-                              outerRadius={50}
-                              paddingAngle={3}
-                              dataKey="value"
-                              label={({ percentage }) => `${percentage}%`}
-                            >
-                              {overallPieData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <RechartsTooltip formatter={(value, name) => [`${value} pieces`, name]} />
-                          </RechartsPieChart>
-                        </ResponsiveContainer>
-                      </Box>
-                    )}
-                  </Stack>
-                </CollapsibleSection>
+                {/* Show message if no detections yet */}
+                {lotSummary && lotSummary.total_detections === 0 && (
+                  <Alert severity="info">
+                    <Typography variant="body2">
+                      No detections recorded yet for this lot. The pie chart will appear once detection starts.
+                    </Typography>
+                  </Alert>
+                )}
 
                 <Divider />
 
-                {/* Active Lots */}
-                <CollapsibleSection
-                  title="Active Lots"
-                  defaultExpanded={true}
-                  icon={<Inventory sx={{ fontSize: 16 }} />}
-                  badge={stats.activeLots.length}
-                  badgeColor="info"
-                >
-                  {stats.activeLots.length === 0 ? (
-                    <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 1 }}>
-                      No active lots
+                {/* Last Session Details */}
+                {currentSession && (
+                  <Box>
+                    <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                      Latest Session Details
                     </Typography>
-                  ) : (
-                    <Stack spacing={1}>
-                      {stats.activeLots.map((lot) => (
-                        <Paper key={lot.lot_id} variant="outlined" sx={{ p: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="subtitle2" fontWeight="bold" noWrap sx={{ fontSize: '0.8rem' }}>
-                              {lot.lot_name}
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Stack spacing={2}>
+                        <Grid container spacing={2}>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Session ID
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              #{currentSession.last_session_id}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Status
                             </Typography>
                             <Chip
-                              icon={getStatusIcon(lot)}
-                              label={lot.is_target_match ? 'Done' : 'Active'}
-                              color={getStatusColor(lot)}
+                              icon={currentSession.is_target_match ? <CheckCircle /> : <AccessTime />}
+                              label={currentSession.is_target_match ? 'Completed' : 'Active'}
+                              color={currentSession.is_target_match ? 'success' : 'primary'}
                               size="small"
-                              sx={{ fontSize: '0.6rem', height: 16 }}
                             />
-                          </Box>
-                          
-                          <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
-                            {lot.expected_piece_label} ({lot.expected_piece_number} pieces)
-                          </Typography>
-                          
-                          <Box sx={{ mb: 1 }}>
-                            <Typography variant="caption" color="textSecondary">
-                              Progress: {lot.completion_percentage}%
-                            </Typography>
-                            <LinearProgress 
-                              variant="determinate" 
-                              value={lot.completion_percentage} 
-                              color={getStatusColor(lot)}
-                              sx={{ height: 4, borderRadius: 2, mt: 0.5 }}
-                            />
-                          </Box>
-                          
-                          <Grid container spacing={1} sx={{ mt: 0.5 }}>
-                            <Grid item xs={6}>
-                              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <CheckCircle sx={{ color: COLORS.correct, fontSize: 12 }} />
-                                {lot.current_correct_count}
-                              </Typography>
-                            </Grid>
-                            <Grid item xs={6}>
-                              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Warning sx={{ color: COLORS.misplaced, fontSize: 12 }} />
-                                {lot.current_misplaced_count}
-                              </Typography>
-                            </Grid>
-                            <Grid item xs={6}>
-                              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Numbers sx={{ color: 'text.secondary', fontSize: 12 }} />
-                                {lot.sessions_count} sessions
-                              </Typography>
-                            </Grid>
-                            <Grid item xs={6}>
-                              <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <TrendingUp sx={{ color: 'text.secondary', fontSize: 12 }} />
-                                {Math.round(lot.detection_rate * 100)}%
-                              </Typography>
-                            </Grid>
                           </Grid>
-                        </Paper>
-                      ))}
-                    </Stack>
-                  )}
-                </CollapsibleSection>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Accuracy Rate
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {Math.round(currentSession.detection_rate || 0)}%
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Completion Rate
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {currentSession.total_detected
+                                ? Math.round(((currentSession.correct_pieces + currentSession.misplaced_pieces) / currentSession.total_detected) * 100)
+                                : 0}%
+                            </Typography>
 
-                <Divider />
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Total Detections
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {currentSession.total_detected || 0}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Confidence Score
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {Math.round((currentSession.confidence_score || 0) * 100)}%
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Started At
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {formatDateTime(currentSession.last_session_time)}
+                            </Typography>
+                          </Grid>
+                        </Grid>
+                      </Stack>
+                    </Paper>
+                  </Box>
+                )}
 
-                {/* Recent Detections */}
-                <CollapsibleSection
-                  title="Recent Detections"
-                  defaultExpanded={false}
-                  icon={<Category sx={{ fontSize: 16 }} />}
-                  badge={stats.recentDetections.length}
-                  badgeColor="success"
-                >
-                  {stats.recentDetections.length === 0 ? (
-                    <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 1 }}>
-                      No recent detections
+                {/* Lot Summary Information */}
+                {lotSummary && (
+                  <Box>
+                    <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                      Lot Overview
                     </Typography>
-                  ) : (
-                    <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
-                      <List dense disablePadding>
-                        {stats.recentDetections.map((detection, index) => (
-                          <React.Fragment key={index}>
-                            <ListItem disablePadding sx={{ py: 0.5 }}>
-                              <ListItemIcon sx={{ minWidth: 24 }}>
-                                <CheckCircle color="success" sx={{ fontSize: 16 }} />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={
-                                  <Typography variant="caption" fontWeight="bold">
-                                    {detection.piece_label}
-                                  </Typography>
-                                }
-                                secondary={
-                                  <Typography variant="caption" color="textSecondary">
-                                    {detection.detected_count} pieces • {detection.timestamp}
-                                  </Typography>
-                                }
-                              />
-                            </ListItem>
-                            {index < stats.recentDetections.length - 1 && <Divider />}
-                          </React.Fragment>
-                        ))}
-                      </List>
-                    </Box>
-                  )}
-                </CollapsibleSection>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Grid container spacing={2}>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="textSecondary">
+                            Lot Name
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {lotSummary.lot_name}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="textSecondary">
+                            Expected Pieces
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {lotSummary.expected_piece_count}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="textSecondary">
+                            Total Sessions
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {lotSummary.total_sessions || 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="textSecondary">
+                            Last Updated
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {formatDateTime(lotSummary.last_session_date)}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Paper>
+                  </Box>
+                )}
               </Stack>
             )}
           </CardContent>

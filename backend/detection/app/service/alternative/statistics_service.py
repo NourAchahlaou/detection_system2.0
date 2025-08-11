@@ -1,452 +1,416 @@
-# statistics_service.py - Enhanced Detection Statistics Service
-
+# statistics_service.py - Professional Detection Statistics Service
 import logging
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select, func, and_, desc, asc
-from datetime import datetime, timedelta
-import json
+from sqlalchemy import func, desc, and_, literal_column
+from datetime import datetime
 
 from detection.app.db.models.detectionLot import DetectionLot
 from detection.app.db.models.detectionSession import DetectionSession
-from detection.app.db.session import get_session
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class PieceStatistics:
-    """Statistics for detected pieces"""
-    piece_label: str
-    piece_id: int
-    total_detected: int
-    correct_count: int
-    misplaced_count: int
-    accuracy_percentage: float
-    last_detection_time: Optional[str] = None
 
+# --- Data containers (clear, typed outputs) ---
 @dataclass
-class LotProgress:
-    """Progress information for a detection lot"""
+class LotLastSession:
     lot_id: int
     lot_name: str
-    expected_piece_label: str
-    expected_piece_id: int
-    expected_piece_number: int
-    current_detected: int
+    last_session_id: int
+    last_session_time: str
     correct_pieces: int
     misplaced_pieces: int
-    completion_percentage: float
-    accuracy_percentage: float
-    is_completed: bool
+    total_detected: int
+    is_target_match: bool
+    confidence_score: float
+    detection_rate: float
+
+
+@dataclass
+class LotSummary:
+    lot_id: int
+    lot_name: str
+    expected_piece_id: int
+    expected_piece_number: int
     created_at: str
-    completed_at: Optional[str] = None
-    total_sessions: int = 0
+    completed_at: Optional[str]
+    is_completed: bool
+    sessions_count: int
+    sessions_to_completion: Optional[int]  # None if not completed
+    first_session_correct: bool
+    total_correct: int
+    total_misplaced: int
+
 
 @dataclass
-class DetectionOverview:
-    """Overall detection statistics"""
+class SystemLotStartStats:
     total_lots: int
-    active_lots: int
-    completed_lots: int
-    total_sessions: int
-    total_pieces_detected: int
-    overall_accuracy: float
-    average_session_time: float
-    most_detected_piece: Optional[str] = None
-    most_accurate_piece: Optional[str] = None
+    lots_correct_from_start: int
+    lots_with_problems_from_start: int
+    percent_correct_from_start: float
+    percent_problem_from_start: float
+
 
 @dataclass
-class RealTimeStats:
-    """Real-time detection statistics"""
-    current_lot: Optional[LotProgress] = None
-    recent_detections: List[Dict[str, Any]] = None
-    active_cameras: List[int] = None
-    detection_rate_last_hour: float = 0.0
-    system_performance: Dict[str, Any] = None
+class CommonFailure:
+    description: str
+    count: int
+    percent_of_problem_lots: float
 
+
+@dataclass
+class MixedPair:
+    piece_a_id: int
+    piece_b_id: int
+    confusion_count: int
+
+
+# --- Core service ---
 class DetectionStatisticsService:
-    """Service for generating detection statistics and analytics"""
-    
-    def __init__(self):
-        self.cache = {}
-        self.cache_timeout = 30  # 30 seconds cache
-        self.last_cache_update = {}
-    
-    def _is_cache_valid(self, key: str) -> bool:
-        """Check if cache is valid for given key"""
-        if key not in self.last_cache_update:
-            return False
-        return (time.time() - self.last_cache_update[key]) < self.cache_timeout
-    
-    def _update_cache(self, key: str, data: Any):
-        """Update cache with new data"""
-        self.cache[key] = data
-        self.last_cache_update[key] = time.time()
-    
-    def get_lot_progress(self, lot_id: int, db: Session) -> Optional[LotProgress]:
-        """Get detailed progress for a specific lot"""
+    """
+    Focused, professional statistics service.
+    Methods:
+      - last_session_per_lot(db)
+      - lot_summary(lot_id, db)
+      - sessions_to_completion(lot_id, db)
+      - system_start_stats(db)
+      - common_failures_for_problem_lots(db, top_n=10)
+      - top_mixed_pairs(db, top_n=10)  # needs mismatch details or falls back to heuristics
+    """
+
+    def __init__(self, cache_timeout: int = 30):
+        self._cache: Dict[str, Any] = {}
+        self._cache_ts: Dict[str, float] = {}
+        self.cache_timeout = cache_timeout
+
+    def _cache_get(self, key: str):
+        ts = self._cache_ts.get(key)
+        if ts and (time.time() - ts) < self.cache_timeout:
+            return self._cache.get(key)
+        return None
+
+    def _cache_set(self, key: str, value: Any):
+        self._cache[key] = value
+        self._cache_ts[key] = time.time()
+
+    # -------- Last session for each lot --------
+    def last_session_per_lot(self, db: Session) -> List[LotLastSession]:
+        """
+        Returns last session (most recent) for every lot with brief metrics.
+        Efficient: single query to get last session per lot via subquery.
+        """
+        cache_key = "last_session_per_lot"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
-            cache_key = f"lot_progress_{lot_id}"
-            
-            if self._is_cache_valid(cache_key):
-                return self.cache[cache_key]
-            
-            # Get lot with sessions
-            lot = db.query(DetectionLot).options(
-                selectinload(DetectionLot.detection_sessions)
-            ).filter(DetectionLot.id == lot_id).first()
-            
+            # Subquery to get max(created_at) per lot
+            subq = db.query(
+                DetectionSession.lot_id.label("lot_id"),
+                func.max(DetectionSession.created_at).label("last_time")
+            ).group_by(DetectionSession.lot_id).subquery()
+
+            # Join subquery with sessions and lots to fetch session row details
+            rows = db.query(
+                DetectionLot.id.label("lot_id"),
+                DetectionLot.lot_name,
+                DetectionSession.id.label("session_id"),
+                DetectionSession.created_at,
+                DetectionSession.correct_pieces_count,
+                DetectionSession.misplaced_pieces_count,
+                DetectionSession.total_pieces_detected,
+                DetectionSession.is_target_match,
+                DetectionSession.confidence_score,
+                DetectionSession.detection_rate
+            ).join(DetectionSession, DetectionSession.lot_id == DetectionLot.id) \
+             .join(subq, and_(subq.c.lot_id == DetectionSession.lot_id,
+                               subq.c.last_time == DetectionSession.created_at)) \
+             .all()
+
+            result = []
+            for r in rows:
+                result.append(LotLastSession(
+                    lot_id=r.lot_id,
+                    lot_name=r.lot_name,
+                    last_session_id=r.session_id,
+                    last_session_time=r.created_at.isoformat() if r.created_at else datetime.utcnow().isoformat(),
+                    correct_pieces=int(r.correct_pieces_count or 0),
+                    misplaced_pieces=int(r.misplaced_pieces_count or 0),
+                    total_detected=int(r.total_pieces_detected or ( (r.correct_pieces_count or 0) + (r.misplaced_pieces_count or 0) )),
+                    is_target_match=bool(r.is_target_match),
+                    confidence_score=float(r.confidence_score or 0.0),
+                    detection_rate=float(r.detection_rate or 0.0)
+                ))
+            self._cache_set(cache_key, result)
+            return result
+
+        except Exception as e:
+            logger.exception("Error computing last_session_per_lot: %s", e)
+            return []
+
+    # -------- Lot summary & sessions-to-completion --------
+    def lot_summary(self, lot_id: int, db: Session) -> Optional[LotSummary]:
+        """
+        Returns an aggregated summary for the given lot:
+         - session counts
+         - total correct / misplaced
+         - whether first session was correct (i.e. no misplaced and correct==expected)
+         - sessions to completion (index of session that achieved completion), if completed
+        """
+        cache_key = f"lot_summary_{lot_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            lot: DetectionLot = db.query(DetectionLot).options(selectinload(DetectionLot.detection_sessions)) \
+                .filter(DetectionLot.id == lot_id).first()
             if not lot:
                 return None
-            
-            # Calculate statistics from sessions
-            total_sessions = len(lot.detection_sessions)
-            correct_pieces = sum(session.correct_pieces_count for session in lot.detection_sessions)
-            misplaced_pieces = sum(session.misplaced_pieces_count for session in lot.detection_sessions)
-            current_detected = correct_pieces + misplaced_pieces
-            
-            # Calculate percentages
-            completion_percentage = min((current_detected / lot.expected_piece_number) * 100, 100) if lot.expected_piece_number > 0 else 0
-            accuracy_percentage = (correct_pieces / current_detected * 100) if current_detected > 0 else 0
-            
-            progress = LotProgress(
+
+            sessions = sorted(lot.detection_sessions, key=lambda s: s.created_at or datetime.min)
+            sessions_count = len(sessions)
+            total_correct = sum(int(s.correct_pieces_count or 0) for s in sessions)
+            total_misplaced = sum(int(s.misplaced_pieces_count or 0) for s in sessions)
+            expected = int(lot.expected_piece_number or 0)
+
+            # First session correctness: no misplaced AND correct == expected (strict)
+            first_session_correct = False
+            if sessions_count > 0:
+                first = sessions[0]
+                first_correct = int(first.correct_pieces_count or 0)
+                first_mis = int(first.misplaced_pieces_count or 0)
+                first_session_correct = (first_mis == 0) and (expected > 0 and first_correct >= expected)
+
+            # Sessions to completion: find first session index where cumulative correct >= expected and misplaced == 0 (or is_target_match True)
+            sessions_to_completion = None
+            if expected > 0:
+                cumulative_correct = 0
+                for idx, s in enumerate(sessions, start=1):
+                    cumulative_correct += int(s.correct_pieces_count or 0)
+                    # prefer the lot/session's own is_target_match flag if present
+                    session_completed_flag = getattr(s, "is_target_match", False)
+                    if session_completed_flag or (cumulative_correct >= expected and int(s.misplaced_pieces_count or 0) == 0):
+                        sessions_to_completion = idx
+                        break
+
+            summary = LotSummary(
                 lot_id=lot.id,
                 lot_name=lot.lot_name,
-                expected_piece_label=f"Piece_{lot.expected_piece_id}",  # You might want to fetch actual label
-                expected_piece_id=lot.expected_piece_id,
-                expected_piece_number=lot.expected_piece_number,
-                current_detected=current_detected,
-                correct_pieces=correct_pieces,
-                misplaced_pieces=misplaced_pieces,
-                completion_percentage=round(completion_percentage, 1),
-                accuracy_percentage=round(accuracy_percentage, 1),
-                is_completed=lot.is_target_match,
+                expected_piece_id=int(lot.expected_piece_id or 0),
+                expected_piece_number=int(lot.expected_piece_number or 0),
                 created_at=lot.created_at.isoformat() if lot.created_at else datetime.utcnow().isoformat(),
-                completed_at=lot.completed_at.isoformat() if lot.completed_at else None,
-                total_sessions=total_sessions
+                completed_at=lot.completed_at.isoformat() if getattr(lot, "completed_at", None) else None,
+                is_completed=bool(getattr(lot, "is_target_match", False)),
+                sessions_count=sessions_count,
+                sessions_to_completion=sessions_to_completion,
+                first_session_correct=first_session_correct,
+                total_correct=total_correct,
+                total_misplaced=total_misplaced
             )
-            
-            self._update_cache(cache_key, progress)
-            return progress
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting lot progress for lot {lot_id}: {e}")
-            return None
-    
-    def get_piece_statistics(self, piece_id: Optional[int] = None, db: Session = None) -> List[PieceStatistics]:
-        """Get statistics for detected pieces"""
-        try:
-            cache_key = f"piece_stats_{piece_id or 'all'}"
-            
-            if self._is_cache_valid(cache_key):
-                return self.cache[cache_key]
-            
-            # Query to get piece statistics
-            query = db.query(
-                DetectionLot.expected_piece_id,
-                func.count(DetectionSession.id).label('total_sessions'),
-                func.sum(DetectionSession.correct_pieces_count).label('total_correct'),
-                func.sum(DetectionSession.misplaced_pieces_count).label('total_misplaced'),
-                func.max(DetectionSession.created_at).label('last_detection')
-            ).join(
-                DetectionSession, DetectionLot.id == DetectionSession.lot_id
-            ).group_by(DetectionLot.expected_piece_id)
-            
-            if piece_id:
-                query = query.filter(DetectionLot.expected_piece_id == piece_id)
-            
-            results = query.all()
-            
-            piece_stats = []
-            for result in results:
-                total_detected = (result.total_correct or 0) + (result.total_misplaced or 0)
-                accuracy = ((result.total_correct or 0) / total_detected * 100) if total_detected > 0 else 0
-                
-                piece_stats.append(PieceStatistics(
-                    piece_label=f"Piece_{result.expected_piece_id}",
-                    piece_id=result.expected_piece_id,
-                    total_detected=total_detected,
-                    correct_count=result.total_correct or 0,
-                    misplaced_count=result.total_misplaced or 0,
-                    accuracy_percentage=round(accuracy, 1),
-                    last_detection_time=result.last_detection.isoformat() if result.last_detection else None
-                ))
-            
-            self._update_cache(cache_key, piece_stats)
-            return piece_stats
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting piece statistics: {e}")
-            return []
-    
-    def get_detection_overview(self, db: Session) -> DetectionOverview:
-        """Get overall detection system overview"""
-        try:
-            cache_key = "detection_overview"
-            
-            if self._is_cache_valid(cache_key):
-                return self.cache[cache_key]
-            
-            # Get lot statistics
-            total_lots = db.query(DetectionLot).count()
-            completed_lots = db.query(DetectionLot).filter(DetectionLot.is_target_match == True).count()
-            active_lots = total_lots - completed_lots
-            
-            # Get session statistics
-            total_sessions = db.query(DetectionSession).count()
-            
-            # Calculate overall accuracy
-            accuracy_result = db.query(
-                func.sum(DetectionSession.correct_pieces_count).label('total_correct'),
-                func.sum(DetectionSession.misplaced_pieces_count).label('total_misplaced')
-            ).first()
-            
-            total_correct = accuracy_result.total_correct or 0
-            total_misplaced = accuracy_result.total_misplaced or 0
-            total_pieces = total_correct + total_misplaced
-            overall_accuracy = (total_correct / total_pieces * 100) if total_pieces > 0 else 0
-            
-            # Get most detected piece
-            most_detected = db.query(
-                DetectionLot.expected_piece_id,
-                func.count(DetectionSession.id).label('session_count')
-            ).join(
-                DetectionSession, DetectionLot.id == DetectionSession.lot_id
-            ).group_by(DetectionLot.expected_piece_id).order_by(
-                func.count(DetectionSession.id).desc()
-            ).first()
-            
-            # Get most accurate piece
-            most_accurate = db.query(
-                DetectionLot.expected_piece_id,
-                (func.sum(DetectionSession.correct_pieces_count) / 
-                 func.sum(DetectionSession.correct_pieces_count + DetectionSession.misplaced_pieces_count) * 100).label('accuracy')
-            ).join(
-                DetectionSession, DetectionLot.id == DetectionSession.lot_id
-            ).group_by(DetectionLot.expected_piece_id).having(
-                func.sum(DetectionSession.correct_pieces_count + DetectionSession.misplaced_pieces_count) > 0
-            ).order_by(desc('accuracy')).first()
-            
-            overview = DetectionOverview(
-                total_lots=total_lots,
-                active_lots=active_lots,
-                completed_lots=completed_lots,
-                total_sessions=total_sessions,
-                total_pieces_detected=total_pieces,
-                overall_accuracy=round(overall_accuracy, 1),
-                average_session_time=0.0,  # Can be calculated if you store session duration
-                most_detected_piece=f"Piece_{most_detected.expected_piece_id}" if most_detected else None,
-                most_accurate_piece=f"Piece_{most_accurate.expected_piece_id}" if most_accurate else None
-            )
-            
-            self._update_cache(cache_key, overview)
-            return overview
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting detection overview: {e}")
-            return DetectionOverview(
-                total_lots=0, active_lots=0, completed_lots=0,
-                total_sessions=0, total_pieces_detected=0,
-                overall_accuracy=0.0, average_session_time=0.0
-            )
-    
-    def get_real_time_stats(self, camera_id: Optional[int] = None, db: Session = None) -> RealTimeStats:
-        """Get real-time detection statistics"""
-        try:
-            cache_key = f"realtime_stats_{camera_id or 'all'}"
-            
-            if self._is_cache_valid(cache_key):
-                return self.cache[cache_key]
-            
-            # Get current active lot (most recent non-completed lot)
-            current_lot_data = db.query(DetectionLot).filter(
-                DetectionLot.is_target_match == False
-            ).order_by(DetectionLot.created_at.desc()).first()
-            
-            current_lot = None
-            if current_lot_data:
-                current_lot = self.get_lot_progress(current_lot_data.id, db)
-            
-            # Get recent detections (last 10)
-            recent_sessions = db.query(DetectionSession).options(
-                selectinload(DetectionSession.detection_lot)
-            ).order_by(DetectionSession.created_at.desc()).limit(10).all()
-            
-            recent_detections = []
-            for session in recent_sessions:
-                recent_detections.append({
-                    'session_id': session.id,
-                    'lot_name': session.detection_lot.lot_name,
-                    'expected_piece_id': session.detection_lot.expected_piece_id,
-                    'correct_pieces': session.correct_pieces_count,
-                    'misplaced_pieces': session.misplaced_pieces_count,
-                    'is_target_match': session.is_target_match,
-                    'confidence': session.confidence_score,
-                    'created_at': session.created_at.isoformat() if session.created_at else None
-                })
-            
-            # Calculate detection rate in last hour
-            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-            recent_detection_count = db.query(DetectionSession).filter(
-                DetectionSession.created_at >= one_hour_ago
-            ).count()
-            
-            stats = RealTimeStats(
-                current_lot=current_lot,
-                recent_detections=recent_detections,
-                active_cameras=[camera_id] if camera_id else [],
-                detection_rate_last_hour=recent_detection_count / 60.0,  # detections per minute
-                system_performance={
-                    'total_sessions_today': self._get_sessions_today(db),
-                    'accuracy_today': self._get_accuracy_today(db),
-                    'avg_processing_time': 0.0  # Can be calculated if stored
-                }
-            )
-            
-            self._update_cache(cache_key, stats)
-            return stats
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting real-time stats: {e}")
-            return RealTimeStats()
-    
-    def _get_sessions_today(self, db: Session) -> int:
-        """Get number of sessions today"""
-        try:
-            today = datetime.utcnow().date()
-            return db.query(DetectionSession).filter(
-                func.date(DetectionSession.created_at) == today
-            ).count()
-        except:
-            return 0
-    
-    def _get_accuracy_today(self, db: Session) -> float:
-        """Get accuracy percentage for today"""
-        try:
-            today = datetime.utcnow().date()
-            result = db.query(
-                func.sum(DetectionSession.correct_pieces_count).label('correct'),
-                func.sum(DetectionSession.misplaced_pieces_count).label('misplaced')
-            ).filter(
-                func.date(DetectionSession.created_at) == today
-            ).first()
-            
-            if result and (result.correct or result.misplaced):
-                total = (result.correct or 0) + (result.misplaced or 0)
-                return round((result.correct or 0) / total * 100, 1)
-            return 0.0
-        except:
-            return 0.0
-    
-    def get_lot_completion_timeline(self, lot_id: int, db: Session) -> List[Dict[str, Any]]:
-        """Get timeline of detections for a specific lot"""
-        try:
-            sessions = db.query(DetectionSession).filter(
-                DetectionSession.lot_id == lot_id
-            ).order_by(DetectionSession.created_at.asc()).all()
-            
-            timeline = []
-            cumulative_correct = 0
-            cumulative_total = 0
-            
-            for session in sessions:
-                cumulative_correct += session.correct_pieces_count
-                cumulative_total += session.correct_pieces_count + session.misplaced_pieces_count
-                
-                timeline.append({
-                    'session_id': session.id,
-                    'timestamp': session.created_at.isoformat() if session.created_at else None,
-                    'correct_pieces': session.correct_pieces_count,
-                    'misplaced_pieces': session.misplaced_pieces_count,
-                    'cumulative_correct': cumulative_correct,
-                    'cumulative_total': cumulative_total,
-                    'cumulative_accuracy': (cumulative_correct / cumulative_total * 100) if cumulative_total > 0 else 0,
-                    'is_target_match': session.is_target_match,
-                    'confidence': session.confidence_score
-                })
-            
-            return timeline
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting lot timeline: {e}")
-            return []
-    
-    def get_performance_analytics(self, db: Session, days: int = 7) -> Dict[str, Any]:
-        """Get performance analytics for the last N days"""
-        try:
-            start_date = datetime.utcnow() - timedelta(days=days)
-            
-            # Daily statistics
-            daily_stats = db.query(
-                func.date(DetectionSession.created_at).label('date'),
-                func.count(DetectionSession.id).label('sessions'),
-                func.sum(DetectionSession.correct_pieces_count).label('correct'),
-                func.sum(DetectionSession.misplaced_pieces_count).label('misplaced'),
-                func.avg(DetectionSession.confidence_score).label('avg_confidence')
-            ).filter(
-                DetectionSession.created_at >= start_date
-            ).group_by(
-                func.date(DetectionSession.created_at)
-            ).order_by('date').all()
-            
-            analytics = {
-                'period_days': days,
-                'daily_performance': [],
-                'total_sessions': sum(stat.sessions for stat in daily_stats),
-                'total_correct': sum(stat.correct or 0 for stat in daily_stats),
-                'total_misplaced': sum(stat.misplaced or 0 for stat in daily_stats),
-                'average_confidence': 0.0,
-                'trend_analysis': {
-                    'accuracy_trend': 'stable',
-                    'volume_trend': 'stable',
-                    'confidence_trend': 'stable'
-                }
-            }
-            
-            for stat in daily_stats:
-                total_pieces = (stat.correct or 0) + (stat.misplaced or 0)
-                accuracy = (stat.correct or 0) / total_pieces * 100 if total_pieces > 0 else 0
-                
-                analytics['daily_performance'].append({
-                    'date': stat.date.isoformat() if stat.date else None,
-                    'sessions': stat.sessions,
-                    'correct_pieces': stat.correct or 0,
-                    'misplaced_pieces': stat.misplaced or 0,
-                    'accuracy_percentage': round(accuracy, 1),
-                    'average_confidence': round(stat.avg_confidence or 0, 2)
-                })
-            
-            # Calculate average confidence
-            if daily_stats:
-                analytics['average_confidence'] = round(
-                    sum(stat.avg_confidence or 0 for stat in daily_stats) / len(daily_stats), 2
-                )
-            
-            return analytics
-            
-        except Exception as e:
-            logger.error(f"❌ Error getting performance analytics: {e}")
-            return {
-                'period_days': days,
-                'daily_performance': [],
-                'total_sessions': 0,
-                'total_correct': 0,
-                'total_misplaced': 0,
-                'average_confidence': 0.0,
-                'trend_analysis': {
-                    'accuracy_trend': 'unknown',
-                    'volume_trend': 'unknown', 
-                    'confidence_trend': 'unknown'
-                }
-            }
-    
-    def clear_cache(self):
-        """Clear all cached data"""
-        self.cache.clear()
-        self.last_cache_update.clear()
-        logger.info("📊 Statistics cache cleared")
+            self._cache_set(cache_key, summary)
+            return summary
 
-# Global statistics service instance
+        except Exception as e:
+            logger.exception("Error computing lot_summary for %s: %s", lot_id, e)
+            return None
+
+    def sessions_to_completion(self, lot_id: int, db: Session) -> Optional[int]:
+        """Convenience: returns sessions_to_completion for lot (None if not completed)"""
+        summary = self.lot_summary(lot_id, db)
+        return summary.sessions_to_completion if summary else None
+
+    # -------- System-level start-state statistics --------
+    def system_start_stats(self, db: Session) -> SystemLotStartStats:
+        """
+        Tells how many lots were correct from the first session vs had problems from the first session.
+        A lot is considered 'correct from start' if first session has 0 misplaced and correct >= expected.
+        """
+        cache_key = "system_start_stats"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            lots = db.query(DetectionLot).options(selectinload(DetectionLot.detection_sessions)).all()
+            total = len(lots)
+            correct_from_start = 0
+            problem_from_start = 0
+
+            for lot in lots:
+                sessions = sorted(lot.detection_sessions, key=lambda s: s.created_at or datetime.min)
+                if not sessions:
+                    # No sessions - treat as problem_from_start (or ignore). We'll treat as problem.
+                    problem_from_start += 1
+                    continue
+                first = sessions[0]
+                expected = int(lot.expected_piece_number or 0)
+                first_correct = int(getattr(first, "correct_pieces_count", 0) or 0)
+                first_mis = int(getattr(first, "misplaced_pieces_count", 0) or 0)
+                if expected > 0 and first_mis == 0 and first_correct >= expected:
+                    correct_from_start += 1
+                else:
+                    problem_from_start += 1
+
+            percent_ok = (correct_from_start / total * 100) if total > 0 else 0.0
+            percent_problem = (problem_from_start / total * 100) if total > 0 else 0.0
+
+            stats = SystemLotStartStats(
+                total_lots=total,
+                lots_correct_from_start=correct_from_start,
+                lots_with_problems_from_start=problem_from_start,
+                percent_correct_from_start=round(percent_ok, 1),
+                percent_problem_from_start=round(percent_problem, 1)
+            )
+            self._cache_set(cache_key, stats)
+            return stats
+
+        except Exception as e:
+            logger.exception("Error computing system_start_stats: %s", e)
+            return SystemLotStartStats(0, 0, 0, 0.0, 0.0)
+
+    # -------- Common failure analysis for problem lots --------
+    def common_failures_for_problem_lots(self, db: Session, top_n: int = 10) -> List[CommonFailure]:
+        """
+        Returns top common problems observed in lots that had problems from first session.
+        Problems are heuristically categorized:
+          - 'mismatched_count' : many misplaced pieces in first session
+          - 'missing_pieces'   : first session correct < expected
+          - 'other'            : anything else (low confidence, high detection_rate drop, etc.)
+        If you have a structured 'misplaced_details' JSON column in DetectionSession the service can be extended to extract types.
+        """
+        cache_key = f"common_failures_{top_n}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            problem_counts = {"mismatched_count": 0, "missing_pieces": 0, "no_sessions": 0, "other": 0}
+            total_problem_lots = 0
+
+            lots = db.query(DetectionLot).options(selectinload(DetectionLot.detection_sessions)).all()
+            for lot in lots:
+                sessions = sorted(lot.detection_sessions, key=lambda s: s.created_at or datetime.min)
+                if not sessions:
+                    total_problem_lots += 1
+                    problem_counts["no_sessions"] += 1
+                    continue
+                first = sessions[0]
+                expected = int(lot.expected_piece_number or 0)
+                first_correct = int(getattr(first, "correct_pieces_count", 0) or 0)
+                first_mis = int(getattr(first, "misplaced_pieces_count", 0) or 0)
+
+                # classify
+                if expected > 0 and first_mis > 0:
+                    problem_counts["mismatched_count"] += 1
+                    total_problem_lots += 1
+                elif expected > 0 and first_correct < expected:
+                    problem_counts["missing_pieces"] += 1
+                    total_problem_lots += 1
+                elif first_mis == 0 and first_correct >= expected:
+                    # correct_from_start -> not counted
+                    pass
+                else:
+                    problem_counts["other"] += 1
+                    total_problem_lots += 1
+
+            failures: List[CommonFailure] = []
+            if total_problem_lots == 0:
+                return failures
+
+            for k, v in problem_counts.items():
+                if v == 0:
+                    continue
+                pct = (v / total_problem_lots * 100) if total_problem_lots > 0 else 0.0
+                desc = {
+                    "mismatched_count": "Misplaced / mismatched pieces in first session",
+                    "missing_pieces": "First session had fewer correct pieces than expected (missing)",
+                    "no_sessions": "No sessions recorded for lot",
+                    "other": "Other problems (low confidence, partial matches, etc.)"
+                }.get(k, k)
+                failures.append(CommonFailure(description=desc, count=v, percent_of_problem_lots=round(pct, 1)))
+
+            # sort by count
+            failures.sort(key=lambda x: x.count, reverse=True)
+            failures = failures[:top_n]
+            self._cache_set(cache_key, failures)
+            return failures
+
+        except Exception as e:
+            logger.exception("Error computing common_failures_for_problem_lots: %s", e)
+            return []
+
+    # -------- Most mixed-up pieces (confusion pairs) --------
+    def top_mixed_pairs(self, db: Session, top_n: int = 10) -> List[MixedPair]:
+        """
+        Returns most confused piece pairs.
+        Preferred approach: DB contains per-session JSON column 'misplaced_details' with list of dicts like:
+          [{"expected": <id>, "detected_as": <id>, "count": n}, ...]
+        If that column exists, we aggregate it. Otherwise, we derive a heuristic:
+          - For each lot (expected_piece_id), sum misplaced counts across sessions and attribute them to 'unknown' detected ids not available.
+        NOTE: This function is defensive — it will gracefully fall back if structured data is absent.
+        """
+        cache_key = f"top_mixed_pairs_{top_n}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            # First try: structured JSON column named 'misplaced_details' on DetectionSession
+            sample_session = db.query(DetectionSession).limit(1).first()
+            if sample_session and hasattr(sample_session, "misplaced_details") and sample_session.misplaced_details:
+                # We assume misplaced_details is a JSON blob stored as a Python structure by the ORM
+                pair_counts: Dict[Tuple[int, int], int] = {}
+                sessions = db.query(DetectionSession).all()
+                for s in sessions:
+                    details = getattr(s, "misplaced_details", None)
+                    if not details:
+                        continue
+                    # details expected to be iterable of dicts: {"expected": id, "detected_as": id, "count": n}
+                    try:
+                        for d in details:
+                            a = int(d.get("expected") or 0)
+                            b = int(d.get("detected_as") or 0)
+                            c = int(d.get("count") or 1)
+                            pair_counts[(a, b)] = pair_counts.get((a, b), 0) + c
+                    except Exception:
+                        # ignore malformed entries
+                        continue
+
+                pairs = [MixedPair(piece_a_id=a, piece_b_id=b, confusion_count=c) for (a, b), c in pair_counts.items()]
+                pairs.sort(key=lambda p: p.confusion_count, reverse=True)
+                pairs = pairs[:top_n]
+                self._cache_set(cache_key, pairs)
+                return pairs
+
+            # Fallback: aggregate misplaced counts by expected_piece_id (we cannot know detected id),
+            # Return top expected pieces that were most misplaced (as pair with 0 detected id)
+            agg = db.query(
+                DetectionLot.expected_piece_id.label("expected_id"),
+                func.sum(DetectionSession.misplaced_pieces_count).label("misplaced_sum")
+            ).join(DetectionSession, DetectionSession.lot_id == DetectionLot.id) \
+             .group_by(DetectionLot.expected_piece_id).order_by(desc("misplaced_sum")).limit(top_n).all()
+
+            result = []
+            for row in agg:
+                result.append(MixedPair(piece_a_id=int(row.expected_id or 0), piece_b_id=0, confusion_count=int(row.misplaced_sum or 0)))
+
+            self._cache_set(cache_key, result)
+            return result
+
+        except Exception as e:
+            logger.exception("Error computing top_mixed_pairs: %s", e)
+            return []
+
+    # -------- Utility: clear cache --------
+    def clear_cache(self):
+        self._cache.clear()
+        self._cache_ts.clear()
+        logger.info("Statistics cache cleared.")
+
+
+# Single instance (fixed: before was a tuple in your file)
 detection_statistics_service = DetectionStatisticsService()

@@ -1,12 +1,12 @@
-// DetectionVideoFeed.jsx - Enhanced with Basic Mode Logic and Freeze/Unfreeze Controls
+// DetectionVideoFeed.jsx - Enhanced with Basic Mode Logic and Navigation
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom"; // Add this import
 import { 
   Box, 
   Alert, 
   CircularProgress, 
   Typography, 
   Button
-
 } from "@mui/material";
 
 import { VideoCard } from "./styledComponents";
@@ -28,8 +28,12 @@ const DetectionVideoFeed = ({
   onStopDetection,
   cameraId,
   targetLabel,
-  detectionOptions = {}
+  detectionOptions = {},
+  navigateOnStop = false // New prop to control navigation behavior
 }) => {
+  // Add navigation hook
+  const navigate = useNavigate();
+  
   // State management
   const [videoUrl, setVideoUrl] = useState("");
   const [showControls, setShowControls] = useState(false);
@@ -68,9 +72,6 @@ const DetectionVideoFeed = ({
   const [isStreamFrozen, setIsStreamFrozen] = useState(false);
   const [onDemandDetecting, setOnDemandDetecting] = useState(false);
   const [lastDetectionResult, setLastDetectionResult] = useState(null);
-  
-
-
   
   // Health check tracking
   const [healthCheckStatus, setHealthCheckStatus] = useState({
@@ -225,7 +226,6 @@ const DetectionVideoFeed = ({
     
     freezeListenerUnsubscribe.current = unsubscribe;
 
-    
     // Check initial freeze status
     if (detectionService.isStreamFrozen(cameraId)) {
       setIsStreamFrozen(true);
@@ -236,7 +236,6 @@ const DetectionVideoFeed = ({
       if (freezeListenerUnsubscribe.current) {
         freezeListenerUnsubscribe.current();
       }
-  
     };
   }, [isBasicMode, cameraId]);
 
@@ -531,8 +530,7 @@ const DetectionVideoFeed = ({
     }
   };
 
-
-  // Handle stopping detection
+  // Enhanced handle stopping detection with navigation
   const handleStopDetection = async () => {
     if (!mountedRef.current) return;
     
@@ -556,9 +554,17 @@ const DetectionVideoFeed = ({
       setModeTransitioning(false);
       setIsStreamFrozen(false);
       setLastDetectionResult(null);
+      
+      // Call the parent's onStopDetection callback
       onStopDetection();
 
       console.log(`✅ VideoFeed: Stopped detection for camera ${cameraId}`);
+
+      // Navigate to /detection route if enabled
+      if (navigateOnStop) {
+        console.log("🧭 VideoFeed: Navigating to /detectionLotsOverview  route");
+        navigate('/detectionLotsOverview');
+      }
 
       // Schedule post-shutdown health check
       setTimeout(() => {
@@ -582,7 +588,6 @@ const DetectionVideoFeed = ({
       setModeTransitioning(false);
     }
   };
-
 
   // Manual mode switching functions
   const handleSwitchToBasic = useCallback(async () => {
@@ -685,9 +690,6 @@ const DetectionVideoFeed = ({
     );
   };
 
-  // Get health check status for display
-
-
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       {/* State-based Status Alerts */}
@@ -711,7 +713,7 @@ const DetectionVideoFeed = ({
         </Alert>
       )}
 
-{modeTransitioning && (
+      {modeTransitioning && (
         <Alert 
           severity="info" 
           sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
@@ -783,8 +785,6 @@ const DetectionVideoFeed = ({
         </Alert>
       )}
 
-
-
       <VideoCard
         cameraActive={isDetectionActive && detectionState === DetectionStates.RUNNING}
         onMouseEnter={() => setShowControls(true)}
@@ -819,8 +819,6 @@ const DetectionVideoFeed = ({
         )}
       </VideoCard>
 
-
-
       {/* Manual Mode Control Buttons */}
       {detectionState === DetectionStates.READY && !detectionService.autoModeEnabled && (
         <Box sx={{ mt: 1, width: '100%', display: 'flex', gap: 1, justifyContent: 'center' }}>
@@ -853,8 +851,6 @@ const DetectionVideoFeed = ({
           </Button>
         </Box>
       )}
-
-
     </div>
   );
 };

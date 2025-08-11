@@ -642,6 +642,11 @@ return (
           isOpen={isStatsPanelOpen}
           onToggle={setIsStatsPanelOpen}
           refreshInterval={30000}
+          isDetectionActive={isDetectionRunning} // NEW: Pass detection state
+          onStartDetection={lotWorkflowActive ? handleStartLotWorkflow : detectionHandlers.handleStartDetection} // NEW: Pass start detection callback
+          currentLotId={selectedLotId} // FIXED: Pass the selected lot ID
+
+
         />
       </Box>
     )}
@@ -766,6 +771,7 @@ return (
                 lotWorkflowActive={lotWorkflowActive}
                 selectedLotId={selectedLotId}
                 currentLot={lotManagement.currentLot}
+                navigateOnStop ={lotWorkflowActive ? handleStopLotWorkflow : detectionHandlers.handleStopDetection}
               />
             </Stack>
           </Box>
