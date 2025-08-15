@@ -60,6 +60,9 @@ class DetectionSystem:
         if results.boxes is None or len(results.boxes) == 0:
             return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
 
+        # Get frame dimensions for boundary checks
+        frame_height, frame_width = frame.shape[:2]
+        
         for box in results.boxes:
             confidence = box.conf.item()
             
@@ -85,23 +88,60 @@ class DetectionSystem:
                 color = other_color
                 non_target_count += 1
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            label = f"{detected_label}: {confidence:.2f}"
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-
+            # Draw thinner bounding box (thickness = 1 instead of 2)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+            
+            # Format confidence as percentage
+            confidence_percent = confidence * 100
+            label = f"{detected_label}: {confidence_percent:.1f}%"
+            
+            # Get label dimensions
+            font_scale = 0.5
+            font_thickness = 1
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0]
+            label_width, label_height = label_size
+            
+            # Enhanced label positioning with proper boundary checks
+            # Default position: above the box
+            label_x = x1
             label_y = y1 - 10
-            if label_y < 0:
-                label_y = y2 + label_size[1] + 5
-
-            if x1 + label_size[0] > frame.shape[1]:
-                label_x = x1 - label_size[0]
-            else:
-                label_x = x1
-
-            cv2.rectangle(frame, (label_x, label_y - label_size[1] - 5),
-                        (label_x + label_size[0], label_y), (0, 0, 0), -1)
-            cv2.putText(frame, label, (label_x, label_y - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            
+            # Check if label fits above the box
+            if label_y - label_height < 5:  # Not enough space above
+                # Try to place below the box
+                if y2 + label_height + 15 < frame_height:  # Space below
+                    label_y = y2 + label_height + 10
+                else:  # Place inside the box at the top
+                    label_y = y1 + label_height + 5
+            
+            # Check horizontal boundaries
+            if label_x + label_width > frame_width - 5:  # Too far right
+                label_x = max(5, frame_width - label_width - 5)
+            elif label_x < 5:  # Too far left
+                label_x = 5
+            
+            # Ensure label_y is within frame bounds
+            label_y = max(label_height + 5, min(label_y, frame_height - 5))
+            
+            # Draw label background rectangle with padding
+            padding = 3
+            bg_x1 = label_x - padding
+            bg_y1 = label_y - label_height - padding
+            bg_x2 = label_x + label_width + padding
+            bg_y2 = label_y + padding
+            
+            # Ensure background rectangle is within frame bounds
+            bg_x1 = max(0, bg_x1)
+            bg_y1 = max(0, bg_y1)
+            bg_x2 = min(frame_width, bg_x2)
+            bg_y2 = min(frame_height, bg_y2)
+            
+            # Draw background rectangle
+            cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+            
+            # Draw label text
+            cv2.putText(frame, label, (label_x, label_y - 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
 
         return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
 
