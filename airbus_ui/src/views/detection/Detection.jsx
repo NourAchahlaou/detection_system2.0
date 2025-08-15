@@ -1,4 +1,5 @@
-// AppDetection.jsx - UPDATED: Added DetectionStatsPanel integration
+
+// AppDetection.jsx - UPDATED: Controlled DetectionStatsPanel refresh - no aggressive refreshing
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { 
@@ -17,7 +18,7 @@ import DetectionVideoFeed from "./components/DetectionVideoFeed";
 import SystemPerformancePanel from "./components/SystemPerformancePanel";
 import LotWorkflowPanel from "./components/LotWorkflowPanel";
 import InfoPanel from "./components/InfoPanel";
-import DetectionStatsPanel from "./components/DetectionStatsPanel"; // NEW: Import DetectionStatsPanel
+import DetectionStatsPanel from "./components/DetectionStatsPanel"; // Import DetectionStatsPanel
 
 // Services
 import { detectionService } from "./service/DetectionService";
@@ -49,7 +50,7 @@ export default function AppDetection() {
   // UI State
   const [targetLabel, setTargetLabel] = useState("");
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [isStatsPanelOpen, setIsStatsPanelOpen] = useState(false); // NEW: Stats panel state
+  const [isStatsPanelOpen, setIsStatsPanelOpen] = useState(false);
   
   // Detection Options
   const [detectionOptions, setDetectionOptions] = useState({
@@ -61,12 +62,15 @@ export default function AppDetection() {
     quality: 85
   });
 
-  // FIXED: Enhanced lot workflow state with proper initialization tracking
+  // Enhanced lot workflow state with proper initialization tracking
   const [selectedLotId, setSelectedLotId] = useState(null);
   const [lotWorkflowActive, setLotWorkflowActive] = useState(false);
   const [detectionHistory, setDetectionHistory] = useState([]);
   const [isLotLoading, setIsLotLoading] = useState(false);
-  const [lotLoadInitialized, setLotLoadInitialized] = useState(false); // NEW: Track if lot loading was attempted
+  const [lotLoadInitialized, setLotLoadInitialized] = useState(false);
+
+  // SIMPLIFIED: Only one trigger for successful detections
+  const [lastSuccessfulDetection, setLastSuccessfulDetection] = useState(null);
 
   // Piece labels cache
   const [pieceLabels, setPieceLabels] = useState(new Map());
@@ -145,11 +149,17 @@ export default function AppDetection() {
     return `Piece ${pieceId}`;
   }, [pieceLabels, loadingLabels, fetchPieceLabel]);
 
-  // FIXED: Enhanced lot loading function with better state management
+  // SIMPLIFIED: Only trigger stats refresh when detection is successful
+  const triggerStatsRefreshOnSuccess = useCallback(() => {
+    console.log('📊 Detection successful - will refresh stats once');
+    setLastSuccessfulDetection(Date.now());
+  }, []);
+
+  // Enhanced lot loading function with better state management
   const loadSelectedLot = useCallback(async (forceReload = false) => {
     if (!selectedLotId) {
       console.log('📋 No lot ID to load');
-      setLotLoadInitialized(true); // Mark as initialized even if no lot
+      setLotLoadInitialized(true);
       return { success: false, message: 'No lot ID provided' };
     }
 
@@ -238,7 +248,7 @@ export default function AppDetection() {
     }
   }, [selectedLotId, lotManagement, streamManager, setTargetLabel, fetchPieceLabel, lotLoadInitialized]);
 
-  // FIXED: Enhanced URL parameter handling with proper timing
+  // Enhanced URL parameter handling with proper timing
   useEffect(() => {
     const lotIdFromUrl = searchParams.get('lotId');
     const modeFromUrl = searchParams.get('mode');
@@ -256,7 +266,6 @@ export default function AppDetection() {
       const newLotId = parseInt(lotIdFromUrl);
       setSelectedLotId(newLotId);
       setLotLoadInitialized(false);
-
     }
   }, [searchParams, selectedLotId, streamManager]);
 
@@ -423,7 +432,7 @@ export default function AppDetection() {
     setLotWorkflowActive(false);
     setSelectedLotId(null);
     setDetectionHistory([]);
-    setLotLoadInitialized(false); // Reset initialization flag
+    setLotLoadInitialized(false);
     
     searchParams.delete('lotId');
     searchParams.delete('mode');
@@ -432,7 +441,7 @@ export default function AppDetection() {
     await detectionHandlers.handleStopDetection();
   }, [detectionHandlers, searchParams, setSearchParams]);
 
-  // Enhanced lot detection
+  // SIMPLIFIED: Updated lot detection - only trigger refresh on actual success
   const handleLotDetection = useCallback(async () => {
     console.log('🎯 Lot detection requested...', {
       selectedLotId,
@@ -462,7 +471,12 @@ export default function AppDetection() {
       
       const result = await detectionHandlers.handleLotWorkflowDetection();
 
-      if (result && result.success) {
+      if (result) {
+        // ONLY trigger stats refresh on successful detection - once!
+        console.log('📊 Detection successful - triggering single stats refresh');
+        triggerStatsRefreshOnSuccess();
+        
+        // Reload lot data to get updated information
         await loadSelectedLot(true);
         
         if (result.lotCompleted) {
@@ -475,14 +489,18 @@ export default function AppDetection() {
             'info'
           );
         }
+      } else {
+        // Don't trigger refresh on failed detection
+        console.log('📊 Detection failed - no stats refresh needed');
       }
     } catch (error) {
       console.error('❌ Error in lot detection:', error);
       lotManagement.showSnackbar(`Detection failed: ${error.message}`, 'error');
+      // Don't trigger refresh on error
     } finally {
       detectionSystem.setDetectionInProgress(false);
     }
-  }, [selectedLotId, cameraManagement.cameraId, targetLabel, lotManagement, detectionSystem, loadSelectedLot, detectionHandlers]);
+  }, [selectedLotId, cameraManagement.cameraId, targetLabel, lotManagement, detectionSystem, loadSelectedLot, detectionHandlers, triggerStatsRefreshOnSuccess]);
 
   // Load initial lots once (only when StreamManager is available)
   useEffect(() => {
@@ -591,11 +609,11 @@ export default function AppDetection() {
   const isBasicMode = detectionSystem.currentStreamingType === 'basic';
   const isDetectionRunning = detectionSystem.detectionState === DetectionStates.RUNNING;
   
-  // UPDATED: Only show LotWorkflowPanel in basic mode
+  // Only show LotWorkflowPanel in basic mode
   const showLotWorkflowPanel = lotWorkflowActive && selectedLotId && isBasicMode;
   const showLotFormInSidebar = !isDetectionRunning && detectionSystem.detectionState === DetectionStates.READY && !showLotWorkflowPanel;
   const showPerformancePanel = true;
-  const showStatsPanel = true; // NEW: Always show stats panel
+  const showStatsPanel = true;
 
   // Debug logging
   useEffect(() => {
@@ -618,7 +636,7 @@ export default function AppDetection() {
 
 return (
   <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-    {/* Clean Info Panel - Replace all the Alert components */}
+    {/* Clean Info Panel */}
     <InfoPanel
       showLotWorkflowPanel={showLotWorkflowPanel && lotManagement.currentLot}
       currentLot={lotManagement.currentLot}
@@ -635,18 +653,16 @@ return (
       DetectionStates={DetectionStates}
     />
 
-    {/* Detection Statistics Panel - NEW: Added before other alerts */}
+    {/* SIMPLIFIED: Detection Statistics Panel - only refresh on successful detection */}
     {showStatsPanel && (
       <Box sx={{ mb: 2 }}>
         <DetectionStatsPanel
           isOpen={isStatsPanelOpen}
           onToggle={setIsStatsPanelOpen}
-          refreshInterval={30000}
-          isDetectionActive={isDetectionRunning} // NEW: Pass detection state
-          onStartDetection={lotWorkflowActive ? handleStartLotWorkflow : detectionHandlers.handleStartDetection} // NEW: Pass start detection callback
-          currentLotId={selectedLotId} // FIXED: Pass the selected lot ID
-
-
+          isDetectionActive={isDetectionRunning}
+          onStartDetection={lotWorkflowActive ? handleStartLotWorkflow : detectionHandlers.handleStartDetection}
+          currentLotId={selectedLotId}
+          detectionCompleted={lastSuccessfulDetection} // Only pass successful detection trigger
         />
       </Box>
     )}

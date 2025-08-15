@@ -7,7 +7,7 @@ export class DetectionStatisticsService {
   constructor() {
     this.baseUrl = '/api/detection/basic/statistics';
     this.cache = new Map();
-    this.cacheTimeout = 30000; // 30 seconds cache timeout
+    this.cacheTimeout = 1000; // 30 seconds cache timeout
   }
 
   // ===================

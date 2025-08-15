@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Card,
@@ -22,10 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle,
-  Error as ErrorIcon,
   AccessTime,
-  Category,
-  TrendingUp,
   PlayArrow,
   BarChart
 } from '@mui/icons-material';
@@ -94,7 +91,6 @@ const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading, isDetectionAct
   );
 };
 
-// No Detection State Component
 const NoDetectionState = ({ onStartDetection }) => (
   <Box sx={{ textAlign: 'center', py: 4 }}>
     <BarChart sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
@@ -109,33 +105,30 @@ const NoDetectionState = ({ onStartDetection }) => (
         <strong>Start Detection</strong> to see real-time statistics about your current lot matching and session details.
       </Typography>
     </Alert>
-    {onStartDetection && (
-      <Button
-        variant="contained"
-        startIcon={<PlayArrow />}
-        onClick={onStartDetection}
-        sx={{ mt: 1 }}
-      >
-        Start Detection
-      </Button>
-    )}
   </Box>
 );
 
 const DetectionStatsPanel = ({ 
   isOpen = false,
   onToggle,
-  refreshInterval = 30000,
   isDetectionActive = false,
   onStartDetection = null,
-  currentLotId = null // NEW: Current lot ID prop
+  currentLotId = null,
+  detectionCompleted = null, // Signal that a detection just completed
 }) => {
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [lotSummary, setLotSummary] = useState(null);
   const [lastSessions, setLastSessions] = useState([]);
   const [error, setError] = useState(null);
   const [internalOpen, setInternalOpen] = useState(false);
   const [hasEverDetected, setHasEverDetected] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState(null);
+  
+  // Refs for managing race conditions
+  const mountedRef = useRef(true);
+  const lastFetchRef = useRef(0);
+  const detectionCompletedRef = useRef(null);
   
   const isControlled = typeof isOpen === 'boolean' && typeof onToggle === 'function';
   const panelOpen = isControlled ? isOpen : internalOpen;
@@ -148,23 +141,113 @@ const DetectionStatsPanel = ({
     }
   };
 
-  // Auto refresh effect - only when detection is active
-  useEffect(() => {
-    let interval;
-    if (panelOpen && isDetectionActive && currentLotId) {
-      interval = setInterval(fetchAllData, refreshInterval);
+  // FIXED: Fetch function with rate limiting - NO auto-refresh
+  const fetchFreshData = useCallback(async (isManualRefresh = false, bypassCache = false) => {
+    // Rate limiting - prevent too frequent calls
+    const now = Date.now();
+    const minInterval = isManualRefresh ? 1000 : 3000; // Manual: 1s, Auto: 3s
+    
+    if (!bypassCache && (now - lastFetchRef.current) < minInterval) {
+      console.log('🔍 Skipping fetch - rate limited');
+      return;
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [panelOpen, refreshInterval, isDetectionActive, currentLotId]);
+    lastFetchRef.current = now;
 
-  // Initial load when panel opens and detection is active
-  useEffect(() => {
-    if (panelOpen && isDetectionActive && currentLotId) {
-      fetchAllData();
+    if (!currentLotId) {
+      console.log('🔍 Skipping stats fetch - no lot ID');
+      return;
     }
-  }, [panelOpen, isDetectionActive, currentLotId]);
+
+    if (isManualRefresh) {
+      setRefreshing(true);
+    } else if (!lotSummary && !lastSessions.length) {
+      setLoading(true);
+    }
+    setError(null);
+    
+    try {
+      console.log('🔍 Fetching detection stats...', { 
+        isManualRefresh, 
+        bypassCache,
+        currentLotId, 
+        isDetectionActive 
+      });
+
+      // Clear cache on manual refresh or detection completion
+      if (isManualRefresh || bypassCache) {
+        detectionStatisticsService.clearLocalCache();
+      }
+
+      // Fetch both lot summary and sessions simultaneously
+      const [summaryResult, sessionsResult] = await Promise.all([
+        detectionStatisticsService.getLotSummary(currentLotId),
+        detectionStatisticsService.getLastSessionsPerLot()
+      ]);
+
+      if (!mountedRef.current) return;
+
+      // Process lot summary
+      if (summaryResult.success) {
+        setLotSummary(summaryResult.data);
+        console.log("✅ Lot summary loaded:", summaryResult.data);
+      } else if (summaryResult.notFound) {
+        setError(`Lot ${currentLotId} not found`);
+        return;
+      } else {
+        console.warn('Failed to fetch lot summary:', summaryResult.error);
+      }
+
+      // Process sessions - filter for current lot
+      if (sessionsResult.success) {
+        const currentLotSessions = sessionsResult.data.filter(session => 
+          session.lot_id === currentLotId
+        );
+        console.log("✅ Sessions loaded:", currentLotSessions);
+        setLastSessions(currentLotSessions);
+      } else {
+        console.warn('Failed to fetch last sessions:', sessionsResult.error);
+      }
+
+      setLastUpdateTime(new Date().toLocaleTimeString());
+
+    } catch (err) {
+      if (!mountedRef.current) return;
+      console.error('❌ Error fetching detection stats:', err);
+      setError(err.message || 'Failed to load detection statistics');
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [currentLotId, lotSummary, lastSessions, isDetectionActive]);
+
+  // FIXED: Handle detection completion signal - ONLY refresh once on successful detection
+  useEffect(() => {
+    if (detectionCompleted && detectionCompleted !== detectionCompletedRef.current) {
+      console.log('🎯 Detection completed - triggering single refresh');
+      detectionCompletedRef.current = detectionCompleted;
+      
+      // Small delay to ensure backend has processed the detection
+      setTimeout(() => {
+        fetchFreshData(false, true); // bypassCache = true for fresh data
+      }, 1500);
+    }
+  }, [detectionCompleted, fetchFreshData]);
+
+  // Manual refresh handler
+  const handleManualRefresh = useCallback(() => {
+    console.log('🔄 Manual refresh triggered');
+    fetchFreshData(true, true);
+  }, [fetchFreshData]);
+
+  // Initial load when panel opens (ONLY if we don't have data)
+  useEffect(() => {
+    if (panelOpen && currentLotId && (!lotSummary && !lastSessions.length)) {
+      console.log('🚀 Initial data load triggered');
+      fetchFreshData(false, false);
+    }
+  }, [panelOpen, currentLotId, fetchFreshData, lotSummary, lastSessions]);
 
   // Track if detection has ever been active
   useEffect(() => {
@@ -173,49 +256,21 @@ const DetectionStatsPanel = ({
     }
   }, [isDetectionActive]);
 
-  const fetchAllData = async () => {
-    // Only fetch data if detection is active and we have a lot ID
-    if (!isDetectionActive || !currentLotId) {
-      console.log('🔍 Skipping stats fetch - detection not active or no lot ID');
-      return;
-    }
-
-    setLoading(true);
+  // Clear data when lot changes
+  useEffect(() => {
+    setLotSummary(null);
+    setLastSessions([]);
     setError(null);
-    
-    try {
-      // Fetch lot summary for the current lot
-      const summaryResult = await detectionStatisticsService.getLotSummary(currentLotId);
-      if (summaryResult.success) {
-        setLotSummary(summaryResult.data);
-        console.log("lotsummery :)",summaryResult)
-      } else if (summaryResult.notFound) {
-        setError(`Lot ${currentLotId} not found`);
-        return;
-      } else {
-        console.warn('Failed to fetch lot summary:', summaryResult.error);
-      }
+    setLastUpdateTime(null);
+  }, [currentLotId]);
 
-      // Fetch last sessions per lot to get current lot's session
-      const sessionsResult = await detectionStatisticsService.getLastSessionsPerLot();
-      if (sessionsResult.success) {
-        // Filter for current lot only
-        const currentLotSessions = sessionsResult.data.filter(session => 
-          session.lot_id === currentLotId
-        );
-        console.log("currentLotSessions",currentLotSessions,"sessionsResult",sessionsResult)
-        setLastSessions(currentLotSessions);
-      } else {
-        console.warn('Failed to fetch last sessions:', sessionsResult.error);
-      }
-
-    } catch (err) {
-      console.error('Error fetching detection stats:', err);
-      setError(err.message || 'Failed to load detection statistics');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Cleanup on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Transform lot summary data for pie chart (correct vs incorrect pieces)
   const getLotMatchingChartData = () => {
@@ -257,21 +312,12 @@ const DetectionStatsPanel = ({
     return date.toLocaleString();
   };
 
-  const formatDuration = (startTime, endTime) => {
-    if (!startTime || !endTime) return 'N/A';
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const durationMs = end - start;
-    const minutes = Math.floor(durationMs / 60000);
-    const seconds = Math.floor((durationMs % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-  };
-
   const hasData = lotSummary || lastSessions.length > 0;
-  const shouldShowStats = isDetectionActive && hasData && currentLotId;
+  const shouldShowStats = (isDetectionActive || hasEverDetected) && hasData && currentLotId;
   const shouldShowNoDetectionState = !isDetectionActive && !hasEverDetected;
   const shouldShowWaitingState = (!isDetectionActive && hasEverDetected) || (!currentLotId && isDetectionActive);
   const currentSession = lastSessions.length > 0 ? lastSessions[0] : null;
+  const isRefreshingData = loading || refreshing;
 
   return (
     <>
@@ -280,7 +326,7 @@ const DetectionStatsPanel = ({
         isOpen={panelOpen} 
         onClick={togglePanel}
         hasData={!!hasData}
-        isLoading={loading}
+        isLoading={isRefreshingData}
         isDetectionActive={isDetectionActive}
       />
 
@@ -319,18 +365,32 @@ const DetectionStatsPanel = ({
               </Typography>
             }
             subheader={
-              currentLotId && lotSummary && (
-                <Typography variant="body2" color="text.secondary">
-                  {lotSummary.lot_name} (ID: {currentLotId})
-                </Typography>
-              )
+              <Stack direction="column" spacing={0.5}>
+                {currentLotId && lotSummary && (
+                  <Typography variant="body2" color="text.secondary">
+                    {lotSummary.lot_name} (ID: {currentLotId})
+                  </Typography>
+                )}
+                {lastUpdateTime && (
+                  <Typography variant="caption" color="text.disabled">
+                    Last updated: {lastUpdateTime}
+                  </Typography>
+                )}
+              </Stack>
             }
             action={
               <Stack direction="row" spacing={1}>
-                {isDetectionActive && currentLotId && (
-                  <Tooltip title="Refresh data">
-                    <IconButton size="small" onClick={fetchAllData} disabled={loading}>
-                      {loading ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
+                {currentLotId && (
+                  <Tooltip title={refreshing ? "Refreshing..." : "Refresh data manually"}>
+                    <IconButton 
+                      size="small" 
+                      onClick={handleManualRefresh} 
+                      disabled={isRefreshingData}
+                    >
+                      {isRefreshingData ? 
+                        <CircularProgress size={16} /> : 
+                        <Refresh fontSize="small" />
+                      }
                     </IconButton>
                   </Tooltip>
                 )}
@@ -358,12 +418,12 @@ const DetectionStatsPanel = ({
                 <Typography variant="body2" color="text.disabled" sx={{ mb: 3 }}>
                   {!currentLotId 
                     ? 'Select a lot and start detection to see statistics.'
-                    : 'Statistics are paused. Start detection again to see live updates.'
+                    : 'Statistics are paused. Start detection again or refresh manually to see latest data.'
                   }
                 </Typography>
-                <Alert severity="warning" sx={{ mb: 2 }}>
+                <Alert severity="info" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    Lot-specific statistics are only updated during active detection sessions.
+                    Use the refresh button above to manually update statistics when needed.
                   </Typography>
                 </Alert>
                 {onStartDetection && (
@@ -380,31 +440,36 @@ const DetectionStatsPanel = ({
             )}
 
             {/* Error State */}
-            {error && isDetectionActive && (
+            {error && (isDetectionActive || hasEverDetected) && (
               <Alert severity="error" sx={{ mb: 2 }} action={
-                <Button size="small" onClick={fetchAllData}>Retry</Button>
+                <Button size="small" onClick={handleManualRefresh}>Retry</Button>
               }>
                 {error}
               </Alert>
             )}
 
             {/* Loading State */}
-            {loading && isDetectionActive && !hasData && (
+            {loading && currentLotId && !hasData && (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress />
+                <Stack alignItems="center" spacing={2}>
+                  <CircularProgress />
+                  <Typography variant="body2" color="text.secondary">
+                    Loading detection statistics...
+                  </Typography>
+                </Stack>
               </Box>
             )}
 
-            {/* No Data State (during active detection) */}
-            {!loading && !hasData && !error && isDetectionActive && currentLotId && (
+            {/* No Data State (when lot is selected but no data) */}
+            {!isRefreshingData && !hasData && !error && currentLotId && (
               <Alert severity="info" action={
-                <Button size="small" onClick={fetchAllData}>Load Data</Button>
+                <Button size="small" onClick={handleManualRefresh}>Load Data</Button>
               }>
-                No detection statistics available yet for this lot. Continue detecting to generate data.
+                No detection statistics available yet for this lot. Click "Load Data" or perform detection to generate data.
               </Alert>
             )}
 
-            {/* Stats Content - Only show during active detection */}
+            {/* Stats Content - Show for detection active OR if we have historical data */}
             {shouldShowStats && (
               <Stack spacing={3}>
                 {/* Lot Matching Pie Chart */}
@@ -491,9 +556,20 @@ const DetectionStatsPanel = ({
                 {/* Last Session Details */}
                 {currentSession && (
                   <Box>
-                    <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                      Latest Session Details
-                    </Typography>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                      <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                        Latest Session Details
+                      </Typography>
+                      {refreshing && (
+                        <Chip 
+                          icon={<CircularProgress size={14} />}
+                          label="Updating..."
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      )}
+                    </Stack>
                     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                       <Stack spacing={2}>
                         <Grid container spacing={2}>
@@ -533,7 +609,6 @@ const DetectionStatsPanel = ({
                                 ? Math.round(((currentSession.correct_pieces + currentSession.misplaced_pieces) / currentSession.total_detected) * 100)
                                 : 0}%
                             </Typography>
-
                           </Grid>
                           <Grid item xs={6}>
                             <Typography variant="caption" color="textSecondary">
