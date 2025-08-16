@@ -25,7 +25,7 @@ async def graceful_shutdown_detection():
     global _processor_initialized
     
     try:
-        from detection.app.service.optimized_detection_service import detection_processor
+        from detection.app.service.detection.optimized_detection_service import detection_processor
         
         logger.info("🛑 Initiating COMPLETE detection system shutdown...")
         
@@ -221,7 +221,7 @@ async def graceful_shutdown_detection():
 async def get_detection_shutdown_status():
     """Get current status of detection service for shutdown planning"""
     try:
-        from detection.app.service.optimized_detection_service import detection_processor
+        from detection.app.service.detection.optimized_detection_service import detection_processor
         
         # FIXED: Check both global state and processor state
         global _processor_initialized
