@@ -32,7 +32,7 @@ import { PieChart } from '@mui/x-charts/PieChart';
 import { detectionStatisticsService } from '../service/statistics/DetectionStatisticsService';
 
 // Colors for the pie charts - Green for correct, Red for incorrect
-const LOT_MATCHING_COLORS = ['#4caf50', '#f44336']; // Green for correct, Red for incorrect
+const SESSION_MATCHING_COLORS = ['#4caf50', '#f44336']; // Green for correct, Red for incorrect
 
 // Center Label Component for Pie Charts
 const PieCenterLabel = ({ primaryText, secondaryText }) => (
@@ -102,7 +102,7 @@ const NoDetectionState = ({ onStartDetection }) => (
     </Typography>
     <Alert severity="info" sx={{ mb: 2 }}>
       <Typography variant="body2">
-        <strong>Start Detection</strong> to see real-time statistics about your current lot matching and session details.
+        <strong>Start Detection</strong> to see real-time statistics about your current session details.
       </Typography>
     </Alert>
   </Box>
@@ -118,7 +118,6 @@ const DetectionStatsPanel = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [lotSummary, setLotSummary] = useState(null);
   const [lastSessions, setLastSessions] = useState([]);
   const [error, setError] = useState(null);
   const [internalOpen, setInternalOpen] = useState(false);
@@ -160,7 +159,7 @@ const DetectionStatsPanel = ({
 
     if (isManualRefresh) {
       setRefreshing(true);
-    } else if (!lotSummary && !lastSessions.length) {
+    } else if (!lastSessions.length) {
       setLoading(true);
     }
     setError(null);
@@ -178,24 +177,10 @@ const DetectionStatsPanel = ({
         detectionStatisticsService.clearLocalCache();
       }
 
-      // Fetch both lot summary and sessions simultaneously
-      const [summaryResult, sessionsResult] = await Promise.all([
-        detectionStatisticsService.getLotSummary(currentLotId),
-        detectionStatisticsService.getLastSessionsPerLot()
-      ]);
+      // Fetch sessions
+      const sessionsResult = await detectionStatisticsService.getLastSessionsPerLot();
 
       if (!mountedRef.current) return;
-
-      // Process lot summary
-      if (summaryResult.success) {
-        setLotSummary(summaryResult.data);
-        console.log("✅ Lot summary loaded:", summaryResult.data);
-      } else if (summaryResult.notFound) {
-        setError(`Lot ${currentLotId} not found`);
-        return;
-      } else {
-        console.warn('Failed to fetch lot summary:', summaryResult.error);
-      }
 
       // Process sessions - filter for current lot
       if (sessionsResult.success) {
@@ -220,7 +205,7 @@ const DetectionStatsPanel = ({
         setRefreshing(false);
       }
     }
-  }, [currentLotId, lotSummary, lastSessions, isDetectionActive]);
+  }, [currentLotId, lastSessions, isDetectionActive]);
 
   // FIXED: Handle detection completion signal - ONLY refresh once on successful detection
   useEffect(() => {
@@ -243,11 +228,11 @@ const DetectionStatsPanel = ({
 
   // Initial load when panel opens (ONLY if we don't have data)
   useEffect(() => {
-    if (panelOpen && currentLotId && (!lotSummary && !lastSessions.length)) {
+    if (panelOpen && currentLotId && !lastSessions.length) {
       console.log('🚀 Initial data load triggered');
       fetchFreshData(false, false);
     }
-  }, [panelOpen, currentLotId, fetchFreshData, lotSummary, lastSessions]);
+  }, [panelOpen, currentLotId, fetchFreshData, lastSessions]);
 
   // Track if detection has ever been active
   useEffect(() => {
@@ -258,7 +243,6 @@ const DetectionStatsPanel = ({
 
   // Clear data when lot changes
   useEffect(() => {
-    setLotSummary(null);
     setLastSessions([]);
     setError(null);
     setLastUpdateTime(null);
@@ -272,38 +256,47 @@ const DetectionStatsPanel = ({
     };
   }, []);
 
-  // Transform lot summary data for pie chart (correct vs incorrect pieces)
-  const getLotMatchingChartData = () => {
-    if (!lotSummary) return [];
+  // Get current session (latest session)
+  const currentSession = lastSessions.length > 0 ? lastSessions[0] : null;
+
+  // Transform current session data for pie chart (correct vs incorrect pieces)
+  const getSessionMatchingChartData = () => {
+    if (!currentSession) return [];
     
-    const correctPieces = lotSummary.correct_pieces_count || 0;
-    const totalDetected = lotSummary.total_detections || 0;
-    const incorrectPieces = totalDetected - correctPieces;
+    const correctPieces = currentSession.correct_pieces || 0;
+    const misplacedPieces = currentSession.misplaced_pieces || 0;
+    
+    console.log('📊 Session pie chart data debug:', {
+      correctPieces,
+      misplacedPieces,
+      currentSession
+    });
     
     return [
       {
         id: 'correct',
         value: correctPieces,
         label: 'Correct Pieces',
-        color: LOT_MATCHING_COLORS[0] // Green
+        color: SESSION_MATCHING_COLORS[0] // Green
       },
       {
-        id: 'incorrect',
-        value: incorrectPieces,
-        label: 'Incorrect Pieces',
-        color: LOT_MATCHING_COLORS[1] // Red
+        id: 'misplaced',
+        value: misplacedPieces,
+        label: 'Misplaced Pieces',
+        color: SESSION_MATCHING_COLORS[1] // Red
       }
     ].filter(item => item.value > 0); // Only show non-zero values
   };
 
-  // Calculate matching percentage
-  const getMatchingPercentage = () => {
-    if (!lotSummary || !lotSummary.total_detections) return 0;
+  // Calculate session matching percentage
+  const getSessionMatchingPercentage = () => {
+    if (!currentSession) return 0;
     
-    const correctPieces = lotSummary.correct_pieces_count || 0;
-    const totalDetected = lotSummary.total_detections || 0;
+    const correctPieces = currentSession.correct_pieces || 0;
+    const misplacedPieces = currentSession.misplaced_pieces || 0;
+    const totalPieces = correctPieces + misplacedPieces;
     
-    return totalDetected > 0 ? Math.round((correctPieces / totalDetected) * 100) : 0;
+    return totalPieces > 0 ? Math.round((correctPieces / totalPieces) * 100) : 0;
   };
 
   const formatDateTime = (dateString) => {
@@ -312,11 +305,10 @@ const DetectionStatsPanel = ({
     return date.toLocaleString();
   };
 
-  const hasData = lotSummary || lastSessions.length > 0;
+  const hasData = lastSessions.length > 0;
   const shouldShowStats = (isDetectionActive || hasEverDetected) && hasData && currentLotId;
   const shouldShowNoDetectionState = !isDetectionActive && !hasEverDetected;
   const shouldShowWaitingState = (!isDetectionActive && hasEverDetected) || (!currentLotId && isDetectionActive);
-  const currentSession = lastSessions.length > 0 ? lastSessions[0] : null;
   const isRefreshingData = loading || refreshing;
 
   return (
@@ -353,7 +345,7 @@ const DetectionStatsPanel = ({
             avatar={<Analytics color="primary" />}
             title={
               <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>
-                Lot Detection Statistics
+                Current Session Statistics
                 {isDetectionActive && (
                   <Chip 
                     label="LIVE" 
@@ -363,20 +355,6 @@ const DetectionStatsPanel = ({
                   />
                 )}
               </Typography>
-            }
-            subheader={
-              <Stack direction="column" spacing={0.5}>
-                {currentLotId && lotSummary && (
-                  <Typography variant="body2" color="text.secondary">
-                    {lotSummary.lot_name} (ID: {currentLotId})
-                  </Typography>
-                )}
-                {lastUpdateTime && (
-                  <Typography variant="caption" color="text.disabled">
-                    Last updated: {lastUpdateTime}
-                  </Typography>
-                )}
-              </Stack>
             }
             action={
               <Stack direction="row" spacing={1}>
@@ -417,13 +395,13 @@ const DetectionStatsPanel = ({
                 </Typography>
                 <Typography variant="body2" color="text.disabled" sx={{ mb: 3 }}>
                   {!currentLotId 
-                    ? 'Select a lot and start detection to see statistics.'
-                    : 'Statistics are paused. Start detection again or refresh manually to see latest data.'
+                    ? 'Select a lot and start detection to see session statistics.'
+                    : 'Session statistics are paused. Start detection again or refresh manually to see latest data.'
                   }
                 </Typography>
                 <Alert severity="info" sx={{ mb: 2 }}>
                   <Typography variant="body2">
-                    Use the refresh button above to manually update statistics when needed.
+                    Use the refresh button above to manually update session statistics when needed.
                   </Typography>
                 </Alert>
                 {onStartDetection && (
@@ -454,7 +432,7 @@ const DetectionStatsPanel = ({
                 <Stack alignItems="center" spacing={2}>
                   <CircularProgress />
                   <Typography variant="body2" color="text.secondary">
-                    Loading detection statistics...
+                    Loading session statistics...
                   </Typography>
                 </Stack>
               </Box>
@@ -465,100 +443,70 @@ const DetectionStatsPanel = ({
               <Alert severity="info" action={
                 <Button size="small" onClick={handleManualRefresh}>Load Data</Button>
               }>
-                No detection statistics available yet for this lot. Click "Load Data" or perform detection to generate data.
+                No session statistics available yet for this lot. Click "Load Data" or perform detection to generate data.
               </Alert>
             )}
 
-            {/* Stats Content - Show for detection active OR if we have historical data */}
+            {/* Stats Content - Show for detection active OR if we have session data */}
             {shouldShowStats && (
               <Stack spacing={3}>
-                {/* Lot Matching Pie Chart */}
-                {lotSummary && lotSummary.total_detections > 0 && (
+                {/* Session Matching Pie Chart */}
+                {currentSession && (currentSession.correct_pieces > 0 || currentSession.misplaced_pieces > 0) && (
                   <Box>
                     <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                      Lot Matching Results
+                      Session Detection Results
                     </Typography>
                     <Typography variant="body2" color="textSecondary" gutterBottom>
-                      Expected: {lotSummary.expected_piece_count} pieces
+                      Session #{currentSession.last_session_id} - Total Detected: {currentSession.total_detected || 0}
                     </Typography>
                     
                     <Box sx={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
                       <PieChart
-                        colors={LOT_MATCHING_COLORS}
+                        colors={SESSION_MATCHING_COLORS}
                         margin={{ left: 80, right: 80, top: 80, bottom: 80 }}
                         series={[
                           {
-                            data: getLotMatchingChartData(),
-                            innerRadius: 75,
-                            outerRadius: 100,
+                            data: getSessionMatchingChartData(),
+                            innerRadius: 58,
+                            outerRadius: 75,
                             paddingAngle: 2,
                             highlightScope: { faded: 'global', highlighted: 'item' }
                           }
                         ]}
-                        height={260}
-                        width={260}
+                        height={150}
+                        width={150}
                         slotProps={{
                           legend: { hidden: true }
                         }}
                       >
                         <PieCenterLabel 
-                          primaryText={`${getMatchingPercentage()}%`}
-                          secondaryText="Match Rate"
+                          primaryText={`${getSessionMatchingPercentage()}%`}
+                          secondaryText="Accuracy"
                         />
                       </PieChart>
                     </Box>
 
-                    {/* Stats Summary */}
-                    <Grid container spacing={2} sx={{ mt: 1 }}>
-                      <Grid item xs={6}>
-                        <Paper elevation={0} sx={{ p: 2, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText', borderRadius: 2 }}>
-                          <Typography variant="h5" fontWeight="bold">
-                            {lotSummary.correct_pieces_count || 0}
-                          </Typography>
-                          <Typography variant="body2">
-                            Correct Pieces
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Paper elevation={0} sx={{ p: 2, textAlign: 'center', bgcolor: 'error.light', color: 'error.contrastText', borderRadius: 2 }}>
-                          <Typography variant="h5" fontWeight="bold">
-                            {(lotSummary.total_detections || 0) - (lotSummary.correct_pieces_count || 0)}
-                          </Typography>
-                          <Typography variant="body2">
-                            Incorrect Pieces
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <Chip
-                          icon={lotSummary.is_completed ? <CheckCircle /> : <AccessTime />}
-                          label={lotSummary.is_completed ? 'Lot Completed' : 'Detection In Progress'}
-                          color={lotSummary.is_completed ? 'success' : 'primary'}
-                          sx={{ width: '100%', py: 1 }}
-                        />
-                      </Grid>
-                    </Grid>
+
                   </Box>
                 )}
 
-                {/* Show message if no detections yet */}
-                {lotSummary && lotSummary.total_detections === 0 && (
+                {/* Show message if no pieces detected yet */}
+                {currentSession && (currentSession.correct_pieces || 0) === 0 && (currentSession.misplaced_pieces || 0) === 0 && (
                   <Alert severity="info">
                     <Typography variant="body2">
-                      No detections recorded yet for this lot. The pie chart will appear once detection starts.
+                      No pieces detected yet in this session. The pie chart will appear once pieces are detected.
                     </Typography>
                   </Alert>
                 )}
 
                 <Divider />
 
-                {/* Last Session Details */}
+                {/* Session Details */}
                 {currentSession && (
                   <Box>
                     <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
                       <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                        Latest Session Details
+                        Session Details
                       </Typography>
                       {refreshing && (
                         <Chip 
@@ -594,28 +542,10 @@ const DetectionStatsPanel = ({
                           </Grid>
                           <Grid item xs={6}>
                             <Typography variant="caption" color="textSecondary">
-                              Accuracy Rate
+                              Detection Rate
                             </Typography>
                             <Typography variant="body2" fontWeight="bold">
                               {Math.round(currentSession.detection_rate || 0)}%
-                            </Typography>
-                          </Grid>
-                          <Grid item xs={6}>
-                            <Typography variant="caption" color="textSecondary">
-                              Completion Rate
-                            </Typography>
-                            <Typography variant="body2" fontWeight="bold">
-                              {currentSession.total_detected
-                                ? Math.round(((currentSession.correct_pieces + currentSession.misplaced_pieces) / currentSession.total_detected) * 100)
-                                : 0}%
-                            </Typography>
-                          </Grid>
-                          <Grid item xs={6}>
-                            <Typography variant="caption" color="textSecondary">
-                              Total Detections
-                            </Typography>
-                            <Typography variant="body2" fontWeight="bold">
-                              {currentSession.total_detected || 0}
                             </Typography>
                           </Grid>
                           <Grid item xs={6}>
@@ -628,7 +558,15 @@ const DetectionStatsPanel = ({
                           </Grid>
                           <Grid item xs={6}>
                             <Typography variant="caption" color="textSecondary">
-                              Started At
+                              Total Detected
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {currentSession.total_detected || 0}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Session Started
                             </Typography>
                             <Typography variant="body2" fontWeight="bold">
                               {formatDateTime(currentSession.last_session_time)}
@@ -636,51 +574,6 @@ const DetectionStatsPanel = ({
                           </Grid>
                         </Grid>
                       </Stack>
-                    </Paper>
-                  </Box>
-                )}
-
-                {/* Lot Summary Information */}
-                {lotSummary && (
-                  <Box>
-                    <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                      Lot Overview
-                    </Typography>
-                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <Typography variant="caption" color="textSecondary">
-                            Lot Name
-                          </Typography>
-                          <Typography variant="body2" fontWeight="bold">
-                            {lotSummary.lot_name}
-                          </Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Typography variant="caption" color="textSecondary">
-                            Expected Pieces
-                          </Typography>
-                          <Typography variant="body2" fontWeight="bold">
-                            {lotSummary.expected_piece_count}
-                          </Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Typography variant="caption" color="textSecondary">
-                            Total Sessions
-                          </Typography>
-                          <Typography variant="body2" fontWeight="bold">
-                            {lotSummary.total_sessions || 0}
-                          </Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Typography variant="caption" color="textSecondary">
-                            Last Updated
-                          </Typography>
-                          <Typography variant="body2" fontWeight="bold">
-                            {formatDateTime(lotSummary.last_session_date)}
-                          </Typography>
-                        </Grid>
-                      </Grid>
                     </Paper>
                   </Box>
                 )}
