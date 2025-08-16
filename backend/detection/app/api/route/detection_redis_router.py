@@ -6,11 +6,11 @@ import pickle
 import time
 from typing import Dict, Any
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 # Import your FIXED detection processor
-from detection.app.service.optimized_detection_service import detection_processor
+from detection.app.service.detection.optimized_detection_service import detection_processor
 
 logger = logging.getLogger(__name__)
 

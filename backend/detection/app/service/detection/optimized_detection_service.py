@@ -18,7 +18,7 @@ import psutil
 import torch
 import weakref
 
-from detection.app.service.detection_service import DetectionSystem
+from detection.app.service.detection.detection_service import DetectionSystem
 
 # Enhanced logging
 logging.basicConfig(

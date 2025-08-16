@@ -9,13 +9,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from detection.app.service.alternative.basic_detection_service import (
-    DetectionRequest, 
-    DetectionResponse,
-    LotCreationRequest,
-    LotResponse,
-    basic_detection_processor
-)
+from detection.app.service.detection.alternative.basic_detection_service import basic_detection_processor
+
+from detection.app.schema.lotRequest import DetectionRequest,LotCreationRequest
+from detection.app.schema.lotResponse import LotResponse
 from detection.app.db.session import get_session
 
 # Set up logging

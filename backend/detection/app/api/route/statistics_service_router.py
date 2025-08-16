@@ -2,11 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional, List
 import logging
 
 from detection.app.db.session import get_session
-from detection.app.service.alternative.statistics_service import detection_statistics_service
+from detection.app.service.detection.alternative.statistics_service import detection_statistics_service
 
 logger = logging.getLogger(__name__)
 
