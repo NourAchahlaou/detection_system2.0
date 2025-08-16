@@ -1,5 +1,5 @@
 
-// AppDetection.jsx - UPDATED: Controlled DetectionStatsPanel refresh - no aggressive refreshing
+// AppDetection.jsx - UPDATED: Proper integration with DetectionStatsPanel
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { 
@@ -69,7 +69,7 @@ export default function AppDetection() {
   const [isLotLoading, setIsLotLoading] = useState(false);
   const [lotLoadInitialized, setLotLoadInitialized] = useState(false);
 
-  // SIMPLIFIED: Only one trigger for successful detections
+  // SIMPLIFIED: Only one trigger for successful detections - timestamp based
   const [lastSuccessfulDetection, setLastSuccessfulDetection] = useState(null);
 
   // Piece labels cache
@@ -149,10 +149,10 @@ export default function AppDetection() {
     return `Piece ${pieceId}`;
   }, [pieceLabels, loadingLabels, fetchPieceLabel]);
 
-  // SIMPLIFIED: Only trigger stats refresh when detection is successful
+  // UPDATED: Trigger stats refresh only on successful detection
   const triggerStatsRefreshOnSuccess = useCallback(() => {
-    console.log('📊 Detection successful - will refresh stats once');
-    setLastSuccessfulDetection(Date.now());
+    console.log('📊 Detection successful - triggering stats refresh');
+    setLastSuccessfulDetection(Date.now()); // Use timestamp to ensure uniqueness
   }, []);
 
   // Enhanced lot loading function with better state management
@@ -441,7 +441,7 @@ export default function AppDetection() {
     await detectionHandlers.handleStopDetection();
   }, [detectionHandlers, searchParams, setSearchParams]);
 
-  // SIMPLIFIED: Updated lot detection - only trigger refresh on actual success
+  // UPDATED: Enhanced lot detection with proper success trigger
   const handleLotDetection = useCallback(async () => {
     console.log('🎯 Lot detection requested...', {
       selectedLotId,
@@ -472,8 +472,8 @@ export default function AppDetection() {
       const result = await detectionHandlers.handleLotWorkflowDetection();
 
       if (result) {
-        // ONLY trigger stats refresh on successful detection - once!
-        console.log('📊 Detection successful - triggering single stats refresh');
+        // CRITICAL: Only trigger stats refresh on successful detection
+        console.log('📊 Detection successful - triggering stats refresh and opening panel');
         triggerStatsRefreshOnSuccess();
         
         // Reload lot data to get updated information
@@ -492,6 +492,7 @@ export default function AppDetection() {
       } else {
         // Don't trigger refresh on failed detection
         console.log('📊 Detection failed - no stats refresh needed');
+        lotManagement.showSnackbar('Detection failed. Please try again.', 'error');
       }
     } catch (error) {
       console.error('❌ Error in lot detection:', error);
@@ -630,9 +631,10 @@ export default function AppDetection() {
       lotLoadInitialized,
       streamManagerAvailable: !!streamManager,
       isBasicMode,
-      showLotWorkflowPanel
+      showLotWorkflowPanel,
+      isStreamFrozen: detectionSystem.isStreamFrozen
     });
-  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager, isBasicMode, showLotWorkflowPanel]);
+  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager, isBasicMode, showLotWorkflowPanel, detectionSystem.isStreamFrozen]);
 
 return (
   <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
@@ -653,7 +655,7 @@ return (
       DetectionStates={DetectionStates}
     />
 
-    {/* SIMPLIFIED: Detection Statistics Panel - only refresh on successful detection */}
+    {/* UPDATED: Detection Statistics Panel with isStreamFrozen prop */}
     {showStatsPanel && (
       <Box sx={{ mb: 2 }}>
         <DetectionStatsPanel
@@ -663,6 +665,7 @@ return (
           onStartDetection={lotWorkflowActive ? handleStartLotWorkflow : detectionHandlers.handleStartDetection}
           currentLotId={selectedLotId}
           detectionCompleted={lastSuccessfulDetection} // Only pass successful detection trigger
+          isStreamFrozen={detectionSystem.isStreamFrozen} // ADDED: Pass stream frozen state
         />
       </Box>
     )}

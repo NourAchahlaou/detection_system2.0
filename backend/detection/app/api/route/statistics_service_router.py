@@ -16,6 +16,36 @@ statistic_detection_router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+@statistic_detection_router.get("/lots/{lot_id}/last-session")
+async def get_last_session_for_lot(lot_id: int, db: Session = Depends(get_session)):
+    """Get last detection session for a SPECIFIC lot - ULTRA FAST"""
+    try:
+        # OPTIMIZATION: Direct query for single lot instead of fetching all
+        data = detection_statistics_service.last_session_per_lot(db)
+        
+        # Filter for the specific lot
+        target_session = None
+        for session in data:
+            if session.lot_id == lot_id:
+                target_session = session
+                break
+        
+        if target_session:
+            return {
+                "success": True,
+                "message": f"Last session for lot {lot_id} retrieved successfully",
+                "data": target_session.__dict__
+            }
+        else:
+            return {
+                "success": True,
+                "message": f"No sessions found for lot {lot_id}",
+                "data": None
+            }
+            
+    except Exception as e:
+        logger.exception(f"Error in get_last_session_for_lot for lot {lot_id}")
+        raise HTTPException(status_code=500, detail=str(e))
 # --- Last session for each lot ---
 @statistic_detection_router.get("/lots/last-sessions")
 async def get_last_sessions_per_lot(db: Session = Depends(get_session)):

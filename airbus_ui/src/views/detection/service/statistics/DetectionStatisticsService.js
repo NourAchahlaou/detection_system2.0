@@ -1,74 +1,59 @@
 import api from "../../../../utils/UseAxios";
 
-// Detection Statistics Service
-// Updated to match the new backend API endpoints structure
-// Provides comprehensive statistics and analytics for the detection system
+// Detection Statistics Service - ULTRA-OPTIMIZED VERSION
+// Direct API calls with minimal processing for instant response
 export class DetectionStatisticsService {
   constructor() {
     this.baseUrl = '/api/detection/basic/statistics';
-    this.cache = new Map();
-    this.cacheTimeout = 1000; // 30 seconds cache timeout
   }
 
   // ===================
-  // CACHE MANAGEMENT
+  // LOT-BASED STATISTICS METHODS - OPTIMIZED
   // ===================
 
-  // Check if cached data is still valid
-  _isCacheValid(key) {
-    const cached = this.cache.get(key);
-    if (!cached) return false;
-    return (Date.now() - cached.timestamp) < this.cacheTimeout;
-  }
+  // Get last detection session for a SPECIFIC lot - INSTANT & DIRECT
+  async getLastSessionForLot(lotId) {
+    try {
+      console.log(`🚀 Getting last session for lot ${lotId} (DIRECT)...`);
+      
+      const response = await api.get(`${this.baseUrl}/lots/${lotId}/last-session`);
 
-  // Get data from cache if valid
-  _getFromCache(key) {
-    if (this._isCacheValid(key)) {
-      return this.cache.get(key).data;
+      if (response.data.success) {
+        console.log('✅ Last session retrieved instantly');
+        
+        return {
+          success: true,
+          data: response.data.data,
+          message: response.data.message
+        };
+      } else {
+        throw new Error(`Failed to get last session for lot ${lotId}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error getting last session for lot ${lotId}:`, error);
+      return {
+        success: false,
+        data: null,
+        error: error.response?.data?.detail || error.message,
+        message: `Failed to get last session: ${error.response?.data?.detail || error.message}`
+      };
     }
-    return null;
   }
 
-  // Store data in cache
-  _setCache(key, data) {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
-  }
-
-  // Clear all cached statistics data
-  clearLocalCache() {
-    this.cache.clear();
-    console.log('📊 Local statistics cache cleared');
-  }
-
-  // ===================
-  // LOT-BASED STATISTICS METHODS
-  // ===================
-
-  // Get last detection session for each lot with brief metrics
+  // Get last detection session for each lot with brief metrics - INSTANT
   async getLastSessionsPerLot() {
     try {
-      const cacheKey = 'last_sessions_per_lot';
-      const cached = this._getFromCache(cacheKey);
-      if (cached) {
-        return { success: true, data: cached, fromCache: true };
-      }
-
       console.log('📊 Getting last sessions per lot...');
       
       const response = await api.get(`${this.baseUrl}/lots/last-sessions`);
 
       if (response.data.success) {
-        this._setCache(cacheKey, response.data.data);
         console.log('✅ Last sessions per lot retrieved successfully');
         
         return {
           success: true,
           data: response.data.data,
-          message: response.data.message,
-          fromCache: false
+          message: response.data.message
         };
       } else {
         throw new Error('Failed to get last sessions per lot');
@@ -84,28 +69,20 @@ export class DetectionStatisticsService {
     }
   }
 
-  // Get summary statistics for a specific lot
+  // Get summary statistics for a specific lot - INSTANT
   async getLotSummary(lotId) {
     try {
-      const cacheKey = `lot_summary_${lotId}`;
-      const cached = this._getFromCache(cacheKey);
-      if (cached) {
-        return { success: true, data: cached, fromCache: true };
-      }
-
       console.log(`📊 Getting summary for lot ${lotId}...`);
 
       const response = await api.get(`${this.baseUrl}/lots/${lotId}/summary`);
 
       if (response.data.success) {
-        this._setCache(cacheKey, response.data.data);
         console.log(`✅ Lot ${lotId} summary retrieved successfully`);
 
         return {
           success: true,
           data: response.data.data,
-          message: response.data.message,
-          fromCache: false
+          message: response.data.message
         };
       } else {
         throw new Error(`Failed to get lot ${lotId} summary`);
@@ -132,28 +109,20 @@ export class DetectionStatisticsService {
     }
   }
 
-  // Get the number of sessions required to complete a lot
+  // Get the number of sessions required to complete a lot - INSTANT
   async getSessionsToCompletion(lotId) {
     try {
-      const cacheKey = `sessions_to_completion_${lotId}`;
-      const cached = this._getFromCache(cacheKey);
-      if (cached) {
-        return { success: true, data: cached, fromCache: true };
-      }
-
       console.log(`📊 Getting sessions to completion for lot ${lotId}...`);
 
       const response = await api.get(`${this.baseUrl}/lots/${lotId}/sessions-to-completion`);
 
       if (response.data.success) {
-        this._setCache(cacheKey, response.data.data);
         console.log(`✅ Sessions to completion for lot ${lotId} retrieved successfully`);
 
         return {
           success: true,
           data: response.data.data,
-          message: response.data.message,
-          fromCache: false
+          message: response.data.message
         };
       } else {
         throw new Error(`Failed to get sessions to completion for lot ${lotId}`);
@@ -173,28 +142,20 @@ export class DetectionStatisticsService {
   // SYSTEM-WIDE STATISTICS METHODS
   // ===================
 
-  // Get stats on lots correctness from their first session
+  // Get stats on lots correctness from their first session - INSTANT
   async getSystemStartStats() {
     try {
-      const cacheKey = 'system_start_stats';
-      const cached = this._getFromCache(cacheKey);
-      if (cached) {
-        return { success: true, data: cached, fromCache: true };
-      }
-
       console.log('📊 Getting system start statistics...');
 
       const response = await api.get(`${this.baseUrl}/system/start-stats`);
 
       if (response.data.success) {
-        this._setCache(cacheKey, response.data.data);
         console.log('✅ System start statistics retrieved successfully');
 
         return {
           success: true,
           data: response.data.data,
-          message: response.data.message,
-          fromCache: false
+          message: response.data.message
         };
       } else {
         throw new Error('Failed to get system start statistics');
@@ -210,28 +171,20 @@ export class DetectionStatisticsService {
     }
   }
 
-  // Get most common failure categories for problem lots
+  // Get most common failure categories for problem lots - INSTANT
   async getCommonFailures(topN = 10) {
     try {
-      const cacheKey = `common_failures_${topN}`;
-      const cached = this._getFromCache(cacheKey);
-      if (cached) {
-        return { success: true, data: cached, fromCache: true };
-      }
-
       console.log(`📊 Getting top ${topN} common failures...`);
 
       const response = await api.get(`${this.baseUrl}/system/common-failures?top_n=${topN}`);
 
       if (response.data.success) {
-        this._setCache(cacheKey, response.data.data);
         console.log(`✅ Top ${topN} common failures retrieved successfully`);
 
         return {
           success: true,
           data: response.data.data,
-          message: response.data.message,
-          fromCache: false
+          message: response.data.message
         };
       } else {
         throw new Error('Failed to get common failures');
@@ -247,28 +200,20 @@ export class DetectionStatisticsService {
     }
   }
 
-  // Get most confused piece pairs
+  // Get most confused piece pairs - INSTANT
   async getTopMixedPairs(topN = 10) {
     try {
-      const cacheKey = `top_mixed_pairs_${topN}`;
-      const cached = this._getFromCache(cacheKey);
-      if (cached) {
-        return { success: true, data: cached, fromCache: true };
-      }
-
       console.log(`📊 Getting top ${topN} mixed-up pairs...`);
 
       const response = await api.get(`${this.baseUrl}/system/top-mixed-pairs?top_n=${topN}`);
 
       if (response.data.success) {
-        this._setCache(cacheKey, response.data.data);
         console.log(`✅ Top ${topN} mixed-up pairs retrieved successfully`);
 
         return {
           success: true,
           data: response.data.data,
-          message: response.data.message,
-          fromCache: false
+          message: response.data.message
         };
       } else {
         throw new Error('Failed to get top mixed pairs');
@@ -285,44 +230,10 @@ export class DetectionStatisticsService {
   }
 
   // ===================
-  // CACHE MANAGEMENT ENDPOINTS
-  // ===================
-
-  // Clear server-side statistics cache
-  async clearServerCache() {
-    try {
-      console.log('🧹 Clearing server statistics cache...');
-
-      const response = await api.delete(`${this.baseUrl}/cache`);
-
-      if (response.data.success) {
-        // Also clear local cache
-        this.clearLocalCache();
-        
-        console.log('✅ Server statistics cache cleared successfully');
-
-        return {
-          success: true,
-          message: response.data.message
-        };
-      } else {
-        throw new Error('Failed to clear server cache');
-      }
-    } catch (error) {
-      console.error('❌ Error clearing server statistics cache:', error);
-      return {
-        success: false,
-        error: error.response?.data?.detail || error.message,
-        message: `Failed to clear cache: ${error.response?.data?.detail || error.message}`
-      };
-    }
-  }
-
-  // ===================
   // HEALTH CHECK METHODS
   // ===================
 
-  // Check statistics service health
+  // Check statistics service health - INSTANT
   async checkStatisticsHealth() {
     try {
       console.log('🏥 Checking statistics service health...');
@@ -345,9 +256,7 @@ export class DetectionStatisticsService {
       return {
         success: false,
         data: {
-          service_status: 'unhealthy',
-          cache_entries: 0,
-          cache_timeout: 0
+          service_status: 'unhealthy'
         },
         error: error.response?.data?.detail || error.message,
         message: `Statistics service unhealthy: ${error.response?.data?.detail || error.message}`
@@ -359,7 +268,7 @@ export class DetectionStatisticsService {
   // CONVENIENCE METHODS
   // ===================
 
-  // Get complete dashboard data in one call
+  // Get complete dashboard data in one call - INSTANT
   async getDashboardData(options = {}) {
     try {
       console.log('📊 Getting complete dashboard data...');
@@ -434,7 +343,7 @@ export class DetectionStatisticsService {
     }
   }
 
-  // Get comprehensive lot analysis
+  // Get comprehensive lot analysis - INSTANT
   async getComprehensiveLotAnalysis(lotId) {
     try {
       console.log(`📊 Getting comprehensive analysis for lot ${lotId}...`);

@@ -34,6 +34,15 @@ import { detectionStatisticsService } from '../service/statistics/DetectionStati
 // Colors for the pie charts - Green for correct, Red for incorrect
 const SESSION_MATCHING_COLORS = ['#4caf50', '#f44336']; // Green for correct, Red for incorrect
 
+// Debounce utility function
+const debounce = (func, delay) => {
+  let timeoutId;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func.apply(null, args), delay);
+  };
+};
+
 // Center Label Component for Pie Charts
 const PieCenterLabel = ({ primaryText, secondaryText }) => (
   <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central">
@@ -47,7 +56,7 @@ const PieCenterLabel = ({ primaryText, secondaryText }) => (
 );
 
 // Toggle Button Component
-const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading, isDetectionActive }) => {
+const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading, isDetectionActive, hasActiveSession }) => {
   return (
     <Box
       sx={{
@@ -72,7 +81,7 @@ const StatsToggleButton = ({ isOpen, onClick, hasData, isLoading, isDetectionAct
           },
           position: 'relative',
           boxShadow: 2,
-          '&::after': hasData && isDetectionActive && !isLoading ? {
+          '&::after': hasActiveSession && !isLoading ? {
             content: '""',
             position: 'absolute',
             top: 4,
@@ -95,14 +104,14 @@ const NoDetectionState = ({ onStartDetection }) => (
   <Box sx={{ textAlign: 'center', py: 4 }}>
     <BarChart sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
     <Typography variant="h6" color="text.secondary" gutterBottom>
-      No Detection Statistics Available
+      No Detection Running
     </Typography>
     <Typography variant="body2" color="text.disabled" sx={{ mb: 3, maxWidth: 300, mx: 'auto' }}>
-      Detection statistics will be available once you start running detection on your selected lot.
+      Start detection to see real-time statistics about your current session results.
     </Typography>
     <Alert severity="info" sx={{ mb: 2 }}>
       <Typography variant="body2">
-        <strong>Start Detection</strong> to see real-time statistics about your current session details.
+        <strong>Start Detection</strong> to begin capturing session statistics.
       </Typography>
     </Alert>
   </Box>
@@ -115,19 +124,20 @@ const DetectionStatsPanel = ({
   onStartDetection = null,
   currentLotId = null,
   detectionCompleted = null, // Signal that a detection just completed
+  isStreamFrozen = false, // New prop to know if stream is frozen
 }) => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastSessions, setLastSessions] = useState([]);
+  const [currentSession, setCurrentSession] = useState(null);
   const [error, setError] = useState(null);
   const [internalOpen, setInternalOpen] = useState(false);
-  const [hasEverDetected, setHasEverDetected] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState(null);
   
-  // Refs for managing race conditions
+  // Refs for managing updates and caching
   const mountedRef = useRef(true);
-  const lastFetchRef = useRef(0);
   const detectionCompletedRef = useRef(null);
+  const sessionCache = useRef(new Map()); // Add session cache
+  const requestInProgress = useRef(false); // Prevent duplicate requests
   
   const isControlled = typeof isOpen === 'boolean' && typeof onToggle === 'function';
   const panelOpen = isControlled ? isOpen : internalOpen;
@@ -140,112 +150,141 @@ const DetectionStatsPanel = ({
     }
   };
 
-  // FIXED: Fetch function with rate limiting - NO auto-refresh
-  const fetchFreshData = useCallback(async (isManualRefresh = false, bypassCache = false) => {
-    // Rate limiting - prevent too frequent calls
-    const now = Date.now();
-    const minInterval = isManualRefresh ? 1000 : 3000; // Manual: 1s, Auto: 3s
-    
-    if (!bypassCache && (now - lastFetchRef.current) < minInterval) {
-      console.log('🔍 Skipping fetch - rate limited');
-      return;
+  // Clear session data when detection stops or stream is unfrozen
+  useEffect(() => {
+    if (!isDetectionActive && !isStreamFrozen) {
+      console.log('🧹 Clearing session data - detection stopped and stream not frozen');
+      setCurrentSession(null);
+      setError(null);
+      setLastUpdateTime(null);
+      sessionCache.current.clear();
     }
-    lastFetchRef.current = now;
+  }, [isDetectionActive, isStreamFrozen]);
 
+  // ULTRA-OPTIMIZED: Direct lot-specific fetch using the correct endpoint
+  const fetchSessionData = useCallback(async (isManualRefresh = false) => {
     if (!currentLotId) {
       console.log('🔍 Skipping stats fetch - no lot ID');
       return;
     }
 
+    // Prevent duplicate requests
+    if (requestInProgress.current) {
+      console.log('🔍 Request already in progress, skipping');
+      return;
+    }
+
+    // Check cache first (5 second cache for non-manual refreshes)
+    const cacheKey = currentLotId.toString();
+    if (!isManualRefresh && sessionCache.current.has(cacheKey)) {
+      const cached = sessionCache.current.get(cacheKey);
+      if (Date.now() - cached.timestamp < 5000) { // 5s cache
+        console.log('📋 Using cached session data');
+        setCurrentSession(cached.data);
+        setLastUpdateTime(cached.updateTime);
+        return;
+      }
+    }
+
+    requestInProgress.current = true;
+
     if (isManualRefresh) {
       setRefreshing(true);
-    } else if (!lastSessions.length) {
+    } else if (!currentSession) {
       setLoading(true);
     }
     setError(null);
     
     try {
-      console.log('🔍 Fetching detection stats...', { 
-        isManualRefresh, 
-        bypassCache,
-        currentLotId, 
-        isDetectionActive 
-      });
+      console.log('🚀 ULTRA-FAST: Fetching DIRECT session data for lot:', currentLotId);
 
-      // Clear cache on manual refresh or detection completion
-      if (isManualRefresh || bypassCache) {
-        detectionStatisticsService.clearLocalCache();
-      }
-
-      // Fetch sessions
-      const sessionsResult = await detectionStatisticsService.getLastSessionsPerLot();
+      // 🔥 CRITICAL FIX: Use the direct endpoint instead of fetching all lots
+      const sessionResult = await detectionStatisticsService.getLastSessionForLot(currentLotId);
 
       if (!mountedRef.current) return;
 
-      // Process sessions - filter for current lot
-      if (sessionsResult.success) {
-        const currentLotSessions = sessionsResult.data.filter(session => 
-          session.lot_id === currentLotId
-        );
-        console.log("✅ Sessions loaded:", currentLotSessions);
-        setLastSessions(currentLotSessions);
-      } else {
-        console.warn('Failed to fetch last sessions:', sessionsResult.error);
-      }
+      if (sessionResult.success && sessionResult.data) {
+        console.log("⚡ INSTANT: Session data loaded:", sessionResult.data);
+        
+        const updateTime = new Date().toLocaleTimeString();
+        
+        // Update cache
+        sessionCache.current.set(cacheKey, {
+          data: sessionResult.data,
+          timestamp: Date.now(),
+          updateTime: updateTime
+        });
 
-      setLastUpdateTime(new Date().toLocaleTimeString());
+        // Batch state updates to reduce re-renders
+        setCurrentSession(sessionResult.data);
+        setLastUpdateTime(updateTime);
+        setError(null);
+      } else {
+        console.log("📊 No session found for current lot");
+        setCurrentSession(null);
+        setError(sessionResult.error || 'No session data available');
+      }
 
     } catch (err) {
       if (!mountedRef.current) return;
-      console.error('❌ Error fetching detection stats:', err);
-      setError(err.message || 'Failed to load detection statistics');
+      console.error('❌ Error fetching session data:', err);
+      setError(err.message || 'Failed to load session statistics');
     } finally {
       if (mountedRef.current) {
         setLoading(false);
         setRefreshing(false);
       }
+      requestInProgress.current = false;
     }
-  }, [currentLotId, lastSessions, isDetectionActive]);
+  }, [currentLotId, currentSession]);
 
-  // FIXED: Handle detection completion signal - ONLY refresh once on successful detection
+  // Add debounced version to prevent rapid-fire requests
+  const debouncedFetchSessionData = useCallback(
+    debounce((isManualRefresh = false) => {
+      fetchSessionData(isManualRefresh);
+    }, 300),
+    [fetchSessionData]
+  );
+
+  // OPTIMIZATION: Immediate response to detection completion
   useEffect(() => {
     if (detectionCompleted && detectionCompleted !== detectionCompletedRef.current) {
-      console.log('🎯 Detection completed - triggering single refresh');
+      console.log('🎯 INSTANT: Detection completed - immediate data fetch');
       detectionCompletedRef.current = detectionCompleted;
       
-      // Small delay to ensure backend has processed the detection
-      setTimeout(() => {
-        fetchFreshData(false, true); // bypassCache = true for fresh data
-      }, 1500);
+      // Open panel immediately
+      if (isControlled) {
+        onToggle(true);
+      } else {
+        setInternalOpen(true);
+      }
+      
+      // Clear cache for this lot to ensure fresh data
+      if (currentLotId) {
+        sessionCache.current.delete(currentLotId.toString());
+      }
+      
+      // CRITICAL: No setTimeout, no delay - fetch immediately
+      fetchSessionData(false);
     }
-  }, [detectionCompleted, fetchFreshData]);
+  }, [detectionCompleted, fetchSessionData, isControlled, onToggle, currentLotId]);
 
   // Manual refresh handler
   const handleManualRefresh = useCallback(() => {
     console.log('🔄 Manual refresh triggered');
-    fetchFreshData(true, true);
-  }, [fetchFreshData]);
-
-  // Initial load when panel opens (ONLY if we don't have data)
-  useEffect(() => {
-    if (panelOpen && currentLotId && !lastSessions.length) {
-      console.log('🚀 Initial data load triggered');
-      fetchFreshData(false, false);
+    if (currentLotId) {
+      sessionCache.current.delete(currentLotId.toString());
     }
-  }, [panelOpen, currentLotId, fetchFreshData, lastSessions]);
-
-  // Track if detection has ever been active
-  useEffect(() => {
-    if (isDetectionActive) {
-      setHasEverDetected(true);
-    }
-  }, [isDetectionActive]);
+    fetchSessionData(true);
+  }, [fetchSessionData, currentLotId]);
 
   // Clear data when lot changes
   useEffect(() => {
-    setLastSessions([]);
+    console.log('🔄 Lot changed, clearing session data');
+    setCurrentSession(null);
     setError(null);
     setLastUpdateTime(null);
+    sessionCache.current.clear();
   }, [currentLotId]);
 
   // Cleanup on unmount
@@ -253,39 +292,36 @@ const DetectionStatsPanel = ({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      requestInProgress.current = false;
     };
   }, []);
 
-  // Get current session (latest session)
-  const currentSession = lastSessions.length > 0 ? lastSessions[0] : null;
-
-  // Transform current session data for pie chart (correct vs incorrect pieces)
+  // OPTIMIZATION: Inline calculations to avoid function overhead
   const getSessionMatchingChartData = () => {
     if (!currentSession) return [];
     
     const correctPieces = currentSession.correct_pieces || 0;
     const misplacedPieces = currentSession.misplaced_pieces || 0;
     
-    console.log('📊 Session pie chart data debug:', {
-      correctPieces,
-      misplacedPieces,
-      currentSession
-    });
-    
-    return [
-      {
+    const data = [];
+    if (correctPieces > 0) {
+      data.push({
         id: 'correct',
         value: correctPieces,
         label: 'Correct Pieces',
-        color: SESSION_MATCHING_COLORS[0] // Green
-      },
-      {
+        color: SESSION_MATCHING_COLORS[0]
+      });
+    }
+    if (misplacedPieces > 0) {
+      data.push({
         id: 'misplaced',
         value: misplacedPieces,
         label: 'Misplaced Pieces',
-        color: SESSION_MATCHING_COLORS[1] // Red
-      }
-    ].filter(item => item.value > 0); // Only show non-zero values
+        color: SESSION_MATCHING_COLORS[1]
+      });
+    }
+    
+    return data;
   };
 
   // Calculate session matching percentage
@@ -299,17 +335,20 @@ const DetectionStatsPanel = ({
     return totalPieces > 0 ? Math.round((correctPieces / totalPieces) * 100) : 0;
   };
 
+  // OPTIMIZATION: Inline date formatting to avoid function calls
   const formatDateTime = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString();
+    return dateString ? new Date(dateString).toLocaleString() : 'N/A';
   };
 
-  const hasData = lastSessions.length > 0;
-  const shouldShowStats = (isDetectionActive || hasEverDetected) && hasData && currentLotId;
-  const shouldShowNoDetectionState = !isDetectionActive && !hasEverDetected;
-  const shouldShowWaitingState = (!isDetectionActive && hasEverDetected) || (!currentLotId && isDetectionActive);
+  // Determine what to show based on current state
+  const hasActiveSession = currentSession && (isDetectionActive || isStreamFrozen);
+  const shouldShowStats = hasActiveSession && currentLotId;
+  const shouldShowNoDetectionState = !isDetectionActive && !isStreamFrozen;
   const isRefreshingData = loading || refreshing;
+
+  // OPTIMIZATION: Pre-calculate chart data and values
+  const chartData = getSessionMatchingChartData();
+  const hasChartData = chartData.length > 0;
 
   return (
     <>
@@ -317,9 +356,10 @@ const DetectionStatsPanel = ({
       <StatsToggleButton 
         isOpen={panelOpen} 
         onClick={togglePanel}
-        hasData={!!hasData}
+        hasData={!!hasActiveSession}
         isLoading={isRefreshingData}
         isDetectionActive={isDetectionActive}
+        hasActiveSession={hasActiveSession}
       />
 
       {/* Sliding Panel */}
@@ -345,12 +385,12 @@ const DetectionStatsPanel = ({
             avatar={<Analytics color="primary" />}
             title={
               <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>
-                Current Session Statistics
-                {isDetectionActive && (
+                Detection Session Results
+                {hasActiveSession && (
                   <Chip 
-                    label="LIVE" 
+                    label={isDetectionActive ? "LIVE" : "FROZEN"} 
                     size="small" 
-                    color="success" 
+                    color={isDetectionActive ? "success" : "warning"} 
                     sx={{ ml: 1, fontSize: '0.75rem' }}
                   />
                 )}
@@ -358,7 +398,7 @@ const DetectionStatsPanel = ({
             }
             action={
               <Stack direction="row" spacing={1}>
-                {currentLotId && (
+                {currentLotId && hasActiveSession && (
                   <Tooltip title={refreshing ? "Refreshing..." : "Refresh data manually"}>
                     <IconButton 
                       size="small" 
@@ -386,39 +426,8 @@ const DetectionStatsPanel = ({
               <NoDetectionState onStartDetection={onStartDetection} />
             )}
 
-            {/* Waiting for Detection State */}
-            {shouldShowWaitingState && (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <AccessTime sx={{ fontSize: 60, color: 'warning.main', mb: 2 }} />
-                <Typography variant="h6" color="text.secondary" gutterBottom>
-                  {!currentLotId ? 'No Lot Selected' : 'Detection Stopped'}
-                </Typography>
-                <Typography variant="body2" color="text.disabled" sx={{ mb: 3 }}>
-                  {!currentLotId 
-                    ? 'Select a lot and start detection to see session statistics.'
-                    : 'Session statistics are paused. Start detection again or refresh manually to see latest data.'
-                  }
-                </Typography>
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  <Typography variant="body2">
-                    Use the refresh button above to manually update session statistics when needed.
-                  </Typography>
-                </Alert>
-                {onStartDetection && (
-                  <Button
-                    variant="outlined"
-                    startIcon={<PlayArrow />}
-                    onClick={onStartDetection}
-                    sx={{ mt: 1 }}
-                  >
-                    {!currentLotId ? 'Start Detection' : 'Resume Detection'}
-                  </Button>
-                )}
-              </Box>
-            )}
-
             {/* Error State */}
-            {error && (isDetectionActive || hasEverDetected) && (
+            {error && hasActiveSession && (
               <Alert severity="error" sx={{ mb: 2 }} action={
                 <Button size="small" onClick={handleManualRefresh}>Retry</Button>
               }>
@@ -427,27 +436,27 @@ const DetectionStatsPanel = ({
             )}
 
             {/* Loading State */}
-            {loading && currentLotId && !hasData && (
+            {loading && currentLotId && !currentSession && hasActiveSession && (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <Stack alignItems="center" spacing={2}>
                   <CircularProgress />
                   <Typography variant="body2" color="text.secondary">
-                    Loading session statistics...
+                    Loading session data...
                   </Typography>
                 </Stack>
               </Box>
             )}
 
-            {/* No Data State (when lot is selected but no data) */}
-            {!isRefreshingData && !hasData && !error && currentLotId && (
+            {/* No Session Data State */}
+            {!isRefreshingData && !currentSession && !error && currentLotId && hasActiveSession && (
               <Alert severity="info" action={
-                <Button size="small" onClick={handleManualRefresh}>Load Data</Button>
+                <Button size="small" onClick={handleManualRefresh}>Refresh</Button>
               }>
-                No session statistics available yet for this lot. Click "Load Data" or perform detection to generate data.
+                No session data available yet. Detection may still be processing.
               </Alert>
             )}
 
-            {/* Stats Content - Show for detection active OR if we have session data */}
+            {/* Stats Content - Show only when we have active session data */}
             {shouldShowStats && (
               <Stack spacing={3}>
                 {/* Session Matching Pie Chart */}
@@ -485,8 +494,6 @@ const DetectionStatsPanel = ({
                         />
                       </PieChart>
                     </Box>
-
-
                   </Box>
                 )}
 
@@ -494,7 +501,7 @@ const DetectionStatsPanel = ({
                 {currentSession && (currentSession.correct_pieces || 0) === 0 && (currentSession.misplaced_pieces || 0) === 0 && (
                   <Alert severity="info">
                     <Typography variant="body2">
-                      No pieces detected yet in this session. The pie chart will appear once pieces are detected.
+                      No pieces detected yet in this session. The chart will appear once pieces are detected.
                     </Typography>
                   </Alert>
                 )}
@@ -535,8 +542,8 @@ const DetectionStatsPanel = ({
                             </Typography>
                             <Chip
                               icon={currentSession.is_target_match ? <CheckCircle /> : <AccessTime />}
-                              label={currentSession.is_target_match ? 'Completed' : 'Active'}
-                              color={currentSession.is_target_match ? 'success' : 'primary'}
+                              label={currentSession.is_target_match ? 'Completed' : isDetectionActive ? 'Active' : 'Frozen'}
+                              color={currentSession.is_target_match ? 'success' : isDetectionActive ? 'primary' : 'warning'}
                               size="small"
                             />
                           </Grid>
@@ -558,13 +565,21 @@ const DetectionStatsPanel = ({
                           </Grid>
                           <Grid item xs={6}>
                             <Typography variant="caption" color="textSecondary">
-                              Total Detected
+                              Correct Pieces
                             </Typography>
-                            <Typography variant="body2" fontWeight="bold">
-                              {currentSession.total_detected || 0}
+                            <Typography variant="body2" fontWeight="bold" color="success.main">
+                              {currentSession.correct_pieces || 0}
                             </Typography>
                           </Grid>
                           <Grid item xs={6}>
+                            <Typography variant="caption" color="textSecondary">
+                              Misplaced Pieces
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold" color="error.main">
+                              {currentSession.misplaced_pieces || 0}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12}>
                             <Typography variant="caption" color="textSecondary">
                               Session Started
                             </Typography>
@@ -572,6 +587,16 @@ const DetectionStatsPanel = ({
                               {formatDateTime(currentSession.last_session_time)}
                             </Typography>
                           </Grid>
+                          {lastUpdateTime && (
+                            <Grid item xs={12}>
+                              <Typography variant="caption" color="textSecondary">
+                                Last Updated
+                              </Typography>
+                              <Typography variant="body2" fontWeight="bold">
+                                {lastUpdateTime}
+                              </Typography>
+                            </Grid>
+                          )}
                         </Grid>
                       </Stack>
                     </Paper>
