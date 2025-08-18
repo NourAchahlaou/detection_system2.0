@@ -1,10 +1,10 @@
-
 // ===================
 // MainIdentificationService.js
 // ===================
 
 import { IdentificationStreamManager } from './IdentificationStreamManager';
 import { IdentificationStateManager } from './IdentificationStateManager';
+import { IdentificationShutdownManager } from './IdentificationShutdownManager';
 
 // Define the 4 states clearly
 const IdentificationStates = {
@@ -48,6 +48,7 @@ class IdentificationService {
     // Initialize composed services
     this.streamManager = new IdentificationStreamManager(this);
     this.stateManager = new IdentificationStateManager(this);
+    this.shutdownManager = new IdentificationShutdownManager(this);
   }
 
   // ===================
@@ -138,8 +139,61 @@ class IdentificationService {
     return this.streamManager.stopIdentificationStream(cameraId);
   }
 
+  /**
+   * Enhanced stopAllStreams with proper infrastructure shutdown
+   * Delegates to shutdown manager for comprehensive cleanup
+   */
   async stopAllStreams(performShutdown = true) {
+    try {
+      console.log('🛑 Stopping all identification streams with enhanced infrastructure cleanup...');
+      
+      // Delegate to shutdown manager for comprehensive stream shutdown
+      await this.shutdownManager.stopAllStreamsWithInfrastructure(performShutdown);
+      
+      console.log("✅ Enhanced stopAllStreams completed");
+      return {
+        success: true,
+        message: 'All identification streams stopped with infrastructure cleanup',
+        streamsAffected: this.currentStreams.size,
+        infrastructureShutdown: performShutdown
+      };
+      
+    } catch (error) {
+      console.error("❌ Error in enhanced stopAllStreams:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Legacy method maintained for backward compatibility
+   * Uses the stream manager's original implementation
+   */
+  async stopAllIdentificationStreams(performShutdown = true) {
     return this.streamManager.stopAllIdentificationStreams(performShutdown);
+  }
+
+  /**
+   * Stop individual stream with enhanced infrastructure cleanup
+   * Delegates to shutdown manager for comprehensive cleanup
+   */
+  async stopStreamWithInfrastructure(cameraId) {
+    try {
+      console.log(`🛑 Stopping identification stream for camera ${cameraId} with infrastructure cleanup...`);
+      
+      // Delegate to shutdown manager for comprehensive individual stream shutdown
+      await this.shutdownManager.stopIdentificationStreamWithInfrastructure(cameraId);
+      
+      console.log(`✅ Enhanced stream stop completed for camera ${cameraId}`);
+      return {
+        success: true,
+        message: `Identification stream stopped with infrastructure cleanup for camera ${cameraId}`,
+        cameraId: parseInt(cameraId)
+      };
+      
+    } catch (error) {
+      console.error(`❌ Error stopping stream with infrastructure for camera ${cameraId}:`, error);
+      throw error;
+    }
   }
 
   async ensureCameraStarted(cameraId) {
@@ -202,14 +256,6 @@ class IdentificationService {
 
   async initializeProcessor() {
     return this.stateManager.initializeProcessor();
-  }
-
-  async gracefulShutdown() {
-    return this.stateManager.gracefulShutdown();
-  }
-
-  async getShutdownStatus() {
-    return this.stateManager.getShutdownStatus();
   }
 
   async ensureInitialized() {
@@ -297,6 +343,124 @@ class IdentificationService {
       hasPerformedPostShutdownCheck: this.hasPerformedPostShutdownCheck,
       mode: 'identification'
     };
+  }
+
+  // ===================
+  // SHUTDOWN MANAGEMENT METHODS (Delegated to ShutdownManager)
+  // ===================
+
+  /**
+   * Perform complete graceful shutdown of detection and identification services
+   */
+  async performCompleteShutdown() {
+    return this.shutdownManager.performCompleteShutdown();
+  }
+
+  /**
+   * Perform identification-only shutdown (leaves detection running)
+   */
+  async performIdentificationOnlyShutdown() {
+    return this.shutdownManager.performIdentificationOnlyShutdown();
+  }
+
+  /**
+   * Get detailed shutdown status from backend and frontend
+   */
+  async getShutdownStatus() {
+    return this.shutdownManager.getShutdownStatus();
+  }
+
+  /**
+   * Check if system can be shut down safely
+   */
+  async canShutdownSafely() {
+    return this.shutdownManager.canShutdownSafely();
+  }
+
+  /**
+   * Emergency shutdown - force stop everything immediately
+   */
+  async emergencyShutdown() {
+    return this.shutdownManager.emergencyShutdown();
+  }
+
+  /**
+   * Graceful shutdown with proper cleanup (delegates to shutdown manager)
+   */
+  async gracefulShutdown() {
+    return this.shutdownManager.gracefulShutdown();
+  }
+
+  /**
+   * Monitor shutdown progress
+   */
+  async monitorShutdownProgress(onProgress = null) {
+    return this.shutdownManager.monitorShutdownProgress(onProgress);
+  }
+
+  /**
+   * Get estimated shutdown time based on current state
+   */
+  getEstimatedShutdownTime() {
+    return this.shutdownManager.getEstimatedShutdownTime();
+  }
+
+  /**
+   * Check if shutdown is currently in progress
+   */
+  isShutdownInProgress() {
+    return this.shutdownManager.isShutdownInProgress();
+  }
+
+  /**
+   * Validate shutdown prerequisites
+   */
+  validateShutdownPrerequisites() {
+    return this.shutdownManager.validateShutdownPrerequisites();
+  }
+
+  /**
+   * Get available shutdown options based on current state
+   */
+  getShutdownOptions() {
+    return this.shutdownManager.getShutdownOptions();
+  }
+
+  /**
+   * Execute shutdown based on option ID
+   */
+  async executeShutdown(optionId, withMonitoring = true) {
+    return this.shutdownManager.executeShutdown(optionId, withMonitoring);
+  }
+
+  /**
+   * Reset all local state (used by shutdown manager)
+   */
+  resetLocalState() {
+    return this.shutdownManager.resetLocalState();
+  }
+
+  /**
+   * Reset only identification-specific state (used by shutdown manager)
+   */
+  resetIdentificationState() {
+    return this.shutdownManager.resetIdentificationState();
+  }
+
+  /**
+   * Enhanced method: Stop all streams with infrastructure cleanup
+   * This is the preferred method for comprehensive stream shutdown
+   */
+  async stopAllStreamsWithInfrastructure(performCompleteShutdown = true) {
+    return this.shutdownManager.stopAllStreamsWithInfrastructure(performCompleteShutdown);
+  }
+
+  /**
+   * Enhanced method: Stop individual stream with infrastructure cleanup
+   * This is the preferred method for comprehensive individual stream shutdown
+   */
+  async stopIdentificationStreamWithInfrastructure(cameraId) {
+    return this.shutdownManager.stopIdentificationStreamWithInfrastructure(cameraId);
   }
 
   // ===================

@@ -1,6 +1,6 @@
-// IdentificationVideoFeed.jsx - Enhanced with Piece Identification Logic and Navigation
+// IdentificationVideoFeed.jsx - Enhanced with shutdown integration
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom"; // Add this import
+import { useNavigate } from "react-router-dom";
 import { 
   Box, 
   Alert, 
@@ -29,9 +29,9 @@ const IdentificationVideoFeed = ({
   cameraId,
   confidenceThreshold = 0.5,
   identificationOptions = {},
-  navigateOnStop = false // New prop to control navigation behavior
+  navigateOnStop = false,
+  enableShutdown = true // New prop to control shutdown functionality
 }) => {
-  // Add navigation hook
   const navigate = useNavigate();
   
   // State management
@@ -72,6 +72,10 @@ const IdentificationVideoFeed = ({
     postShutdown: false,
     lastCheck: null
   });
+
+  // Shutdown state tracking
+  const [shutdownInProgress, setShutdownInProgress] = useState(false);
+  const [shutdownProgress, setShutdownProgress] = useState(null);
   
   const videoRef = useRef(null);
   const mountedRef = useRef(true);
@@ -97,6 +101,8 @@ const IdentificationVideoFeed = ({
         case IdentificationStates.INITIALIZING:
           setStreamStatus(prev => ({ ...prev, isLoading: true }));
           setComponentError(null);
+          setShutdownInProgress(false);
+          setShutdownProgress(null);
           // Reset health check status
           setHealthCheckStatus(prev => ({
             ...prev,
@@ -114,6 +120,8 @@ const IdentificationVideoFeed = ({
             resetIdentificationStats();
             setIsStreamFrozen(false);
             setLastIdentificationResult(null);
+            setShutdownInProgress(false);
+            setShutdownProgress(null);
             
             // Mark that we need a post-shutdown health check
             setHealthCheckStatus(prev => ({
@@ -136,6 +144,8 @@ const IdentificationVideoFeed = ({
         case IdentificationStates.RUNNING:
           setStreamStatus(prev => ({ ...prev, isLoading: false, isConnected: true }));
           setComponentError(null);
+          setShutdownInProgress(false);
+          setShutdownProgress(null);
           break;
           
         case IdentificationStates.SHUTTING_DOWN:
@@ -450,60 +460,181 @@ const IdentificationVideoFeed = ({
     }
   };
 
-  // Enhanced handle stopping identification with navigation
+// Enhanced shutdown functionality with monitoring - FIXED VERSION
+const performShutdownWithProgress = useCallback(async () => {
+  if (shutdownInProgress) {
+    console.log("🚫 Shutdown already in progress");
+    return;
+  }
+
+  setShutdownInProgress(true);
+  setShutdownProgress({ message: "Initiating shutdown...", step: 1, total: 4 });
+
+  try {
+    console.log("🔥 IdentificationVideoFeed: Starting identification shutdown...");
+
+    // Remove stats listener first
+    if (cameraId) {
+      identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
+    }
+
+    // FIXED: Actually perform the shutdown instead of just monitoring
+    let shutdownResult;
+    
+    if (identificationService.canShutdownSafely()) {
+      // Monitor progress while performing shutdown
+      const progressCallback = (progress) => {
+        if (mountedRef.current) {
+          setShutdownProgress({
+            message: progress.message || "Shutting down...",
+            step: progress.step || 1,
+            total: progress.total || 4,
+            details: progress.details
+          });
+        }
+      };
+
+      // FIXED: Use executeShutdown with identification-only option
+      console.log("🛑 Executing identification-only shutdown with monitoring...");
+      shutdownResult = await identificationService.executeShutdown('identification_only', true);
+      
+      // Update progress during shutdown
+      if (mountedRef.current) {
+        setShutdownProgress({ 
+          message: "Shutdown completed successfully", 
+          step: 4, 
+          total: 4 
+        });
+      }
+      
+    } else {
+      // Fallback: Stop streams without backend shutdown
+      console.log("⚠️ Cannot shutdown safely, stopping streams locally...");
+      
+      setShutdownProgress({ message: "Stopping local streams...", step: 2, total: 4 });
+      
+      // Stop all streams with infrastructure cleanup
+      await identificationService.stopAllStreamsWithInfrastructure(false);
+      
+      setShutdownProgress({ message: "Cleaning up resources...", step: 3, total: 4 });
+      
+      // Reset identification state
+      identificationService.resetIdentificationState();
+      identificationService.setState('READY', 'Local shutdown completed');
+      
+      shutdownResult = {
+        success: true,
+        message: 'Local shutdown completed - backend services remain running',
+        type: 'local_only'
+      };
+    }
+
+    if (shutdownResult.success) {
+      console.log("✅ IdentificationVideoFeed: Shutdown completed successfully");
+      
+      if (mountedRef.current) {
+        setVideoUrl("");
+        resetIdentificationStats();
+        setStreamStatus({ isLoading: false, error: null, isConnected: false });
+        setComponentError(null);
+        setIsStreamFrozen(false);
+        setLastIdentificationResult(null);
+        setIdentificationInProgress(false);
+        setShutdownProgress({ message: "Shutdown complete", step: 4, total: 4 });
+        
+        // Call the parent's onStopIdentification callback
+        onStopIdentification();
+
+        // Navigate to /identification route if enabled
+        if (navigateOnStop) {
+          console.log("🧭 IdentificationVideoFeed: Navigating to /identification route");
+          navigate('/identification');
+        }
+
+        // Clear shutdown progress after a delay
+        setTimeout(() => {
+          if (mountedRef.current) {
+            setShutdownProgress(null);
+            setShutdownInProgress(false);
+          }
+        }, 2000);
+      }
+    } else {
+      throw new Error(shutdownResult.message || 'Shutdown failed');
+    }
+
+  } catch (error) {
+    console.error("❌ IdentificationVideoFeed: Error during shutdown:", error);
+    
+    if (mountedRef.current) {
+      setStreamStatus(prev => ({ ...prev, isLoading: false, error: "Failed to shutdown properly" }));
+      setComponentError(`Shutdown error: ${error.message}`);
+      setShutdownProgress(null);
+      setShutdownInProgress(false);
+    }
+  }
+}, [cameraId, shutdownInProgress, handleStatsUpdate, onStopIdentification, navigateOnStop, navigate, resetIdentificationStats]);
+  // Enhanced handle stopping identification with shutdown integration
   const handleStopIdentification = async () => {
     if (!mountedRef.current) return;
     
     console.log(`🛑 IdentificationVideoFeed: Stopping identification for camera ${cameraId}`);
-    setStreamStatus(prev => ({ ...prev, isLoading: true }));
+    
+    if (enableShutdown && identificationService.canShutdownSafely()) {
+      // Use enhanced shutdown with progress monitoring
+      await performShutdownWithProgress();
+    } else {
+      // Fallback to simple stop if shutdown is disabled or not safe
+      setStreamStatus(prev => ({ ...prev, isLoading: true }));
 
-    try {
-      // Remove stats listener first
-      identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
-      
-      // Stop identification stream
-      await identificationService.stopIdentificationStream(parseInt(cameraId));
-      
-      if (!mountedRef.current) return;
-      
-      setVideoUrl("");
-      resetIdentificationStats();
-      setStreamStatus({ isLoading: false, error: null, isConnected: false });
-      setComponentError(null);
-      setIsStreamFrozen(false);
-      setLastIdentificationResult(null);
-      setIdentificationInProgress(false);
-      
-      // Call the parent's onStopIdentification callback
-      onStopIdentification();
+      try {
+        // Remove stats listener first
+        identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
+        
+        // Stop identification stream
+        await identificationService.stopIdentificationStream(parseInt(cameraId));
+        
+        if (!mountedRef.current) return;
+        
+        setVideoUrl("");
+        resetIdentificationStats();
+        setStreamStatus({ isLoading: false, error: null, isConnected: false });
+        setComponentError(null);
+        setIsStreamFrozen(false);
+        setLastIdentificationResult(null);
+        setIdentificationInProgress(false);
+        
+        // Call the parent's onStopIdentification callback
+        onStopIdentification();
 
-      console.log(`✅ IdentificationVideoFeed: Stopped identification for camera ${cameraId}`);
+        console.log(`✅ IdentificationVideoFeed: Stopped identification for camera ${cameraId}`);
 
-      // Navigate to /identification route if enabled
-      if (navigateOnStop) {
-        console.log("🧭 IdentificationVideoFeed: Navigating to /identification route");
-        navigate('/identification');
-      }
-
-      // Schedule post-shutdown health check
-      setTimeout(() => {
-        if (mountedRef.current && identificationState === IdentificationStates.READY) {
-          console.log("🩺 IdentificationVideoFeed: Scheduling post-shutdown health check...");
-          setHealthCheckStatus(prev => ({
-            ...prev,
-            postShutdown: false
-          }));
-          performPostShutdownHealthCheck();
+        // Navigate to /identification route if enabled
+        if (navigateOnStop) {
+          console.log("🧭 IdentificationVideoFeed: Navigating to /identification route");
+          navigate('/identification');
         }
-      }, 2000);
 
-    } catch (error) {
-      console.error("❌ IdentificationVideoFeed: Error stopping identification:", error);
-      
-      if (!mountedRef.current) return;
-      
-      setStreamStatus(prev => ({ ...prev, isLoading: false, error: "Failed to stop identification" }));
-      setComponentError(`Failed to stop identification: ${error.message}`);
+        // Schedule post-shutdown health check
+        setTimeout(() => {
+          if (mountedRef.current && identificationState === IdentificationStates.READY) {
+            console.log("🩺 IdentificationVideoFeed: Scheduling post-shutdown health check...");
+            setHealthCheckStatus(prev => ({
+              ...prev,
+              postShutdown: false
+            }));
+            performPostShutdownHealthCheck();
+          }
+        }, 2000);
+
+      } catch (error) {
+        console.error("❌ IdentificationVideoFeed: Error stopping identification:", error);
+        
+        if (!mountedRef.current) return;
+        
+        setStreamStatus(prev => ({ ...prev, isLoading: false, error: "Failed to stop identification" }));
+        setComponentError(`Failed to stop identification: ${error.message}`);
+      }
     }
   };
 
@@ -637,7 +768,7 @@ const IdentificationVideoFeed = ({
       case IdentificationStates.RUNNING:
         return "System Running";
       case IdentificationStates.SHUTTING_DOWN:
-        return "Shutting Down...";
+        return shutdownProgress ? shutdownProgress.message : "Shutting Down...";
       default:
         return "Start Stream";
     }
@@ -651,7 +782,8 @@ const IdentificationVideoFeed = ({
       (identificationState === IdentificationStates.RUNNING && isIdentificationActive) ||
       !cameraId || 
       streamStatus.isLoading ||
-      (!isModelLoaded && identificationState !== IdentificationStates.INITIALIZING)
+      (!isModelLoaded && identificationState !== IdentificationStates.INITIALIZING) ||
+      shutdownInProgress
     );
   };
 
@@ -660,7 +792,8 @@ const IdentificationVideoFeed = ({
     return (
       identificationState === IdentificationStates.INITIALIZING ||
       identificationState === IdentificationStates.SHUTTING_DOWN ||
-      streamStatus.isLoading
+      streamStatus.isLoading ||
+      shutdownInProgress
     );
   };
 
@@ -683,7 +816,15 @@ const IdentificationVideoFeed = ({
           sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
           icon={<CircularProgress size={20} />}
         >
-          System is shutting down... This may take a moment.
+          {shutdownProgress ? 
+            `${shutdownProgress.message} (${shutdownProgress.step}/${shutdownProgress.total})` :
+            "System is shutting down... This may take a moment."
+          }
+          {shutdownProgress?.details && (
+            <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+              {shutdownProgress.details}
+            </Typography>
+          )}
         </Alert>
       )}
 
@@ -720,13 +861,28 @@ const IdentificationVideoFeed = ({
         </Alert>
       )}
 
-      {streamStatus.isLoading && identificationState !== IdentificationStates.SHUTTING_DOWN && (
+      {streamStatus.isLoading && identificationState !== IdentificationStates.SHUTTING_DOWN && !shutdownInProgress && (
         <Alert 
           severity="info" 
           sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
           icon={<CircularProgress size={20} />}
         >
           {isIdentificationActive ? "Connecting to identification stream..." : "Stopping stream..."}
+        </Alert>
+      )}
+
+      {/* Shutdown Progress Alert */}
+      {shutdownInProgress && shutdownProgress && (
+        <Alert 
+          severity="info" 
+          sx={{ mb: 2, width: '100%', display: 'flex', alignItems: 'center' }}
+          icon={<CircularProgress size={20} />}
+        >
+          <Box>
+            <Typography variant="body2">
+              {shutdownProgress.message} ({shutdownProgress.step}/{shutdownProgress.total})
+            </Typography>
+          </Box>
         </Alert>
       )}
 

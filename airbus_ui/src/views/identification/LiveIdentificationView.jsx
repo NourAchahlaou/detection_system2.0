@@ -30,7 +30,7 @@ const LiveIdentificationView = ({
   videoUrl,
   videoRef,
   showControls,
-  onStopDetection,
+  onStopIdentification,
   identificationStats = {}, // Default empty object
   streamStatus = {},
   performanceMetrics = {}
@@ -379,7 +379,7 @@ const LiveIdentificationView = ({
           {/* Stop Detection */}
           <Tooltip title="Stop Optimized Detection">
             <IconButton
-              onClick={onStopDetection}
+              onClick={onStopIdentification}
               sx={{
                 color: "white",
                 backgroundColor: "rgba(244, 63, 94, 0.9)",
