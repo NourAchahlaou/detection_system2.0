@@ -23,6 +23,7 @@ const Detection = Loadable(lazy(() => import('../views/detection/Detection')));
 const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
 const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
 const DetectionLotsOverview = Loadable(lazy(() => import("../views/detection/DetectionLotsOverview")));
+const Identification = Loadable(lazy(() => import("../views/identification/AppIdentification")));
 const router = createBrowserRouter([
   // Root redirect to dashboard
   {
@@ -70,6 +71,10 @@ const router = createBrowserRouter([
       {
         path: 'detection',
         element: <Detection />,
+      },
+      {
+        path: 'identification',
+        element: <Identification />,
       }
     ],
 

@@ -1,189 +1,217 @@
-# identification_service.py - Piece identification service without lot tracking
-
 import cv2
-import logging
+import torch
+from fastapi import HTTPException
+from detection.app.service.model_service import load_my_model
 import numpy as np
-from typing import Dict, Any, List
-import time
-import base64
-import asyncio
-from datetime import datetime
 
-# Import the detection system (reusing the same model)
-from detection.app.service.detection.detection_service import DetectionSystem
-from detection.app.service.video_streaming_client import VideoStreamingClient
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Configuration
-
-
-
-class PieceIdentificationSystem:
-    """System for identifying pieces without lot tracking"""
+class IdentificationDetectionSystem:
+    """
+    Detection system specifically designed for piece identification
+    Uses a single color for all detected pieces and focuses on identification rather than validation
+    """
     
-    def __init__(self):
-        self.detection_system = None
-        self.is_initialized = False
-        self.stats = {
-            'identifications_performed': 0,
-            'pieces_identified': 0,
-            'total_processing_time': 0,
-            'avg_processing_time': 0,
-            'unique_pieces_identified': set(),
-            'identification_history': []
-        }
-        self.video_client = VideoStreamingClient()
+    def __init__(self, confidence_threshold=0.5):
+        self.confidence_threshold = confidence_threshold
+        self.device = self.get_device()
+        self.model = self.get_my_model()
         
-        # Confidence threshold for identification (can be different from detection)
-        self.identification_confidence_threshold = 0.5
-    
-    async def initialize(self):
-        """Initialize identification system"""
+        # Identification-specific settings
+        self.identification_color = (0, 255, 255)  # Yellow color for all pieces
+        self.font_scale = 0.6
+        self.font_thickness = 1
+        self.box_thickness = 2
+
+    def get_device(self):
+        """Check for GPU availability and return the appropriate device."""
+        if torch.cuda.is_available():
+            print("Using GPU for identification")
+            return torch.device('cuda')
+        else:
+            print("Using CPU for identification")
+            return torch.device('cpu')
+
+    def get_my_model(self):
+        """Load the YOLO model based on available device."""
+        model = load_my_model()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found.")
+
+        # Move model to the appropriate device
+        model.to(self.device)
+
+        # Convert to half precision if using a GPU
+        if self.device.type == 'cuda':
+            model.half()
+
+        return model
+
+    def identify_and_annotate(self, frame):
+        """
+        Identify all pieces in the frame and annotate them with a single color
+        Returns: (annotated_frame, detection_details)
+        """
+        # Convert the frame to a tensor
+        frame_tensor = torch.tensor(frame).permute(2, 0, 1).float().to(self.device)
+        frame_tensor /= 255.0  # Normalize
+        frame_tensor = frame_tensor.half() if self.device.type == 'cuda' else frame_tensor
+
         try:
-            if not self.is_initialized:
-                logger.info("🚀 Initializing piece identification system...")
-                
-                loop = asyncio.get_event_loop()
-                self.detection_system = await loop.run_in_executor(
-                    None, DetectionSystem, self.identification_confidence_threshold
-                )
-                
-                self.is_initialized = True
-                logger.info(f"✅ Piece identification system initialized on device: {self.detection_system.device}")
-            
+            results = self.model(frame_tensor.unsqueeze(0))[0]  # Batch dim
         except Exception as e:
-            logger.error(f"❌ Failed to initialize identification system: {e}")
-            raise
-    
-    def identify_pieces_in_frame(self, frame: np.ndarray) -> Dict[str, Any]:
-        """
-        Identify all pieces in the frame without lot validation
-        Returns detailed information about each piece found
-        """
-        try:
-            # Use the same detection method but focus on identification
-            results = self.detection_system.detect_and_contour(frame, "")  # Empty target since we want all pieces
+            print(f"Identification detection failed: {e}")
+            return frame, []
+
+        class_names = self.model.names
+        detection_details = []
+
+        # Check if there are any detection boxes
+        if results.boxes is None or len(results.boxes) == 0:
+            return frame, detection_details
+
+        # Get frame dimensions for boundary checks
+        frame_height, frame_width = frame.shape[:2]
+        
+        for i, box in enumerate(results.boxes):
+            confidence = box.conf.item()
             
-            if isinstance(results, tuple) and len(results) >= 6:
-                processed_frame = results[0]
-                detected_target = results[1]
-                non_target_count = results[2]
-                total_pieces_detected = results[3]
-                correct_pieces_count = results[4]
-                confidence = results[5]
-            else:
-                processed_frame = results[0] if isinstance(results, tuple) else results
-                detected_target = False
-                non_target_count = 0
-                total_pieces_detected = 0
-                correct_pieces_count = 0
-                confidence = 0
-            
-            # For identification, we need to get detailed piece information
-            piece_details = self._extract_piece_details(frame)
-            
-            identification_result = {
-                'total_pieces_found': len(piece_details),
-                'pieces': piece_details,
-                'processed_frame': processed_frame,
-                'overall_confidence': confidence,
-                'analysis_timestamp': datetime.utcnow().isoformat()
+            if confidence < self.confidence_threshold:
+                continue
+
+            xyxy = box.xyxy[0].cpu().numpy()
+            x1, y1, x2, y2 = map(int, xyxy)
+
+            class_id = int(box.cls.item())
+            piece_label = class_names[class_id]
+
+            # Store detection details
+            detection_info = {
+                'piece_id': f"piece_{i}",
+                'label': piece_label,
+                'confidence': confidence,
+                'bounding_box': {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2},
+                'center': {'x': (x1 + x2) // 2, 'y': (y1 + y2) // 2}
             }
+            detection_details.append(detection_info)
+
+            # Draw bounding box with identification color (yellow)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), self.identification_color, self.box_thickness)
             
-            # Update stats
-            self.stats['pieces_identified'] += len(piece_details)
-            for piece in piece_details:
-                self.stats['unique_pieces_identified'].add(piece['label'])
+            # Format confidence as percentage
+            confidence_percent = confidence * 100
+            label = f"{piece_label}: {confidence_percent:.1f}%"
             
-            # Add to history (keep last 100 identifications)
-            self.stats['identification_history'].append({
-                'timestamp': identification_result['analysis_timestamp'],
-                'pieces_count': len(piece_details),
-                'pieces_found': [p['label'] for p in piece_details]
-            })
-            if len(self.stats['identification_history']) > 100:
-                self.stats['identification_history'].pop(0)
+            # Get label dimensions
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.font_thickness)[0]
+            label_width, label_height = label_size
             
-            logger.info(f"🔍 Identified {len(piece_details)} pieces in frame")
+            # Enhanced label positioning with proper boundary checks
+            label_x = x1
+            label_y = y1 - 10
             
-            return identification_result
+            # Check if label fits above the box
+            if label_y - label_height < 5:  # Not enough space above
+                # Try to place below the box
+                if y2 + label_height + 15 < frame_height:  # Space below
+                    label_y = y2 + label_height + 10
+                else:  # Place inside the box at the top
+                    label_y = y1 + label_height + 5
             
-        except Exception as e:
-            logger.error(f"❌ Error identifying pieces: {e}")
-            return {
-                'total_pieces_found': 0,
-                'pieces': [],
-                'processed_frame': frame,
-                'overall_confidence': 0,
-                'analysis_timestamp': datetime.utcnow().isoformat(),
-                'error': str(e)
-            }
-    
-    def _extract_piece_details(self, frame: np.ndarray) -> List[Dict[str, Any]]:
+            # Check horizontal boundaries
+            if label_x + label_width > frame_width - 5:  # Too far right
+                label_x = max(5, frame_width - label_width - 5)
+            elif label_x < 5:  # Too far left
+                label_x = 5
+            
+            # Ensure label_y is within frame bounds
+            label_y = max(label_height + 5, min(label_y, frame_height - 5))
+            
+            # Draw label background rectangle with padding
+            padding = 4
+            bg_x1 = label_x - padding
+            bg_y1 = label_y - label_height - padding
+            bg_x2 = label_x + label_width + padding
+            bg_y2 = label_y + padding
+            
+            # Ensure background rectangle is within frame bounds
+            bg_x1 = max(0, bg_x1)
+            bg_y1 = max(0, bg_y1)
+            bg_x2 = min(frame_width, bg_x2)
+            bg_y2 = min(frame_height, bg_y2)
+            
+            # Draw semi-transparent background rectangle
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+            
+            # Draw label text in white
+            cv2.putText(frame, label, (label_x, label_y - 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, (255, 255, 255), self.font_thickness)
+
+        return frame, detection_details
+
+    def get_detailed_identification_results(self, frame):
         """
-        Extract detailed information about each piece in the frame
-        This method performs a fresh detection to get individual piece data
+        Get detailed identification results without modifying the frame
+        Returns comprehensive information about detected pieces
         """
+        # Convert the frame to a tensor
+        frame_tensor = torch.tensor(frame).permute(2, 0, 1).float().to(self.device)
+        frame_tensor /= 255.0
+        frame_tensor = frame_tensor.half() if self.device.type == 'cuda' else frame_tensor
+
         try:
-            # Convert the frame to tensor and run detection
-            import torch
-            frame_tensor = torch.tensor(frame).permute(2, 0, 1).float().to(self.detection_system.device)
-            frame_tensor /= 255.0
-            frame_tensor = frame_tensor.half() if self.detection_system.device.type == 'cuda' else frame_tensor
-            
-            results = self.detection_system.model(frame_tensor.unsqueeze(0))[0]
-            
-            pieces = []
-            class_names = self.detection_system.model.names
-            
-            if results.boxes is None or len(results.boxes) == 0:
-                return pieces
-            
-            for i, box in enumerate(results.boxes):
-                confidence = box.conf.item()
-                
-                if confidence < self.identification_confidence_threshold:
-                    continue
-                
-                xyxy = box.xyxy[0].cpu().numpy()
-                x1, y1, x2, y2 = map(int, xyxy)
-                
-                class_id = int(box.cls.item())
-                piece_label = class_names[class_id]
-                
-                # Calculate piece area and center
-                width = x2 - x1
-                height = y2 - y1
-                area = width * height
-                center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2
-                
-                piece_info = {
-                    'piece_id': f"piece_{i}",
-                    'label': piece_label,
-                    'confidence': round(confidence, 3),
-                    'bounding_box': {
-                        'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
-                        'width': width, 'height': height
-                    },
-                    'area': area,
-                    'center': {'x': center_x, 'y': center_y},
-                    'confidence_level': self._get_confidence_level(confidence)
-                }
-                
-                pieces.append(piece_info)
-            
-            # Sort pieces by confidence (highest first)
-            pieces.sort(key=lambda x: x['confidence'], reverse=True)
-            
-            return pieces
-            
+            results = self.model(frame_tensor.unsqueeze(0))[0]
         except Exception as e:
-            logger.error(f"❌ Error extracting piece details: {e}")
+            print(f"Detailed identification failed: {e}")
             return []
-    
+
+        class_names = self.model.names
+        detailed_results = []
+
+        if results.boxes is None or len(results.boxes) == 0:
+            return detailed_results
+
+        for i, box in enumerate(results.boxes):
+            confidence = box.conf.item()
+            
+            if confidence < self.confidence_threshold:
+                continue
+
+            xyxy = box.xyxy[0].cpu().numpy()
+            x1, y1, x2, y2 = map(int, xyxy)
+
+            class_id = int(box.cls.item())
+            piece_label = class_names[class_id]
+
+            # Calculate additional metrics
+            width = x2 - x1
+            height = y2 - y1
+            area = width * height
+            center_x = (x1 + x2) // 2
+            center_y = (y1 + y2) // 2
+            
+            piece_info = {
+                'piece_id': f"piece_{i}",
+                'label': piece_label,
+                'confidence': round(confidence, 3),
+                'confidence_percentage': round(confidence * 100, 1),
+                'bounding_box': {
+                    'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+                    'width': width, 'height': height
+                },
+                'area': area,
+                'center': {'x': center_x, 'y': center_y},
+                'confidence_level': self._get_confidence_level(confidence),
+                'class_id': class_id
+            }
+            
+            detailed_results.append(piece_info)
+
+        # Sort by confidence (highest first)
+        detailed_results.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        return detailed_results
+
     def _get_confidence_level(self, confidence: float) -> str:
         """Convert confidence score to human-readable level"""
         if confidence >= 0.9:
@@ -196,171 +224,67 @@ class PieceIdentificationSystem:
             return "Low"
         else:
             return "Very Low"
-    
-    async def identify_with_frame_capture(self, camera_id: int, freeze_stream: bool = True, quality: int = 85) -> Dict[str, Any]:
+
+    def set_identification_color(self, color_bgr: tuple):
         """
-        Capture frame and identify pieces
-        
+        Set the color used for identification annotations
         Args:
-            camera_id: Camera to capture from
-            freeze_stream: Whether to freeze the stream during identification
-            quality: JPEG quality for frame encoding
+            color_bgr: Color in BGR format (B, G, R)
         """
-        start_time = time.time()
-        stream_frozen = False
-        
-        try:
-            if not self.is_initialized:
-                await self.initialize()
-            
-            logger.info(f"🔍 Starting piece identification for camera {camera_id}")
-            
-            # Freeze stream if requested
-            if freeze_stream:
-                freeze_success = await self.video_client.freeze_stream(camera_id)
-                if freeze_success:
-                    stream_frozen = True
-            
-            # Get current frame
-            frame = await self.video_client.get_current_frame(camera_id)
-            if frame is None:
-                raise Exception(f"Could not get current frame from camera {camera_id}")
-            
-            # Prepare frame
-            if frame.shape[:2] != (480, 640):
-                frame = cv2.resize(frame, (640, 480))
-            if not frame.flags['C_CONTIGUOUS']:
-                frame = np.ascontiguousarray(frame)
-            
-            # Perform identification
-            identification_result = self.identify_pieces_in_frame(frame)
-            
-            # Update frozen frame with identification results
-            if identification_result['processed_frame'] is not None and stream_frozen:
-                try:
-                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                    success, buffer = cv2.imencode('.jpg', identification_result['processed_frame'], encode_params)
-                    if success:
-                        await self.video_client.update_frozen_frame(camera_id, buffer.tobytes())
-                except Exception as e:
-                    logger.error(f"❌ Error updating frozen frame: {e}")
-            
-            # Encode frame for response
-            frame_b64 = ""
-            if identification_result['processed_frame'] is not None:
-                try:
-                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                    success, buffer = cv2.imencode('.jpg', identification_result['processed_frame'], encode_params)
-                    if success:
-                        frame_b64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
-                except Exception as e:
-                    logger.error(f"❌ Error encoding frame: {e}")
-            
-            processing_time = (time.time() - start_time) * 1000
-            
-            # Update stats
-            self.stats['identifications_performed'] += 1
-            self.stats['total_processing_time'] += processing_time
-            self.stats['avg_processing_time'] = self.stats['total_processing_time'] / self.stats['identifications_performed']
-            
-            # Prepare response
-            response = {
-                'camera_id': camera_id,
-                'identification_result': identification_result,
-                'processing_time_ms': round(processing_time, 2),
-                'frame_with_overlay': frame_b64,
-                'timestamp': time.time(),
-                'stream_frozen': stream_frozen,
-                'success': True
-            }
-            
-            logger.info(f"✅ Piece identification completed for camera {camera_id} in {processing_time:.2f}ms - Found {identification_result['total_pieces_found']} pieces")
-            
-            return response
-            
-        except Exception as e:
-            processing_time = (time.time() - start_time) * 1000
-            logger.error(f"❌ Error in piece identification for camera {camera_id}: {e}")
-            
-            return {
-                'camera_id': camera_id,
-                'identification_result': {
-                    'total_pieces_found': 0,
-                    'pieces': [],
-                    'processed_frame': None,
-                    'overall_confidence': 0,
-                    'analysis_timestamp': datetime.utcnow().isoformat(),
-                    'error': str(e)
-                },
-                'processing_time_ms': round(processing_time, 2),
-                'frame_with_overlay': "",
-                'timestamp': time.time(),
-                'stream_frozen': stream_frozen,
-                'success': False,
-                'error': str(e)
-            }
-    
-    def get_identification_summary(self, pieces: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Generate a summary of identified pieces"""
-        if not pieces:
-            return {
-                'total_pieces': 0,
-                'unique_labels': [],
-                'label_counts': {},
-                'average_confidence': 0,
-                'highest_confidence_piece': None
-            }
-        
-        label_counts = {}
-        total_confidence = 0
-        highest_confidence_piece = pieces[0]  # pieces are sorted by confidence
-        
-        for piece in pieces:
-            label = piece['label']
-            label_counts[label] = label_counts.get(label, 0) + 1
-            total_confidence += piece['confidence']
-        
-        return {
-            'total_pieces': len(pieces),
-            'unique_labels': list(label_counts.keys()),
-            'label_counts': label_counts,
-            'average_confidence': round(total_confidence / len(pieces), 3),
-            'highest_confidence_piece': highest_confidence_piece
-        }
-    
-    async def unfreeze_stream(self, camera_id: int) -> bool:
-        """Unfreeze the stream to resume live video"""
-        return await self.video_client.unfreeze_stream(camera_id)
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get identification statistics"""
-        return {
-            'is_initialized': self.is_initialized,
-            'device': str(self.detection_system.device) if self.detection_system else "unknown",
-            'confidence_threshold': self.identification_confidence_threshold,
-            'identifications_performed': self.stats['identifications_performed'],
-            'total_pieces_identified': self.stats['pieces_identified'],
-            'unique_pieces_count': len(self.stats['unique_pieces_identified']),
-            'unique_pieces_list': list(self.stats['unique_pieces_identified']),
-            'avg_processing_time': self.stats['avg_processing_time'],
-            'recent_identifications': self.stats['identification_history'][-10:]  # Last 10
-        }
-    
+        self.identification_color = color_bgr
+
     def set_confidence_threshold(self, threshold: float):
         """Update confidence threshold for identification"""
         if 0.1 <= threshold <= 1.0:
-            self.identification_confidence_threshold = threshold
-            if self.detection_system:
-                self.detection_system.confidence_threshold = threshold
-            logger.info(f"🔧 Identification confidence threshold updated to {threshold}")
+            self.confidence_threshold = threshold
             return True
-        else:
-            logger.warning(f"❌ Invalid confidence threshold: {threshold}. Must be between 0.1 and 1.0")
-            return False
-    
-    async def cleanup(self):
-        """Cleanup resources"""
-        await self.video_client.close()
+        return False
 
-# Global identification processor
-piece_identification_processor = PieceIdentificationSystem()
+    def get_model_info(self):
+        """Get information about the loaded model"""
+        return {
+            'device': str(self.device),
+            'confidence_threshold': self.confidence_threshold,
+            'model_classes': list(self.model.names.values()) if hasattr(self.model, 'names') else [],
+            'identification_color': self.identification_color,
+            'total_classes': len(self.model.names) if hasattr(self.model, 'names') else 0
+        }
+
+    @staticmethod
+    def resize_frame_optimized(frame: np.ndarray, target_size=(640, 480)) -> np.ndarray:
+        """Optimized frame resizing with better interpolation."""
+        if frame.shape[:2] != target_size[::-1]:
+            return cv2.resize(frame, target_size, interpolation=cv2.INTER_LINEAR)
+        return frame
+
+    def batch_identify(self, frames: list):
+        """
+        Identify pieces in multiple frames at once
+        Args:
+            frames: List of numpy arrays (frames)
+        Returns:
+            List of identification results for each frame
+        """
+        results = []
+        for i, frame in enumerate(frames):
+            try:
+                annotated_frame, detection_details = self.identify_and_annotate(frame)
+                results.append({
+                    'frame_index': i,
+                    'annotated_frame': annotated_frame,
+                    'detection_details': detection_details,
+                    'pieces_count': len(detection_details),
+                    'success': True
+                })
+            except Exception as e:
+                results.append({
+                    'frame_index': i,
+                    'annotated_frame': frame,  # Return original frame on error
+                    'detection_details': [],
+                    'pieces_count': 0,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return results
+

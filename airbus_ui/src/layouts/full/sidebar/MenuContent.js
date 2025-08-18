@@ -37,7 +37,7 @@ const menuSections = [
     title: 'Inspection & Identification',
     items: [
       { text: 'Verify Lot', icon: <SearchRoundedIcon />, to: '/detectionLotsOverview' },
-      { text: 'Identify Piece', icon: <FindInPageRoundedIcon />, to: '/identify' },
+      { text: 'Identify Piece', icon: <FindInPageRoundedIcon />, to: '/identification' },
       { text: 'Inspection History', icon: <HistoryRoundedIcon />, to: '/history' },
     ],
   },
