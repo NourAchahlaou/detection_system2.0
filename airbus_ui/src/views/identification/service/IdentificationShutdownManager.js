@@ -38,7 +38,7 @@ export class IdentificationShutdownManager {
         await this.stopAllStreamsWithInfrastructure(true);
 
         // Call backend graceful shutdown endpoint
-        const response = await api.post('/api/detection/shutdown/graceful', {}, {
+        const response = await api.post('/api/detection/detection/shutdown/graceful', {}, {
           signal: controller.signal,
           timeout: this.SHUTDOWN_TIMEOUT
         });
@@ -169,57 +169,90 @@ export class IdentificationShutdownManager {
    * Stop all identification streams with proper video stream and camera shutdown
    * Similar to the detection service's stopAllStreams method
    */
+    /**
+     * Stop all identification streams with proper video stream and camera shutdown - FIXED
+     */
   async stopAllStreamsWithInfrastructure(performCompleteShutdown = true) {
     try {
-      console.log('🛑 Stopping all identification streams with infrastructure shutdown...');
-      
-      const stopPromises = Array.from(this.identificationService.currentStreams.keys()).map(cameraId => {
+        console.log('🛑 Stopping all identification streams with infrastructure shutdown...');
+        
+        const stopPromises = Array.from(this.identificationService.currentStreams.keys()).map(cameraId => {
         return this.stopIdentificationStreamWithInfrastructure(cameraId);
-      });
-      
-      await Promise.allSettled(stopPromises);
-       
-      // Unfreeze all frozen identification streams
-      const frozenStreams = this.identificationService.getFrozenStreams();
-      for (const frozenStream of frozenStreams) {
+        });
+        
+        await Promise.allSettled(stopPromises);
+        
+        // Unfreeze all frozen identification streams
+        const frozenStreams = this.identificationService.getFrozenStreams();
+        for (const frozenStream of frozenStreams) {
         try {
-          await this.identificationService.unfreezeStream(frozenStream.cameraId);
+            await this.identificationService.unfreezeStream(frozenStream.cameraId);
         } catch (error) {
-          console.warn(`⚠️ Error unfreezing identification stream ${frozenStream.cameraId}:`, error.message);
+            console.warn(`⚠️ Error unfreezing identification stream ${frozenStream.cameraId}:`, error.message);
         }
-      }
-      
-      // Stop cameras if this is a complete shutdown
-      if (performCompleteShutdown) {
+        }
+        
+        // Stop cameras if this is a complete shutdown - FIXED VERSION
+        if (performCompleteShutdown) {
         try {
-          console.log('📹 Stopping all cameras...');
-          await api.post("/api/artifact_keeper/camera/stop");
-          console.log('✅ All cameras stopped');
+            console.log('📹 Stopping all cameras...');
+            console.log('🔗 Making request to:', '/api/artifact_keeper/camera/stop');
+            
+            // Add more detailed logging and error handling
+            const cameraStopResponse = await api.post("/api/artifact_keeper/camera/stop", {}, {
+            timeout: 15000, // Explicit timeout
+            headers: {
+                'Content-Type': 'application/json'
+            }
+            });
+            
+            console.log('✅ Camera stop response:', cameraStopResponse.status, cameraStopResponse.data);
+            console.log('✅ All cameras stopped successfully');
+            
         } catch (error) {
-          console.warn('⚠️ Error stopping cameras:', error.message);
+            // More detailed error logging
+            console.error('❌ DETAILED ERROR stopping cameras:');
+            console.error('  - Error type:', error.constructor.name);
+            console.error('  - Error message:', error.message);
+            console.error('  - Error code:', error.code);
+            console.error('  - Response status:', error.response?.status);
+            console.error('  - Response data:', error.response?.data);
+            console.error('  - Request config:', error.config);
+            
+            // Check if it's a network error
+            if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+            console.error('  - NETWORK ERROR: Cannot reach artifact_keeper service');
+            }
+            
+            // Check if it's a timeout
+            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            console.error('  - TIMEOUT ERROR: Camera stop request timed out');
+            }
+            
+            // Don't just warn - this is critical for complete shutdown
+            throw new Error(`Critical error stopping cameras: ${error.message}`);
         }
-      }
-      
-      // Clear local state
-      this.identificationService.currentStreams.clear();
-      this.identificationService.identificationStats.clear();
-      
-      // Stop all stats monitoring
-      for (const cameraId of this.identificationService.eventListeners.keys()) {
+        }
+        
+        // Rest of the method remains the same...
+        this.identificationService.currentStreams.clear();
+        this.identificationService.identificationStats.clear();
+        
+        for (const cameraId of this.identificationService.eventListeners.keys()) {
         this.identificationService.stopStatsMonitoring(cameraId);
-      }
-      
-      if (this.identificationService.state === IdentificationStates.RUNNING) {
+        }
+        
+        if (this.identificationService.state === IdentificationStates.RUNNING) {
         this.identificationService.setState(IdentificationStates.READY, 'All identification streams stopped');
-      }
-      
-      console.log("✅ Stopped all identification streams with infrastructure");
-      
+        }
+        
+        console.log("✅ Stopped all identification streams with infrastructure");
+        
     } catch (error) {
-      console.error("❌ Error stopping all identification streams with infrastructure:", error);
-      throw error;
+        console.error("❌ Error stopping all identification streams with infrastructure:", error);
+        throw error;
     }
-  }
+    }
 
   /**
    * Stop individual identification stream with proper video stream and camera cleanup

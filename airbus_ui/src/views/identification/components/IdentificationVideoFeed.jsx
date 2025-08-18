@@ -13,7 +13,7 @@ import { VideoCard } from "./styledComponents";
 import CameraPlaceholder from "../CameraPlaceholder";
 import LiveIdentificationView from "../LiveIdentificationView";
 import { identificationService } from "../service/MainIdentificationService";
-
+import api from "../../../utils/UseAxios";
 // Identification states from service
 const IdentificationStates = {
   INITIALIZING: 'INITIALIZING',
@@ -461,6 +461,7 @@ const IdentificationVideoFeed = ({
   };
 
 // Enhanced shutdown functionality with monitoring - FIXED VERSION
+// Enhanced shutdown functionality with monitoring - FIXED VERSION
 const performShutdownWithProgress = useCallback(async () => {
   if (shutdownInProgress) {
     console.log("🚫 Shutdown already in progress");
@@ -478,7 +479,7 @@ const performShutdownWithProgress = useCallback(async () => {
       identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
     }
 
-    // FIXED: Actually perform the shutdown instead of just monitoring
+    // FIXED: Use the correct shutdown option based on requirements
     let shutdownResult;
     
     if (identificationService.canShutdownSafely()) {
@@ -494,9 +495,39 @@ const performShutdownWithProgress = useCallback(async () => {
         }
       };
 
-      // FIXED: Use executeShutdown with identification-only option
-      console.log("🛑 Executing identification-only shutdown with monitoring...");
+      // FIXED: Use 'graceful_complete' to ensure cameras are stopped
+      // Change this line based on your actual requirements:
+      
+      // Option A: Complete shutdown (stops cameras) - RECOMMENDED for UI shutdown
+      console.log("🛑 Executing complete shutdown with monitoring...");
+      shutdownResult = await identificationService.executeShutdown('graceful_complete', true);
+      
+      // Option B: If you specifically want identification-only but still need cameras stopped
+      // Uncomment this section and comment out the line above:
+      /*
+      console.log("🛑 Executing identification-only shutdown with manual camera stop...");
       shutdownResult = await identificationService.executeShutdown('identification_only', true);
+      
+      // Manually stop cameras after identification shutdown
+      if (shutdownResult.success) {
+        try {
+          setShutdownProgress({ message: "Stopping cameras...", step: 3, total: 4 });
+          console.log('📹 Manually stopping cameras after identification shutdown...');
+          
+          const cameraStopResponse = await api.post("/api/artifact_keeper/camera/stop", {}, {
+            timeout: 15000,
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          console.log('✅ Cameras stopped manually:', cameraStopResponse.status, cameraStopResponse.data);
+          shutdownResult.message += ' (cameras stopped manually)';
+        } catch (error) {
+          console.error('❌ Error manually stopping cameras:', error);
+          shutdownResult.warnings = shutdownResult.warnings || [];
+          shutdownResult.warnings.push('Failed to stop cameras manually');
+        }
+      }
+      */
       
       // Update progress during shutdown
       if (mountedRef.current) {
@@ -508,24 +539,38 @@ const performShutdownWithProgress = useCallback(async () => {
       }
       
     } else {
-      // Fallback: Stop streams without backend shutdown
-      console.log("⚠️ Cannot shutdown safely, stopping streams locally...");
+      // Fallback: Stop streams without backend shutdown + manual camera stop
+      console.log("⚠️ Cannot shutdown safely, stopping streams locally with camera cleanup...");
       
       setShutdownProgress({ message: "Stopping local streams...", step: 2, total: 4 });
       
       // Stop all streams with infrastructure cleanup
       await identificationService.stopAllStreamsWithInfrastructure(false);
       
-      setShutdownProgress({ message: "Cleaning up resources...", step: 3, total: 4 });
+      setShutdownProgress({ message: "Stopping cameras...", step: 3, total: 4 });
+      
+      // FIXED: Actually stop cameras in fallback mode too
+      try {
+        console.log('📹 Stopping cameras in fallback mode...');
+        await api.post("/api/artifact_keeper/camera/stop", {}, {
+          timeout: 15000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        console.log('✅ Cameras stopped in fallback mode');
+      } catch (error) {
+        console.error('❌ Error stopping cameras in fallback mode:', error);
+      }
+      
+      setShutdownProgress({ message: "Cleaning up resources...", step: 4, total: 4 });
       
       // Reset identification state
       identificationService.resetIdentificationState();
-      identificationService.setState('READY', 'Local shutdown completed');
+      identificationService.setState('READY', 'Local shutdown with camera stop completed');
       
       shutdownResult = {
         success: true,
-        message: 'Local shutdown completed - backend services remain running',
-        type: 'local_only'
+        message: 'Local shutdown with camera stop completed - backend services remain running',
+        type: 'local_with_camera_stop'
       };
     }
 
