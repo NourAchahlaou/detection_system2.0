@@ -1,4 +1,5 @@
-// components/BasicModeControls.jsx
+// components/BasicModeIdentificationControls.jsx - Fixed version for identification
+// This component handles identification controls without needing a targetLabel prop
 import React from 'react';
 import {
   Box,
@@ -16,16 +17,18 @@ import {
   CameraAlt,
   AcUnit, // Freeze icon
   Whatshot, // Unfreeze icon
-  PlayArrow
+  PlayArrow,
+  Search, // Quick analysis icon
+  Visibility // Piece identification icon
 } from '@mui/icons-material';
 
-const BasicModeControls = ({
+const BasicModeIdentificationControls = ({
   isStreamFrozen,
-  onDemandDetecting,
-  detectionInProgress,
-  lastDetectionResult,
-  targetLabel,
-  onOnDemandDetection,
+  identificationInProgress,
+  lastIdentificationResult,
+  confidenceThreshold,
+  onPieceIdentification,
+  onQuickAnalysis,
   onFreezeStream,
   onUnfreezeStream
 }) => {
@@ -33,7 +36,7 @@ const BasicModeControls = ({
     <Card>
       <CardContent sx={{ py: 2 }}>
         <Typography variant="h6" gutterBottom color="primary">
-          Basic Mode Controls
+          Identification Controls
         </Typography>
         
         {/* Stream Status */}
@@ -53,24 +56,37 @@ const BasicModeControls = ({
 
         {/* Control Buttons */}
         <Stack spacing={1}>
-          {/* On-Demand Detection Button */}
+          {/* Piece Identification Button */}
           <Button
             variant="contained"
             size="small"
             fullWidth
-            startIcon={<CameraAlt />}
-            onClick={() => onOnDemandDetection({ autoUnfreeze: false })}
-            disabled={onDemandDetecting || detectionInProgress || !targetLabel}
+            startIcon={<Visibility />}
+            onClick={onPieceIdentification}
+            disabled={identificationInProgress}
             color="primary"
           >
-            {onDemandDetecting ? 'Detecting...' : 'Detect Now'}
+            {identificationInProgress ? 'Identifying...' : 'Identify Pieces'}
+          </Button>
+
+          {/* Quick Analysis Button */}
+          <Button
+            variant="outlined"
+            size="small"
+            fullWidth
+            startIcon={<Search />}
+            onClick={onQuickAnalysis}
+            disabled={identificationInProgress}
+            color="secondary"
+          >
+            {identificationInProgress ? 'Analyzing...' : 'Quick Analysis'}
           </Button>
 
           {/* Freeze/Unfreeze Controls */}
           <ButtonGroup size="small" variant="outlined" fullWidth>
             <Button
               onClick={onFreezeStream}
-              disabled={isStreamFrozen || onDemandDetecting}
+              disabled={isStreamFrozen || identificationInProgress}
               startIcon={<AcUnit />}
               sx={{ flex: 1 }}
             >
@@ -78,7 +94,7 @@ const BasicModeControls = ({
             </Button>
             <Button
               onClick={onUnfreezeStream}
-              disabled={!isStreamFrozen || onDemandDetecting}
+              disabled={!isStreamFrozen || identificationInProgress}
               startIcon={<Whatshot />}
               sx={{ flex: 1 }}
             >
@@ -87,28 +103,53 @@ const BasicModeControls = ({
           </ButtonGroup>
         </Stack>
 
-        {/* Last Detection Result */}
-        {lastDetectionResult && (
+        {/* Last Identification Result */}
+        {lastIdentificationResult && (
           <Box sx={{ mt: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
             <Typography variant="subtitle2" gutterBottom>
-              Last Detection Result
+              Last Identification Result
             </Typography>
             <Stack spacing={0.5}>
-              <Typography variant="body2" color={lastDetectionResult.detected ? 'success.main' : 'text.secondary'}>
-                {lastDetectionResult.detected ? '✅ TARGET FOUND' : '❌ NOT FOUND'}
-              </Typography>
-              {lastDetectionResult.confidence && (
-                <Typography variant="caption" color="textSecondary">
-                  Confidence: {(lastDetectionResult.confidence * 100).toFixed(1)}%
+              {/* Handle both piece identification and quick analysis results */}
+              {lastIdentificationResult.summary ? (
+                <>
+                  <Typography variant="body2" color={lastIdentificationResult.summary.total_pieces > 0 ? 'success.main' : 'text.secondary'}>
+                    {lastIdentificationResult.summary.total_pieces > 0 ? 
+                      `✅ ${lastIdentificationResult.summary.total_pieces} PIECES FOUND` : 
+                      '❌ NO PIECES FOUND'}
+                  </Typography>
+                  {lastIdentificationResult.summary.total_pieces > 0 && (
+                    <Typography variant="caption" color="success.main">
+                      Unique Labels: {lastIdentificationResult.summary.unique_labels}
+                    </Typography>
+                  )}
+                </>
+              ) : lastIdentificationResult.piecesFound !== undefined ? (
+                <Typography variant="body2" color={lastIdentificationResult.piecesFound > 0 ? 'success.main' : 'text.secondary'}>
+                  {lastIdentificationResult.piecesFound > 0 ? 
+                    `✅ ${lastIdentificationResult.piecesFound} PIECES FOUND` : 
+                    '❌ NO PIECES FOUND'}
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Analysis completed
                 </Typography>
               )}
-              <Typography variant="caption" color="textSecondary">
-                Processing Time: {lastDetectionResult.processingTime}ms
-              </Typography>
-              {lastDetectionResult.detected && (
-                <Typography variant="caption" color="success.main">
-                  Target "{targetLabel}" detected successfully!
+              
+              {lastIdentificationResult.processingTime && (
+                <Typography variant="caption" color="textSecondary">
+                  Processing Time: {lastIdentificationResult.processingTime}ms
                 </Typography>
+              )}
+              
+              {lastIdentificationResult.isQuickAnalysis && (
+                <Chip 
+                  label="Quick Analysis" 
+                  size="small" 
+                  color="secondary" 
+                  variant="outlined"
+                  sx={{ alignSelf: 'flex-start', mt: 0.5 }}
+                />
               )}
             </Stack>
           </Box>
@@ -118,26 +159,35 @@ const BasicModeControls = ({
         {isStreamFrozen && (
           <Alert severity="info" sx={{ mt: 2 }}>
             <Typography variant="body2">
-              Stream is frozen for detection analysis. Use controls above to unfreeze or perform detection.
+              Stream is frozen for analysis. Use controls above to unfreeze or perform identification.
             </Typography>
           </Alert>
         )}
 
-        {/* On-Demand Detection in Progress */}
-        {onDemandDetecting && (
+        {/* Identification in Progress */}
+        {identificationInProgress && (
           <Alert 
             severity="info" 
             sx={{ mt: 2 }}
             icon={<CircularProgress size={16} />}
           >
             <Typography variant="body2">
-              Performing on-demand detection...
+              Performing identification analysis...
             </Typography>
           </Alert>
+        )}
+
+        {/* Helper Text */}
+        {!isStreamFrozen && !identificationInProgress && (
+          <Box sx={{ mt: 2, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
+            <Typography variant="caption" color="textSecondary">
+              💡 Tip: Use "Identify Pieces" for comprehensive analysis or "Quick Analysis" for faster results.
+            </Typography>
+          </Box>
         )}
       </CardContent>
     </Card>
   );
 };
 
-export default BasicModeControls;
+export default BasicModeIdentificationControls;
