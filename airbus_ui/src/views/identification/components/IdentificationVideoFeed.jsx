@@ -1,4 +1,4 @@
-// IdentificationVideoFeed.jsx - Enhanced with shutdown integration
+// IdentificationVideoFeed.jsx - FIXED: Endless initialization loop
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
@@ -14,6 +14,7 @@ import CameraPlaceholder from "../CameraPlaceholder";
 import LiveIdentificationView from "../LiveIdentificationView";
 import { identificationService } from "../service/MainIdentificationService";
 import api from "../../../utils/UseAxios";
+
 // Identification states from service
 const IdentificationStates = {
   INITIALIZING: 'INITIALIZING',
@@ -30,7 +31,7 @@ const IdentificationVideoFeed = ({
   confidenceThreshold = 0.5,
   identificationOptions = {},
   navigateOnStop = false,
-  enableShutdown = true // New prop to control shutdown functionality
+  enableShutdown = true
 }) => {
   const navigate = useNavigate();
   
@@ -66,11 +67,20 @@ const IdentificationVideoFeed = ({
   const [identificationInProgress, setIdentificationInProgress] = useState(false);
   const [lastIdentificationResult, setLastIdentificationResult] = useState(null);
   
-  // Health check tracking
+  // FIXED: Better initialization tracking to prevent loops
+  const [initializationStatus, setInitializationStatus] = useState({
+    attempted: false,
+    inProgress: false,
+    completed: false,
+    lastAttempt: null
+  });
+  
+  // Health check tracking - FIXED: Better state management
   const [healthCheckStatus, setHealthCheckStatus] = useState({
     initial: false,
     postShutdown: false,
-    lastCheck: null
+    lastCheck: null,
+    inProgress: false
   });
 
   // Shutdown state tracking
@@ -81,7 +91,14 @@ const IdentificationVideoFeed = ({
   const mountedRef = useRef(true);
   const stateChangeUnsubscribe = useRef(null);
   const freezeListenerUnsubscribe = useRef(null);
-  const initializationAttempted = useRef(false);
+  const healthCheckTimeoutRef = useRef(null);
+  
+  // FIXED: Single initialization attempt tracking
+  const initAttemptRef = useRef({
+    attempted: false,
+    timestamp: null,
+    inProgress: false
+  });
 
   // Subscribe to identification service state changes
   useEffect(() => {
@@ -103,12 +120,20 @@ const IdentificationVideoFeed = ({
           setComponentError(null);
           setShutdownInProgress(false);
           setShutdownProgress(null);
-          // Reset health check status
-          setHealthCheckStatus(prev => ({
-            ...prev,
-            initial: false,
-            postShutdown: false
-          }));
+          // FIXED: Only reset if this is a fresh initialization request
+          if (oldState !== IdentificationStates.INITIALIZING) {
+            setInitializationStatus({
+              attempted: false,
+              inProgress: false,
+              completed: false,
+              lastAttempt: null
+            });
+            initAttemptRef.current = {
+              attempted: false,
+              timestamp: null,
+              inProgress: false
+            };
+          }
           break;
           
         case IdentificationStates.READY:
@@ -123,21 +148,36 @@ const IdentificationVideoFeed = ({
             setShutdownInProgress(false);
             setShutdownProgress(null);
             
-            // Mark that we need a post-shutdown health check
+            // FIXED: Reset initialization status after shutdown
+            setInitializationStatus({
+              attempted: false,
+              inProgress: false,
+              completed: true, // Mark as completed since we're now READY
+              lastAttempt: Date.now()
+            });
+            
             setHealthCheckStatus(prev => ({
               ...prev,
-              postShutdown: false
+              postShutdown: false,
+              inProgress: false
             }));
+            
+            if (healthCheckTimeoutRef.current) {
+              clearTimeout(healthCheckTimeoutRef.current);
+              healthCheckTimeoutRef.current = null;
+            }
+            
           } else if (oldState === IdentificationStates.INITIALIZING) {
-            // Initialization completed
+            // Initialization completed successfully
             setStreamStatus(prev => ({ ...prev, isLoading: false }));
             setComponentError(null);
-            
-            // Mark that we need an initial health check
-            setHealthCheckStatus(prev => ({
+            setInitializationStatus(prev => ({
               ...prev,
-              initial: false
+              inProgress: false,
+              completed: true,
+              lastAttempt: Date.now()
             }));
+            initAttemptRef.current.inProgress = false;
           }
           break;
           
@@ -152,6 +192,15 @@ const IdentificationVideoFeed = ({
           setStreamStatus(prev => ({ ...prev, isLoading: true }));
           setComponentError("System is shutting down...");
           setIsStreamFrozen(false);
+          
+          if (healthCheckTimeoutRef.current) {
+            clearTimeout(healthCheckTimeoutRef.current);
+            healthCheckTimeoutRef.current = null;
+          }
+          setHealthCheckStatus(prev => ({
+            ...prev,
+            inProgress: false
+          }));
           break;
       }
     });
@@ -167,6 +216,9 @@ const IdentificationVideoFeed = ({
       if (stateChangeUnsubscribe.current) {
         stateChangeUnsubscribe.current();
       }
+      if (healthCheckTimeoutRef.current) {
+        clearTimeout(healthCheckTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -180,7 +232,6 @@ const IdentificationVideoFeed = ({
       console.log(`🧊 IdentificationVideoFeed: Freeze event for camera ${cameraId}:`, freezeEvent);
       setIsStreamFrozen(freezeEvent.status === 'frozen');
       
-      // Update identification stats
       setIdentificationStats(prev => ({
         ...prev,
         isFrozen: freezeEvent.status === 'frozen'
@@ -189,7 +240,6 @@ const IdentificationVideoFeed = ({
     
     freezeListenerUnsubscribe.current = unsubscribe;
 
-    // Check initial freeze status
     if (identificationService.isStreamFrozen(cameraId)) {
       setIsStreamFrozen(true);
       setIdentificationStats(prev => ({ ...prev, isFrozen: true }));
@@ -202,59 +252,161 @@ const IdentificationVideoFeed = ({
     };
   }, [cameraId]);
 
-  // Initialize identification system on component mount
+  // FIXED: Completely rewritten initialization logic to prevent loops
   useEffect(() => {
-    const initializeIfNeeded = async () => {
-      if (identificationState === IdentificationStates.INITIALIZING && !initializationAttempted.current) {
-        console.log("🚀 IdentificationVideoFeed: Starting identification system initialization...");
-        initializationAttempted.current = true;
-        setInitializationAttempts(1);
+    const attemptInitialization = async () => {
+      // FIXED: Multiple safeguards to prevent re-initialization
+      if (initAttemptRef.current.inProgress) {
+        console.log("🚫 Initialization already in progress, skipping...");
+        return;
+      }
+      
+      if (initAttemptRef.current.attempted && initializationStatus.completed) {
+        console.log("🚫 Initialization already completed successfully, skipping...");
+        return;
+      }
+      
+      if (identificationState !== IdentificationStates.INITIALIZING) {
+        console.log(`🚫 Not in INITIALIZING state (current: ${identificationState}), skipping...`);
+        return;
+      }
+      
+      // FIXED: Prevent rapid re-attempts
+      const now = Date.now();
+      if (initAttemptRef.current.timestamp && (now - initAttemptRef.current.timestamp) < 5000) {
+        console.log("🚫 Too soon since last attempt, waiting...");
+        return;
+      }
+      
+      // FIXED: Check if service is already initialized
+      if (identificationService.isInitialized && identificationService.getState() === IdentificationStates.READY) {
+        console.log("✅ Service already initialized and ready, updating local state...");
+        setInitializationStatus({
+          attempted: true,
+          inProgress: false,
+          completed: true,
+          lastAttempt: now
+        });
+        return;
+      }
+      
+      console.log("🚀 IdentificationVideoFeed: Starting initialization...");
+      
+      // Mark as in progress
+      initAttemptRef.current = {
+        attempted: true,
+        timestamp: now,
+        inProgress: true
+      };
+      
+      setInitializationStatus(prev => ({
+        ...prev,
+        attempted: true,
+        inProgress: true,
+        lastAttempt: now
+      }));
+      
+      setInitializationAttempts(prev => prev + 1);
+
+      try {
+        const initResult = await identificationService.ensureInitialized();
         
-        try {
-          const initResult = await identificationService.ensureInitialized();
+        if (!mountedRef.current) return;
+        
+        if (initResult.success) {
+          console.log("✅ IdentificationVideoFeed: Initialization successful");
+          setComponentError(null);
+          setInitializationStatus(prev => ({
+            ...prev,
+            inProgress: false,
+            completed: true
+          }));
+          initAttemptRef.current.inProgress = false;
           
-          if (initResult.success && mountedRef.current) {
-            console.log("✅ IdentificationVideoFeed: Identification system initialized successfully");
-            setComponentError(null);
-            
-            setTimeout(() => {
-              if (mountedRef.current && identificationState === IdentificationStates.READY) {
-                performInitialHealthCheck();
-              }
-            }, 1000);
-          }
-        } catch (error) {
-          console.error("❌ IdentificationVideoFeed: Initialization failed:", error);
-          if (mountedRef.current) {
-            setComponentError(`Initialization failed: ${error.message}`);
-          }
+          // Schedule health check after successful initialization
+          healthCheckTimeoutRef.current = setTimeout(() => {
+            if (mountedRef.current && 
+                identificationState === IdentificationStates.READY && 
+                !healthCheckStatus.inProgress) {
+              performInitialHealthCheck();
+            }
+          }, 2000);
+        } else {
+          throw new Error(initResult.message || 'Initialization failed');
         }
+      } catch (error) {
+        console.error("❌ IdentificationVideoFeed: Initialization failed:", error);
+        
+        if (!mountedRef.current) return;
+        
+        setComponentError(`Initialization failed: ${error.message}`);
+        setInitializationStatus(prev => ({
+          ...prev,
+          inProgress: false,
+          completed: false
+        }));
+        initAttemptRef.current.inProgress = false;
       }
     };
 
-    initializeIfNeeded();
-  }, [identificationState]);
+    // FIXED: Only attempt initialization once when component first loads in INITIALIZING state
+    if (identificationState === IdentificationStates.INITIALIZING && 
+        !initAttemptRef.current.attempted && 
+        !initAttemptRef.current.inProgress) {
+      
+      // Small delay to prevent immediate execution
+      const timeoutId = setTimeout(attemptInitialization, 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [identificationState]); // FIXED: Only depend on identificationState
 
-  // Watch for READY state transitions to trigger appropriate health checks
+  // FIXED: Separate effect for health checks that doesn't trigger initialization
   useEffect(() => {
-    const handleReadyStateTransition = async () => {
-      if (identificationState !== IdentificationStates.READY) return;
+    const scheduleHealthCheck = () => {
+      if (identificationState !== IdentificationStates.READY || 
+          healthCheckStatus.inProgress ||
+          !initializationStatus.completed) {
+        return;
+      }
       
       const serviceStatus = identificationService.getDetailedStatus();
       
+      // Schedule initial health check if needed
       if (!healthCheckStatus.initial && !serviceStatus.hasPerformedInitialHealthCheck) {
-        console.log("🩺 IdentificationVideoFeed: Triggering initial health check...");
-        await performInitialHealthCheck();
+        console.log("🩺 Scheduling initial health check...");
+        healthCheckTimeoutRef.current = setTimeout(() => {
+          if (mountedRef.current && 
+              identificationState === IdentificationStates.READY && 
+              !healthCheckStatus.inProgress) {
+            performInitialHealthCheck();
+          }
+        }, 2000);
       }
-      else if (!healthCheckStatus.postShutdown && !serviceStatus.hasPerformedPostShutdownCheck) {
-        console.log("🩺 IdentificationVideoFeed: Triggering post-shutdown health check...");
-        await performPostShutdownHealthCheck();
+      // Schedule post-shutdown health check if needed
+      else if (!healthCheckStatus.postShutdown && 
+               !serviceStatus.hasPerformedPostShutdownCheck &&
+               !shutdownInProgress) {
+        console.log("🩺 Scheduling post-shutdown health check...");
+        healthCheckTimeoutRef.current = setTimeout(() => {
+          if (mountedRef.current && 
+              identificationState === IdentificationStates.READY && 
+              !healthCheckStatus.inProgress) {
+            performPostShutdownHealthCheck();
+          }
+        }, 3000);
       }
     };
 
-    const timer = setTimeout(handleReadyStateTransition, 500);
-    return () => clearTimeout(timer);
-  }, [identificationState, healthCheckStatus.initial, healthCheckStatus.postShutdown]);
+    const timeoutId = setTimeout(scheduleHealthCheck, 1500);
+    return () => clearTimeout(timeoutId);
+  }, [
+    identificationState, 
+    healthCheckStatus.initial, 
+    healthCheckStatus.postShutdown, 
+    healthCheckStatus.inProgress,
+    initializationStatus.completed,
+    shutdownInProgress
+  ]);
 
   // Reset identification stats helper
   const resetIdentificationStats = useCallback(() => {
@@ -273,20 +425,26 @@ const IdentificationVideoFeed = ({
     setLastIdentificationResult(null);
   }, []);
 
-  // Initial health check function
+  // FIXED: Initial health check with better state management
   const performInitialHealthCheck = useCallback(async () => {
-    if (healthCheckStatus.initial) return;
+    if (healthCheckStatus.initial || healthCheckStatus.inProgress) {
+      console.log("🚫 Initial health check already completed or in progress");
+      return;
+    }
+
+    setHealthCheckStatus(prev => ({ ...prev, inProgress: true }));
 
     try {
       console.log("🩺 IdentificationVideoFeed: Performing initial health check...");
       const health = await identificationService.checkIdentificationHealth(true, false);
       
       if (mountedRef.current) {
-        setHealthCheckStatus(prev => ({
-          ...prev,
+        setHealthCheckStatus({
           initial: true,
+          postShutdown: healthCheckStatus.postShutdown,
+          inProgress: false,
           lastCheck: Date.now()
-        }));
+        });
         
         console.log("✅ IdentificationVideoFeed: Initial health check completed:", health.overall ? "Healthy" : "Issues found");
       }
@@ -296,26 +454,33 @@ const IdentificationVideoFeed = ({
         setHealthCheckStatus(prev => ({
           ...prev,
           initial: true,
+          inProgress: false,
           lastCheck: Date.now()
         }));
       }
     }
-  }, [healthCheckStatus.initial]);
+  }, [healthCheckStatus.initial, healthCheckStatus.inProgress, healthCheckStatus.postShutdown]);
 
-  // Post-shutdown health check function
+  // FIXED: Post-shutdown health check with better state management
   const performPostShutdownHealthCheck = useCallback(async () => {
-    if (healthCheckStatus.postShutdown) return;
+    if (healthCheckStatus.postShutdown || healthCheckStatus.inProgress) {
+      console.log("🚫 Post-shutdown health check already completed or in progress");
+      return;
+    }
+
+    setHealthCheckStatus(prev => ({ ...prev, inProgress: true }));
 
     try {
       console.log("🩺 IdentificationVideoFeed: Performing post-shutdown health check...");
       const health = await identificationService.checkIdentificationHealth(false, true);
       
       if (mountedRef.current) {
-        setHealthCheckStatus(prev => ({
-          ...prev,
+        setHealthCheckStatus({
+          initial: healthCheckStatus.initial,
           postShutdown: true,
+          inProgress: false,
           lastCheck: Date.now()
-        }));
+        });
         
         console.log("✅ IdentificationVideoFeed: Post-shutdown health check completed:", health.overall ? "Healthy" : "Issues found");
       }
@@ -325,36 +490,60 @@ const IdentificationVideoFeed = ({
         setHealthCheckStatus(prev => ({
           ...prev,
           postShutdown: true,
+          inProgress: false,
           lastCheck: Date.now()
         }));
       }
     }
-  }, [healthCheckStatus.postShutdown]);
+  }, [healthCheckStatus.postShutdown, healthCheckStatus.inProgress, healthCheckStatus.initial]);
 
-  // Manual retry initialization
+  // FIXED: Manual retry with complete state reset
   const handleRetryInitialization = useCallback(async () => {
-    console.log("🔄 IdentificationVideoFeed: Manual initialization retry requested");
+    console.log("🔄 IdentificationVideoFeed: Manual retry requested");
+    
+    // Clear timeouts
+    if (healthCheckTimeoutRef.current) {
+      clearTimeout(healthCheckTimeoutRef.current);
+      healthCheckTimeoutRef.current = null;
+    }
+    
+    // FIXED: Complete state reset
     setComponentError(null);
     setInitializationAttempts(prev => prev + 1);
-    initializationAttempted.current = false;
+    
+    // Reset all tracking
+    initAttemptRef.current = {
+      attempted: false,
+      timestamp: null,
+      inProgress: false
+    };
+    
+    setInitializationStatus({
+      attempted: false,
+      inProgress: false,
+      completed: false,
+      lastAttempt: null
+    });
     
     setHealthCheckStatus({
       initial: false,
       postShutdown: false,
-      lastCheck: null
+      lastCheck: null,
+      inProgress: false
     });
     
     try {
+      // Force service to reset
       identificationService.resetToInitializing('Manual retry from IdentificationVideoFeed');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const initResult = await identificationService.ensureInitialized();
       
-      if (initResult.success && mountedRef.current) {
-        console.log("✅ IdentificationVideoFeed: Retry initialization successful");
-        setComponentError(null);
-      }
+      // Wait a moment for state to settle
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // The useEffect will handle the actual initialization
+      console.log("✅ IdentificationVideoFeed: Retry setup completed, initialization will be handled by useEffect");
+      
     } catch (error) {
-      console.error("❌ IdentificationVideoFeed: Retry initialization failed:", error);
+      console.error("❌ IdentificationVideoFeed: Retry setup failed:", error);
       if (mountedRef.current) {
         setComponentError(`Retry failed: ${error.message}`);
       }
@@ -425,7 +614,6 @@ const IdentificationVideoFeed = ({
 
       setVideoUrl(streamUrl);
       
-      // Add stats listener
       identificationService.addStatsListener(parseInt(cameraId), handleStatsUpdate);
       
       setIdentificationStats({
@@ -460,124 +648,70 @@ const IdentificationVideoFeed = ({
     }
   };
 
-// Enhanced shutdown functionality with monitoring - FIXED VERSION
-// Enhanced shutdown functionality with monitoring - FIXED VERSION
-const performShutdownWithProgress = useCallback(async () => {
-  if (shutdownInProgress) {
-    console.log("🚫 Shutdown already in progress");
-    return;
-  }
-
-  setShutdownInProgress(true);
-  setShutdownProgress({ message: "Initiating shutdown...", step: 1, total: 4 });
-
-  try {
-    console.log("🔥 IdentificationVideoFeed: Starting identification shutdown...");
-
-    // Remove stats listener first
-    if (cameraId) {
-      identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
+  // FIXED: Enhanced shutdown with proper state management
+  const performShutdownWithProgress = useCallback(async () => {
+    if (shutdownInProgress) {
+      console.log("🚫 Shutdown already in progress");
+      return;
     }
 
-    // FIXED: Use the correct shutdown option based on requirements
-    let shutdownResult;
-    
-    if (identificationService.canShutdownSafely()) {
-      // Monitor progress while performing shutdown
-      const progressCallback = (progress) => {
+    setShutdownInProgress(true);
+    setShutdownProgress({ message: "Initiating shutdown...", step: 1, total: 4 });
+
+    if (healthCheckTimeoutRef.current) {
+      clearTimeout(healthCheckTimeoutRef.current);
+      healthCheckTimeoutRef.current = null;
+    }
+
+    try {
+      console.log("🔥 IdentificationVideoFeed: Starting identification shutdown...");
+
+      if (cameraId) {
+        identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
+      }
+
+      let shutdownResult;
+      
+      if (identificationService.canShutdownSafely()) {
+        console.log("🛑 Executing complete shutdown with monitoring...");
+        shutdownResult = await identificationService.executeShutdown('graceful_complete', true);
+        
         if (mountedRef.current) {
-          setShutdownProgress({
-            message: progress.message || "Shutting down...",
-            step: progress.step || 1,
-            total: progress.total || 4,
-            details: progress.details
+          setShutdownProgress({ 
+            message: "Shutdown completed successfully", 
+            step: 4, 
+            total: 4 
           });
         }
-      };
-
-      // FIXED: Use 'graceful_complete' to ensure cameras are stopped
-      // Change this line based on your actual requirements:
-      
-      // Option A: Complete shutdown (stops cameras) - RECOMMENDED for UI shutdown
-      console.log("🛑 Executing complete shutdown with monitoring...");
-      shutdownResult = await identificationService.executeShutdown('graceful_complete', true);
-      
-      // Option B: If you specifically want identification-only but still need cameras stopped
-      // Uncomment this section and comment out the line above:
-      /*
-      console.log("🛑 Executing identification-only shutdown with manual camera stop...");
-      shutdownResult = await identificationService.executeShutdown('identification_only', true);
-      
-      // Manually stop cameras after identification shutdown
-      if (shutdownResult.success) {
+        
+      } else {
+        console.log("⚠️ Cannot shutdown safely, stopping streams locally...");
+        
+        setShutdownProgress({ message: "Stopping local streams...", step: 2, total: 4 });
+        await identificationService.stopAllStreamsWithInfrastructure(false);
+        
+        setShutdownProgress({ message: "Stopping cameras...", step: 3, total: 4 });
+        
         try {
-          setShutdownProgress({ message: "Stopping cameras...", step: 3, total: 4 });
-          console.log('📹 Manually stopping cameras after identification shutdown...');
-          
-          const cameraStopResponse = await api.post("/api/artifact_keeper/camera/stop", {}, {
+          await api.post("/api/artifact_keeper/camera/stop", {}, {
             timeout: 15000,
             headers: { 'Content-Type': 'application/json' }
           });
-          
-          console.log('✅ Cameras stopped manually:', cameraStopResponse.status, cameraStopResponse.data);
-          shutdownResult.message += ' (cameras stopped manually)';
         } catch (error) {
-          console.error('❌ Error manually stopping cameras:', error);
-          shutdownResult.warnings = shutdownResult.warnings || [];
-          shutdownResult.warnings.push('Failed to stop cameras manually');
+          console.error('❌ Error stopping cameras:', error);
         }
+        
+        setShutdownProgress({ message: "Cleaning up resources...", step: 4, total: 4 });
+        
+        identificationService.resetIdentificationState();
+        identificationService.setState('READY', 'Local shutdown completed');
+        
+        shutdownResult = { success: true, message: 'Local shutdown completed' };
       }
-      */
-      
-      // Update progress during shutdown
-      if (mountedRef.current) {
-        setShutdownProgress({ 
-          message: "Shutdown completed successfully", 
-          step: 4, 
-          total: 4 
-        });
-      }
-      
-    } else {
-      // Fallback: Stop streams without backend shutdown + manual camera stop
-      console.log("⚠️ Cannot shutdown safely, stopping streams locally with camera cleanup...");
-      
-      setShutdownProgress({ message: "Stopping local streams...", step: 2, total: 4 });
-      
-      // Stop all streams with infrastructure cleanup
-      await identificationService.stopAllStreamsWithInfrastructure(false);
-      
-      setShutdownProgress({ message: "Stopping cameras...", step: 3, total: 4 });
-      
-      // FIXED: Actually stop cameras in fallback mode too
-      try {
-        console.log('📹 Stopping cameras in fallback mode...');
-        await api.post("/api/artifact_keeper/camera/stop", {}, {
-          timeout: 15000,
-          headers: { 'Content-Type': 'application/json' }
-        });
-        console.log('✅ Cameras stopped in fallback mode');
-      } catch (error) {
-        console.error('❌ Error stopping cameras in fallback mode:', error);
-      }
-      
-      setShutdownProgress({ message: "Cleaning up resources...", step: 4, total: 4 });
-      
-      // Reset identification state
-      identificationService.resetIdentificationState();
-      identificationService.setState('READY', 'Local shutdown with camera stop completed');
-      
-      shutdownResult = {
-        success: true,
-        message: 'Local shutdown with camera stop completed - backend services remain running',
-        type: 'local_with_camera_stop'
-      };
-    }
 
-    if (shutdownResult.success) {
-      console.log("✅ IdentificationVideoFeed: Shutdown completed successfully");
-      
-      if (mountedRef.current) {
+      if (shutdownResult.success && mountedRef.current) {
+        console.log("✅ IdentificationVideoFeed: Shutdown completed successfully");
+        
         setVideoUrl("");
         resetIdentificationStats();
         setStreamStatus({ isLoading: false, error: null, isConnected: false });
@@ -587,16 +721,32 @@ const performShutdownWithProgress = useCallback(async () => {
         setIdentificationInProgress(false);
         setShutdownProgress({ message: "Shutdown complete", step: 4, total: 4 });
         
-        // Call the parent's onStopIdentification callback
+        // FIXED: Reset all initialization tracking after successful shutdown
+        setInitializationAttempts(0);
+        initAttemptRef.current = {
+          attempted: false,
+          timestamp: null,
+          inProgress: false
+        };
+        setInitializationStatus({
+          attempted: false,
+          inProgress: false,
+          completed: false,
+          lastAttempt: null
+        });
+        setHealthCheckStatus({
+          initial: false,
+          postShutdown: false,
+          lastCheck: null,
+          inProgress: false
+        });
+        
         onStopIdentification();
 
-        // Navigate to /identification route if enabled
         if (navigateOnStop) {
-          console.log("🧭 IdentificationVideoFeed: Navigating to /identification route");
           navigate('/identification');
         }
 
-        // Clear shutdown progress after a delay
         setTimeout(() => {
           if (mountedRef.current) {
             setShutdownProgress(null);
@@ -604,39 +754,40 @@ const performShutdownWithProgress = useCallback(async () => {
           }
         }, 2000);
       }
-    } else {
-      throw new Error(shutdownResult.message || 'Shutdown failed');
-    }
 
-  } catch (error) {
-    console.error("❌ IdentificationVideoFeed: Error during shutdown:", error);
-    
-    if (mountedRef.current) {
-      setStreamStatus(prev => ({ ...prev, isLoading: false, error: "Failed to shutdown properly" }));
-      setComponentError(`Shutdown error: ${error.message}`);
-      setShutdownProgress(null);
-      setShutdownInProgress(false);
+    } catch (error) {
+      console.error("❌ IdentificationVideoFeed: Error during shutdown:", error);
+      
+      if (mountedRef.current) {
+        setStreamStatus(prev => ({ ...prev, isLoading: false, error: "Failed to shutdown properly" }));
+        setComponentError(`Shutdown error: ${error.message}`);
+        setShutdownProgress(null);
+        setShutdownInProgress(false);
+      }
     }
-  }
-}, [cameraId, shutdownInProgress, handleStatsUpdate, onStopIdentification, navigateOnStop, navigate, resetIdentificationStats]);
-  // Enhanced handle stopping identification with shutdown integration
+  }, [
+    shutdownInProgress, 
+    cameraId, 
+    handleStatsUpdate, 
+    onStopIdentification, 
+    navigateOnStop, 
+    navigate, 
+    resetIdentificationStats
+  ]);
+
+  // Enhanced handle stopping identification
   const handleStopIdentification = async () => {
     if (!mountedRef.current) return;
     
     console.log(`🛑 IdentificationVideoFeed: Stopping identification for camera ${cameraId}`);
     
     if (enableShutdown && identificationService.canShutdownSafely()) {
-      // Use enhanced shutdown with progress monitoring
       await performShutdownWithProgress();
     } else {
-      // Fallback to simple stop if shutdown is disabled or not safe
       setStreamStatus(prev => ({ ...prev, isLoading: true }));
 
       try {
-        // Remove stats listener first
         identificationService.removeStatsListener(parseInt(cameraId), handleStatsUpdate);
-        
-        // Stop identification stream
         await identificationService.stopIdentificationStream(parseInt(cameraId));
         
         if (!mountedRef.current) return;
@@ -649,28 +800,21 @@ const performShutdownWithProgress = useCallback(async () => {
         setLastIdentificationResult(null);
         setIdentificationInProgress(false);
         
-        // Call the parent's onStopIdentification callback
+        // FIXED: Reset initialization tracking properly
+        setInitializationAttempts(0);
+        initAttemptRef.current = {
+          attempted: false,
+          timestamp: null,
+          inProgress: false
+        };
+        
         onStopIdentification();
 
         console.log(`✅ IdentificationVideoFeed: Stopped identification for camera ${cameraId}`);
 
-        // Navigate to /identification route if enabled
         if (navigateOnStop) {
-          console.log("🧭 IdentificationVideoFeed: Navigating to /identification route");
           navigate('/identification');
         }
-
-        // Schedule post-shutdown health check
-        setTimeout(() => {
-          if (mountedRef.current && identificationState === IdentificationStates.READY) {
-            console.log("🩺 IdentificationVideoFeed: Scheduling post-shutdown health check...");
-            setHealthCheckStatus(prev => ({
-              ...prev,
-              postShutdown: false
-            }));
-            performPostShutdownHealthCheck();
-          }
-        }, 2000);
 
       } catch (error) {
         console.error("❌ IdentificationVideoFeed: Error stopping identification:", error);
@@ -685,16 +829,11 @@ const performShutdownWithProgress = useCallback(async () => {
 
   // Piece identification handler
   const handlePieceIdentification = async () => {
-    if (identificationInProgress) {
-      console.log("🚫 Identification already in progress, skipping...");
-      return;
-    }
+    if (identificationInProgress) return;
 
     setIdentificationInProgress(true);
 
     try {
-      console.log(`🔍 Performing piece identification for camera ${cameraId}`);
-      
       const result = await identificationService.performPieceIdentification(cameraId, {
         freezeStream: true,
         quality: identificationOptions.streamQuality || 85,
@@ -712,10 +851,8 @@ const performShutdownWithProgress = useCallback(async () => {
           message: result.message
         });
         
-        // Update stream frozen state
         setIsStreamFrozen(result.streamFrozen);
 
-        // Update stats
         setIdentificationStats(prev => ({
           ...prev,
           piecesIdentified: prev.piecesIdentified + (result.summary.total_pieces || 0),
@@ -725,8 +862,6 @@ const performShutdownWithProgress = useCallback(async () => {
           avgProcessingTime: result.processingTime,
           isFrozen: result.streamFrozen
         }));
-
-        console.log(`✅ Piece identification completed: ${result.summary.total_pieces} pieces found`);
       }
     } catch (error) {
       console.error('❌ Error in piece identification:', error);
@@ -735,7 +870,7 @@ const performShutdownWithProgress = useCallback(async () => {
       setIdentificationInProgress(false);
     }
   };
-
+  
   // Quick analysis handler
   const handleQuickAnalysis = async () => {
     if (identificationInProgress) {

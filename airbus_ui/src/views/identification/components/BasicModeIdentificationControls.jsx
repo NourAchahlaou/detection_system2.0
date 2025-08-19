@@ -14,11 +14,9 @@ import {
   ButtonGroup
 } from '@mui/material';
 import {
-  CameraAlt,
   AcUnit, // Freeze icon
   Whatshot, // Unfreeze icon
   PlayArrow,
-  Search, // Quick analysis icon
   Visibility // Piece identification icon
 } from '@mui/icons-material';
 
@@ -28,7 +26,6 @@ const BasicModeIdentificationControls = ({
   lastIdentificationResult,
   confidenceThreshold,
   onPieceIdentification,
-  onQuickAnalysis,
   onFreezeStream,
   onUnfreezeStream
 }) => {
@@ -67,19 +64,6 @@ const BasicModeIdentificationControls = ({
             color="primary"
           >
             {identificationInProgress ? 'Identifying...' : 'Identify Pieces'}
-          </Button>
-
-          {/* Quick Analysis Button */}
-          <Button
-            variant="outlined"
-            size="small"
-            fullWidth
-            startIcon={<Search />}
-            onClick={onQuickAnalysis}
-            disabled={identificationInProgress}
-            color="secondary"
-          >
-            {identificationInProgress ? 'Analyzing...' : 'Quick Analysis'}
           </Button>
 
           {/* Freeze/Unfreeze Controls */}

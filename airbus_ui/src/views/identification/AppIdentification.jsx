@@ -1,10 +1,8 @@
-// AppIdentification.jsx - Main identification component similar to AppDetection
+// AppIdentification.jsx - Updated layout with always visible basic controls
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
 import { 
   Box, 
   Grid, 
-  Stack, 
   Alert, 
   CircularProgress, 
   Button,
@@ -58,62 +56,32 @@ export default function AppIdentification() {
 
   // Piece types and labels
   const [availablePieceTypes, setAvailablePieceTypes] = useState([]);
-  const [pieceLabels, setPieceLabels] = useState(new Map());
-  const [loadingLabels, setLoadingLabels] = useState(new Set());
 
   // Success tracking for stats refresh
   const [lastSuccessfulIdentification, setLastSuccessfulIdentification] = useState(null);
+
+  // Add initialization state tracking to prevent loops
+  const [isInitialized, setIsInitialized] = useState(false);
+  const initializationInProgress = useRef(false);
+  const pieceTypesLoaded = useRef(false);
 
   // Custom hooks for state management
   const identificationManagement = useIdentificationManagement();
   const identificationSystem = useIdentificationSystem();
   const cameraManagement = useCameraManagement();
 
-  // Function to fetch piece label by ID
-  const fetchPieceLabel = useCallback(async (pieceId) => {
-    if (pieceLabels.has(pieceId) || loadingLabels.has(pieceId)) {
-      return pieceLabels.get(pieceId);
-    }
-
-    setLoadingLabels(prev => new Set(prev).add(pieceId));
-
-    try {
-      const response = await fetch(`/api/artifact_keeper/captureImage/piece_label_byid/${pieceId}`);
-      
-      if (response.ok) {
-        const label = await response.text();
-        const cleanLabel = label.replace(/^"|"$/g, '');
-        
-        setPieceLabels(prev => new Map(prev).set(pieceId, cleanLabel));
-        setLoadingLabels(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(pieceId);
-          return newSet;
-        });
-        
-        return cleanLabel;
-      } else {
-        throw new Error(`Failed to fetch piece label for ID ${pieceId}`);
-      }
-    } catch (error) {
-      console.error(`Error fetching piece label for ID ${pieceId}:`, error);
-      setLoadingLabels(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(pieceId);
-        return newSet;
-      });
-      
-      const fallback = `Piece ${pieceId}`;
-      setPieceLabels(prev => new Map(prev).set(pieceId, fallback));
-      return fallback;
-    }
-  }, [pieceLabels, loadingLabels]);
-
-
-  // Load available piece types
+  // Load available piece types - prevent multiple calls
   const loadAvailablePieceTypes = useCallback(async () => {
+    // Prevent multiple simultaneous calls
+    if (pieceTypesLoaded.current) {
+      console.log('📋 Piece types already loaded, skipping...');
+      return;
+    }
+
     try {
       console.log('📋 Loading available piece types...');
+      pieceTypesLoaded.current = true;
+      
       const result = await identificationService.getAvailablePieceTypes();
       
       if (result.success) {
@@ -122,11 +90,15 @@ export default function AppIdentification() {
       } else {
         console.warn('📋 Failed to load piece types:', result.message);
         setAvailablePieceTypes([]);
+        // Reset flag on failure to allow retry
+        pieceTypesLoaded.current = false;
       }
     } catch (error) {
       console.error('❌ Error loading piece types:', error);
       identificationManagement.showSnackbar(`Failed to load piece types: ${error.message}`, 'error');
       setAvailablePieceTypes([]);
+      // Reset flag on error to allow retry
+      pieceTypesLoaded.current = false;
     }
   }, [identificationManagement]);
 
@@ -174,29 +146,60 @@ export default function AppIdentification() {
     }
   }, [cameraManagement, identificationManagement, identificationSystem]);
 
-  // System initialization effect
+  // Fixed system initialization effect - prevent endless loops
   useEffect(() => {
     const initialize = async () => {
+      // Prevent multiple initialization attempts
+      if (initializationInProgress.current || isInitialized) {
+        console.log('🔄 Initialization already in progress or completed, skipping...');
+        return;
+      }
+
+      // Only initialize if state is INITIALIZING and we haven't attempted yet
       if (identificationSystem.identificationState === IdentificationStates.INITIALIZING && 
           !identificationSystem.initializationAttempted.current) {
         
-        await initializeIdentificationSystem(
-          identificationSystem.initializationAttempted,
-          identificationSystem.setInitializationError,
-          identificationSystem.performInitialHealthCheck,
-          loadAvailablePieceTypes
-        );
+        console.log('🚀 Starting identification system initialization...');
+        initializationInProgress.current = true;
+        
+        try {
+          await initializeIdentificationSystem(
+            identificationSystem.initializationAttempted,
+            identificationSystem.setInitializationError,
+            identificationSystem.performInitialHealthCheck,
+            loadAvailablePieceTypes
+          );
+          
+          setIsInitialized(true);
+          console.log('✅ Identification system initialization completed');
+        } catch (error) {
+          console.error('❌ Identification system initialization failed:', error);
+        } finally {
+          initializationInProgress.current = false;
+        }
       }
     };
 
     initialize();
     
-    // Cleanup function - no stopMonitoring call needed
+    // Cleanup function
     return () => {
-      // Any cleanup that needs to happen on unmount
       console.log('🧹 AppIdentification component unmounting...');
     };
-  }, [identificationSystem.identificationState, loadAvailablePieceTypes]);
+  }, []); // Remove dependencies to prevent re-runs
+
+  // Separate effect for state changes that should trigger re-initialization
+  useEffect(() => {
+    // Reset initialization flags when explicitly transitioning to INITIALIZING from another state
+    if (identificationSystem.identificationState === IdentificationStates.INITIALIZING && 
+        isInitialized && 
+        !initializationInProgress.current) {
+      console.log('🔄 System transitioning back to INITIALIZING state - resetting flags');
+      setIsInitialized(false);
+      pieceTypesLoaded.current = false;
+      identificationSystem.initializationAttempted.current = false;
+    }
+  }, [identificationSystem.identificationState, isInitialized]);
 
   // Enhanced cleanup
   useEffect(() => {
@@ -214,10 +217,13 @@ export default function AppIdentification() {
     };
   }, [identificationSystem.identificationState, identificationSystem.cleanupRef]);
 
-  // Health check state transitions
+  // Health check state transitions - prevent unnecessary health checks
   useEffect(() => {
     const handleStateTransition = async () => {
-      if (identificationSystem.identificationState === IdentificationStates.READY) {
+      // Only perform health checks when READY and not already in progress
+      if (identificationSystem.identificationState === IdentificationStates.READY && 
+          !initializationInProgress.current) {
+        
         const serviceStatus = identificationService.getDetailedStatus();
         
         if (!identificationSystem.healthCheckPerformed.current.postShutdown && 
@@ -232,30 +238,47 @@ export default function AppIdentification() {
       }
     };
 
-    handleStateTransition();    
+    // Add a small delay to prevent rapid-fire health checks
+    const timeoutId = setTimeout(handleStateTransition, 100);
+    
+    return () => clearTimeout(timeoutId);    
   }, [identificationSystem.identificationState]);
 
   const retryInitialization = createRetryInitialization(
     identificationSystem.initializationAttempted,
     identificationSystem.setInitializationError,
-    identificationSystem.healthCheckPerformed
+    identificationSystem.healthCheckPerformed,
+    // Add callback to reset our local flags
+    () => {
+      setIsInitialized(false);
+      pieceTypesLoaded.current = false;
+      initializationInProgress.current = false;
+    }
   );
   
   const stateInfo = getStateInfo(identificationSystem.identificationState);
   const isBasicMode = true; // Identification is always in basic mode
 
-  // Debug logging
+  // Debug logging - reduce frequency
   useEffect(() => {
-    console.log('🔍 Identification component state debug:', {
-      identificationState: identificationSystem.identificationState,
-      confidenceThreshold,
-      isSystemLoading,
-      availablePieceTypesCount: availablePieceTypes.length,
-      isStreamFrozen: identificationSystem.isStreamFrozen,
-      lastIdentificationResult: identificationSystem.lastIdentificationResult
-    });
+    const timeoutId = setTimeout(() => {
+      console.log('🔍 Identification component state debug:', {
+        identificationState: identificationSystem.identificationState,
+        isInitialized,
+        initializationInProgress: initializationInProgress.current,
+        pieceTypesLoaded: pieceTypesLoaded.current,
+        confidenceThreshold,
+        isSystemLoading,
+        availablePieceTypesCount: availablePieceTypes.length,
+        isStreamFrozen: identificationSystem.isStreamFrozen,
+        lastIdentificationResult: identificationSystem.lastIdentificationResult
+      });
+    }, 500); // Debounce debug logs
+
+    return () => clearTimeout(timeoutId);
   }, [
     identificationSystem.identificationState, 
+    isInitialized,
     confidenceThreshold, 
     isSystemLoading, 
     availablePieceTypes.length,
@@ -265,7 +288,7 @@ export default function AppIdentification() {
 
 return (
   <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-    {/* Info Panel - Fixed prop name */}
+    {/* Info Panel */}
     <IdentificationInfoPanel
       isBasicMode={isBasicMode}
       identificationState={identificationSystem.identificationState}
@@ -286,7 +309,10 @@ return (
         sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
         icon={<CircularProgress size={20} />}
       >
-        Initializing identification system... Analyzing system capabilities and loading piece types.
+        {initializationInProgress.current ? 
+          'Initializing identification system... Please wait.' : 
+          'Preparing identification system...'
+        }
       </Alert>
     )}
 
@@ -310,9 +336,11 @@ return (
             size="small" 
             onClick={retryInitialization}
             disabled={identificationSystem.identificationState === IdentificationStates.INITIALIZING || 
-                     identificationSystem.identificationState === IdentificationStates.SHUTTING_DOWN}
+                     identificationSystem.identificationState === IdentificationStates.SHUTTING_DOWN ||
+                     initializationInProgress.current}
           >
-            {identificationSystem.identificationState === IdentificationStates.INITIALIZING ? 'Initializing...' : 'Retry Initialization'}
+            {(identificationSystem.identificationState === IdentificationStates.INITIALIZING || 
+              initializationInProgress.current) ? 'Initializing...' : 'Retry Initialization'}
           </Button>
         </Box>
         <br />
@@ -344,77 +372,72 @@ return (
       </Alert>
     )}
 
-    <Grid container spacing={2} columns={12} sx={{ mb: 2 }}>
-      {/* Main Content */}
-      <Grid size={{ xs: 12, md: 9 }}>
+    {/* Camera Controls - Always visible at top */}
+    <Box sx={{ mb: 2 }}>
+      <IdentificationControls
+        selectedCameraId={cameraManagement.selectedCameraId}
+        onCameraChange={identificationHandlers.handleCameraChange}
+        cameras={cameraManagement.cameras}
+        onDetectCameras={handleDetectCameras}
+        isDetecting={cameraManagement.isDetecting}
+        isSystemReady={stateInfo.canOperate && identificationSystem.identificationState === IdentificationStates.READY}
+        systemHealth={identificationSystem.systemHealth}
+        identificationOptions={identificationOptions}
+        onIdentificationOptionsChange={identificationHandlers.handleIdentificationOptionsChange}
+        identificationState={identificationSystem.identificationState}
+        confidenceThreshold={confidenceThreshold}
+        onConfidenceThresholdChange={identificationHandlers.handleUpdateConfidenceThreshold}
+      />
+    </Box>
+
+    {/* Main Content Grid - Video Feed and Controls side by side */}
+    <Grid container spacing={3} columns={12}>
+      {/* Video Feed Column */}
+      <Grid size={{ xs: 12, md: 8 }}>
         <Box
           sx={{
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
+            alignItems: 'center',
             minHeight: { xs: 'auto', md: '500px' }
           }}
         >
-          <Stack spacing={3}>
-            <IdentificationControls
-              selectedCameraId={cameraManagement.selectedCameraId}
-              onCameraChange={identificationHandlers.handleCameraChange}
-              cameras={cameraManagement.cameras}
-              onDetectCameras={handleDetectCameras}
-              isDetecting={cameraManagement.isDetecting}
-              isSystemReady={stateInfo.canOperate && identificationSystem.identificationState === IdentificationStates.READY}
-              systemHealth={identificationSystem.systemHealth}
-              identificationOptions={identificationOptions}
-              onIdentificationOptionsChange={identificationHandlers.handleIdentificationOptionsChange}
-              identificationState={identificationSystem.identificationState}
-              confidenceThreshold={confidenceThreshold}
-              onConfidenceThresholdChange={identificationHandlers.handleUpdateConfidenceThreshold}
-            />
-            
-            <IdentificationVideoFeed
-              isIdentificationActive={identificationSystem.identificationState === IdentificationStates.RUNNING}
-              onStartIdentification={identificationHandlers.handleStartIdentification}
-              onStopIdentification={identificationHandlers.handleStopIdentification}
-              cameraId={cameraManagement.cameraId}
-              confidenceThreshold={confidenceThreshold}
-              isSystemReady={stateInfo.canOperate}
-              identificationOptions={identificationOptions}
-              identificationState={identificationSystem.identificationState}
-            />
-          </Stack>
+          <IdentificationVideoFeed
+            isIdentificationActive={identificationSystem.identificationState === IdentificationStates.RUNNING}
+            onStartIdentification={identificationHandlers.handleStartIdentification}
+            onStopIdentification={identificationHandlers.handleStopIdentification}
+            cameraId={cameraManagement.cameraId}
+            confidenceThreshold={confidenceThreshold}
+            isSystemReady={stateInfo.canOperate}
+            identificationOptions={identificationOptions}
+            identificationState={identificationSystem.identificationState}
+          />
         </Box>
       </Grid>
 
-      {/* Right Sidebar - Basic Mode Controls */}
-      <Grid size={{ xs: 12, md: 3 }}>
+      {/* Basic Controls Column - Always visible */}
+      <Grid size={{ xs: 12, md: 4 }}>
         <Box
           sx={{
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            justifyContent: 'flex-start',
+            justifyContent: 'center',
             alignItems: 'stretch',
-            minHeight: { xs: 'auto', md: '500px' },
-            py: 2,
-            position: 'relative',
-            zIndex: 'auto'
+            minHeight: { xs: 'auto', md: '500px' }
           }}
         >
-          {/* Basic Mode Controls - Only show when system is running */}
-          {identificationSystem.identificationState === IdentificationStates.RUNNING && 
-           cameraManagement.cameraId && (
-            <BasicModeIdentificationControls
-              isStreamFrozen={identificationSystem.isStreamFrozen}
-              identificationInProgress={identificationSystem.identificationInProgress}
-              lastIdentificationResult={identificationSystem.lastIdentificationResult}
-              confidenceThreshold={confidenceThreshold}
-              onPieceIdentification={identificationHandlers.handlePieceIdentification}
-              onQuickAnalysis={identificationHandlers.handleQuickAnalysis}
-              onFreezeStream={identificationHandlers.handleFreezeStream}
-              onUnfreezeStream={identificationHandlers.handleUnfreezeStream}
-            />
-          )}
+          <BasicModeIdentificationControls
+            isStreamFrozen={identificationSystem.isStreamFrozen}
+            identificationInProgress={identificationSystem.identificationInProgress}
+            lastIdentificationResult={identificationSystem.lastIdentificationResult}
+            confidenceThreshold={confidenceThreshold}
+            onPieceIdentification={identificationHandlers.handlePieceIdentification}
+            onFreezeStream={identificationHandlers.handleFreezeStream}
+            onUnfreezeStream={identificationHandlers.handleUnfreezeStream}
+          />
         </Box>
       </Grid>
     </Grid>
