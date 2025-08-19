@@ -6,7 +6,7 @@ services:
     container_name: airvision_base
     build:
       context: ./backend/shared
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
     image: airvision_base:latest
     command: ["echo", "Base image built successfully"]
     networks:

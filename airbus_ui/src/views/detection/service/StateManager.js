@@ -8,20 +8,6 @@ const DetectionStates = {
   SHUTTING_DOWN: 'SHUTTING_DOWN'
 };
 
-// Performance modes based on system capabilities
-const PerformanceModes = {
-  BASIC: 'basic',
-  STANDARD: 'standard', 
-  ENHANCED: 'enhanced',
-  HIGH_PERFORMANCE: 'high_performance'
-};
-
-// Streaming types
-const StreamingTypes = {
-  BASIC: 'basic',
-  OPTIMIZED: 'optimized'
-};
-
 export class StateManager {
   constructor(detectionService) {
     this.detectionService = detectionService;
