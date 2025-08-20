@@ -54,42 +54,24 @@ const StyledTabs = styled(Tabs)({
   },
 });
 
-// UPDATED: Custom Grid Container with CSS Grid for precise control
+// FIXED: Simple CSS Grid with exactly 4 columns and auto rows
 const CardsGridContainer = styled('div')(({ theme }) => ({
   display: 'grid',
+  gridTemplateColumns: 'repeat(4, 1fr)', // Always 4 columns
   gap: '20px',
   width: '100%',
   
-  // Mobile first approach
-  gridTemplateColumns: '1fr',
-  
-  // Small screens (tablets) - 2 cards per row
-  [theme.breakpoints.up('sm')]: {
-    gridTemplateColumns: 'repeat(2, 1fr)',
+  // Responsive adjustments only for smaller screens
+  [theme.breakpoints.down('lg')]: {
+    gridTemplateColumns: 'repeat(3, 1fr)', // 3 columns for medium screens
   },
   
-  // Medium screens - 3 cards per row
-  [theme.breakpoints.up('md')]: {
-    gridTemplateColumns: 'repeat(3, 1fr)',
+  [theme.breakpoints.down('md')]: {
+    gridTemplateColumns: 'repeat(2, 1fr)', // 2 columns for small screens
   },
   
-  // Large screens - 4 cards per row (this is what you want)
-  [theme.breakpoints.up('lg')]: {
-    gridTemplateColumns: 'repeat(4, 1fr)',
-  },
-  
-  // Extra large screens - 5 cards per row
-  [theme.breakpoints.up('xl')]: {
-    gridTemplateColumns: 'repeat(5, 1fr)',
-  },
-  
-  // Fallback for very large screens using pixel values
-  '@media (min-width: 1200px)': {
-    gridTemplateColumns: 'repeat(4, 1fr)',
-  },
-  
-  '@media (min-width: 1536px)': {
-    gridTemplateColumns: 'repeat(5, 1fr)',
+  [theme.breakpoints.down('sm')]: {
+    gridTemplateColumns: '1fr', // 1 column for mobile
   },
 }));
 
@@ -111,25 +93,6 @@ const PieceCard = styled(Card)(({ theme }) => ({
     boxShadow: "0 12px 32px rgba(102, 126, 234, 0.2)",
     border: "2px solid #667eea",
     backgroundColor: "rgba(78, 105, 221, 0.45)",
-  },
-}));
-
-// Alternative approach: Custom Grid Item with explicit sizing
-const CustomGridItem = styled('div')(({ theme }) => ({
-  width: '100%',
-  
-  // Use CSS Grid's auto-fit with minmax for responsive behavior
-  '@media (max-width: 599px)': {
-    width: '100%',
-  },
-  '@media (min-width: 600px) and (max-width: 899px)': {
-    width: '100%',
-  },
-  '@media (min-width: 900px) and (max-width: 1199px)': {
-    width: '100%',
-  },
-  '@media (min-width: 1200px)': {
-    width: '100%',
   },
 }));
 
@@ -366,59 +329,57 @@ export default function PiecesOverview() {
     const statusInfo = getStatusInfo(piece);
     
     return (
-      <CustomGridItem key={piece.piece_label}>
-        <PieceCard elevation={0} onClick={() => handlePieceClick(piece.piece_label)}>
-          <CardHeader>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
-              <IconContainer>
-                <CropFree fontSize="medium" />
-              </IconContainer>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <PieceTitle title={piece.piece_label}>{piece.piece_label}</PieceTitle>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <PhotoLibrary sx={{ fontSize: 14, color: "#667eea" }} />
-                  <Typography variant="caption" sx={{ color: "#666", fontWeight: "500" }}>
-                    {piece.nbr_img} images
-                  </Typography>
-                </Box>
+      <PieceCard key={piece.piece_label} elevation={0} onClick={() => handlePieceClick(piece.piece_label)}>
+        <CardHeader>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+            <IconContainer>
+              <CropFree fontSize="medium" />
+            </IconContainer>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <PieceTitle title={piece.piece_label}>{piece.piece_label}</PieceTitle>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <PhotoLibrary sx={{ fontSize: 14, color: "#667eea" }} />
+                <Typography variant="caption" sx={{ color: "#666", fontWeight: "500" }}>
+                  {piece.nbr_img} images
+                </Typography>
               </Box>
             </Box>
-            
-            {piece.url && (
-              <ImagePreview
-                src={piece.url}
-                alt={piece.piece_label}
-                onError={(e) => {
-                  console.log(`Failed to load image: ${piece.url}`);
-                  e.target.style.display = 'none';
-                }}
-                onLoad={() => {
-                  console.log(`Successfully loaded image: ${piece.url}`);
-                }}
-              />
-            )}
-          </CardHeader>
+          </Box>
           
-          <StatsContainer>
-            <StatsRow>
-              <StatusChip
-                variant={statusInfo.variant}
-                icon={statusInfo.icon}
-                label={statusInfo.label}
-                size="small"
-              />
-              
-              <ActionButton
-                variant={statusInfo.variant === 'completed' ? 'secondary' : 'primary'}
-                size="small"
-                startIcon={statusInfo.variant === 'completed' ? <Visibility /> : <Edit />}
-              >
-                {statusInfo.variant === 'completed' ? 'View' : 'Annotate'}
-              </ActionButton>
-            </StatsRow>
-          </StatsContainer>
-        </PieceCard>
-      </CustomGridItem>
+          {piece.url && (
+            <ImagePreview
+              src={piece.url}
+              alt={piece.piece_label}
+              onError={(e) => {
+                console.log(`Failed to load image: ${piece.url}`);
+                e.target.style.display = 'none';
+              }}
+              onLoad={() => {
+                console.log(`Successfully loaded image: ${piece.url}`);
+              }}
+            />
+          )}
+        </CardHeader>
+        
+        <StatsContainer>
+          <StatsRow>
+            <StatusChip
+              variant={statusInfo.variant}
+              icon={statusInfo.icon}
+              label={statusInfo.label}
+              size="small"
+            />
+            
+            <ActionButton
+              variant={statusInfo.variant === 'completed' ? 'secondary' : 'primary'}
+              size="small"
+              startIcon={statusInfo.variant === 'completed' ? <Visibility /> : <Edit />}
+            >
+              {statusInfo.variant === 'completed' ? 'View' : 'Annotate'}
+            </ActionButton>
+          </StatsRow>
+        </StatsContainer>
+      </PieceCard>
     );
   };
 

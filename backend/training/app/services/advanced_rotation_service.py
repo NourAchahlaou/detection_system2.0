@@ -110,43 +110,6 @@ def rotate_and_save_images_and_annotations(piece_label: str, rotation_angles: li
             return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         return image
 
-    def apply_occlusion(image: np.ndarray, probability: float) -> np.ndarray:
-        """Randomly apply black rectangles (occlusion) to the image."""
-        if random.random() < probability:
-            h, w = image.shape[:2]
-            rect_width = random.randint(50, w // 4)
-            rect_height = random.randint(50, h // 4)
-            x1 = random.randint(0, w - rect_width)
-            y1 = random.randint(0, h - rect_height)
-            image[y1:y1 + rect_height, x1:x1 + rect_width] = 0
-        return image
-
-    def add_noise(image: np.ndarray, mean: float = 0, stddev: float = 25) -> np.ndarray:
-        """Add Gaussian noise to the image."""
-        gaussian_noise = np.random.normal(mean, stddev, image.shape).astype('uint8')
-        noisy_image = cv2.add(image, gaussian_noise)  # Adding the noise
-        return noisy_image
-
-    def adjust_brightness_contrast(image: np.ndarray, brightness_factor: float = 1.0, contrast_factor: float = 1.0) -> np.ndarray:
-        """Randomly adjust the brightness and contrast of the image."""
-        image = image.astype(np.float32)
-        image = image * contrast_factor + brightness_factor
-        image = np.clip(image, 0, 255)  # Ensure the values are within valid image range
-        return image.astype(np.uint8)
-
-    def scale_image(image: np.ndarray, scale_factor: float = 1.0) -> np.ndarray:
-        """Scale the image (zoom in/out)."""
-        h, w = image.shape[:2]
-        new_h = int(h * scale_factor)
-        new_w = int(w * scale_factor)
-        scaled_image = cv2.resize(image, (new_w, new_h))
-        
-        if scale_factor < 1:
-            pad_h = (h - new_h) // 2
-            pad_w = (w - new_w) // 2
-            scaled_image = cv2.copyMakeBorder(scaled_image, pad_h, h - new_h - pad_h, pad_w, w - new_w - pad_w, cv2.BORDER_CONSTANT, value=(0, 0, 0))
-        
-        return scaled_image
 
     # Process images
     image_files = [f for f in os.listdir(image_folder) if f.endswith(('.jpg', '.png'))]
@@ -169,10 +132,6 @@ def rotate_and_save_images_and_annotations(piece_label: str, rotation_angles: li
         # Apply the augmentations (same for all transformations)
         augmented_images = [
             apply_greyscale(image, 0.5),
-            apply_occlusion(image, 0.5),
-            add_noise(image),
-            adjust_brightness_contrast(image),
-            scale_image(image)
         ]
 
         for angle in rotation_angles:

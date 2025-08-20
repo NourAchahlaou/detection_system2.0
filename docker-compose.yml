@@ -126,37 +126,49 @@ services:
       - DATASET_BASE_PATH=/app/shared/dataset
 
   training:
-    container_name: trainingMicroservice
-    depends_on:
-      base_image:
-        condition: service_completed_successfully
-      databasePostgres:
-        condition: service_healthy
-      artifact_keeper:
-        condition: service_started
-    build:
-      context: ./backend/training
-      dockerfile: Dockerfile
-    env_file:
-      - ./.env
-    ports:
-      - "8005:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - airvision-net
-    volumes:
-      - ./backend/training/app:/usr/srv/training/app
-      - ./.env:/usr/srv/.env
-      - dataset:/app/shared/dataset
-      - training_logs:/usr/srv/logs
-      - models:/app/shared/models
-    user: "1001:1001"
-    environment:
-      - DATASET_BASE_PATH=/app/shared/dataset
-      - LOG_PATH=/usr/srv/logs
-      - MODELS_BASE_PATH=/app/shared/models
-
+      container_name: trainingMicroservice
+      depends_on:
+        base_image:
+          condition: service_completed_successfully
+        databasePostgres:
+          condition: service_healthy
+        artifact_keeper:
+          condition: service_started
+      build:
+        context: ./backend/training
+        dockerfile: Dockerfile
+      env_file:
+        - ./.env
+      ports:
+        - "8005:8000"
+      shm_size: '2gb'
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      networks:
+        - airvision-net
+      volumes:
+        - ./backend/training/app:/usr/srv/training/app
+        - ./.env:/usr/srv/.env
+        - dataset:/app/shared/dataset
+        - training_logs:/usr/srv/logs
+        - models:/app/shared/models
+      user: "1001:1001"
+      environment:
+        - DATASET_BASE_PATH=/app/shared/dataset
+        - LOG_PATH=/usr/srv/logs
+        - MODELS_BASE_PATH=/app/shared/models
+        - NVIDIA_VISIBLE_DEVICES=all
+        - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # GPU Configuration
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: all
+                capabilities: [gpu]
+      # Alternative for older docker-compose versions:
+      # runtime: nvidia
   detection:
     container_name: detectionMicroservice
     depends_on:

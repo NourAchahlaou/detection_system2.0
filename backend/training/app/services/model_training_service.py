@@ -50,13 +50,63 @@ async def stop_training():
     logger.info("Stop training signal sent.")
 
 def select_device():
-    """Select the best available device (GPU if available, else CPU)."""
+    """Select the best available device (GPU if available, else CPU) with detailed diagnostics."""
+    
+    # Check CUDA availability
+    logger.info(f"PyTorch version: {torch.__version__}")
+    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    logger.info(f"CUDA version: {torch.version.cuda}")
+    
+    # Check for NVIDIA environment variables
+    nvidia_visible_devices = os.environ.get('NVIDIA_VISIBLE_DEVICES', 'Not set')
+    nvidia_driver_capabilities = os.environ.get('NVIDIA_DRIVER_CAPABILITIES', 'Not set')
+    logger.info(f"NVIDIA_VISIBLE_DEVICES: {nvidia_visible_devices}")
+    logger.info(f"NVIDIA_DRIVER_CAPABILITIES: {nvidia_driver_capabilities}")
+    
     if torch.cuda.is_available():
-        device = torch.device('cuda')
-        logger.info(f"CUDA Device Detected: {torch.cuda.get_device_name(0)}")
+        device_count = torch.cuda.device_count()
+        logger.info(f"Number of CUDA devices: {device_count}")
+        
+        for i in range(device_count):
+            device_props = torch.cuda.get_device_properties(i)
+            logger.info(f"Device {i}: {device_props.name}")
+            logger.info(f"  Memory: {device_props.total_memory / 1024**3:.1f} GB")
+            logger.info(f"  Compute capability: {device_props.major}.{device_props.minor}")
+        
+        # Use first available GPU
+        device = torch.device('cuda:0')
+        logger.info(f"Selected device: {device}")
+        
+        # Test GPU functionality
+        try:
+            test_tensor = torch.randn(10, 10).to(device)
+            logger.info("GPU functionality test: PASSED")
+        except Exception as e:
+            logger.error(f"GPU functionality test failed: {e}")
+            logger.info("Falling back to CPU")
+            device = torch.device('cpu')
+        
         return device
     else:
-        logger.info("No GPU detected. Using CPU.")
+        logger.info("No GPU detected. Checking possible causes:")
+        
+        # Check if running in container
+        if os.path.exists('/.dockerenv'):
+            logger.info("Running in Docker container")
+            logger.info("Make sure Docker is configured with GPU access (nvidia-docker or deploy.resources.reservations.devices)")
+        
+        # Check if CUDA drivers are available
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info("nvidia-smi is available on host, but not accessible in container")
+            else:
+                logger.info("nvidia-smi not available - NVIDIA drivers may not be installed")
+        except FileNotFoundError:
+            logger.info("nvidia-smi command not found")
+        
+        logger.info("Using CPU for training")
         return torch.device('cpu')
 
 def adjust_batch_size(device, base_batch_size=8):
@@ -436,6 +486,7 @@ def train_single_piece(piece_label: str, db: Session, service_dir: str, session_
                 name=f"{piece_label}_epoch_{current_epoch_num}",
                 exist_ok=True,
                 amp=True,
+                plots=False,
                 patience=10,
                 augment=True,
                 **hyperparameters
