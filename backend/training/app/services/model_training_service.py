@@ -43,8 +43,9 @@ logger = logging.getLogger(__name__)
 stop_event = asyncio.Event()
 stop_sign = False
 
-# FIXED: More conservative image size for GPU
-DETECTION_IMAGE_SIZE = 416  # Reduced from 640 for better GPU compatibility
+# Image size constants based on device
+GPU_IMAGE_SIZE = 416  # Conservative size for GPU
+CPU_IMAGE_SIZE = 640  # Higher resolution for CPU
 
 async def stop_training():
     """Set the stop event to signal training to stop."""
@@ -130,9 +131,16 @@ def adjust_batch_size(device, base_batch_size=8):
     else:
         return max(2, base_batch_size // 2)
 
-def get_training_image_size():
-    """Return conservative image size for GPU training."""
-    return DETECTION_IMAGE_SIZE
+def get_training_image_size(device):
+    """Return image size based on device type."""
+    if device.type == 'cuda':
+        image_size = GPU_IMAGE_SIZE
+        logger.info(f"Using GPU image size: {image_size}")
+    else:
+        image_size = CPU_IMAGE_SIZE
+        logger.info(f"Using CPU image size: {image_size}")
+    
+    return image_size
 
 def force_cleanup_gpu_memory():
     """Aggressive GPU memory cleanup."""
@@ -298,9 +306,10 @@ def train_model_group_based(piece_labels: list, db: Session, session_id: int):
         device = select_device()
         training_session.device_used = str(device)
         
-        fixed_image_size = get_training_image_size()
-        training_session.image_size = fixed_image_size
-        training_session.add_log("INFO", f"Using conservative image size: {fixed_image_size}x{fixed_image_size} for GPU stability")
+        # Get image size based on device
+        adaptive_image_size = get_training_image_size(device)
+        training_session.image_size = adaptive_image_size
+        training_session.add_log("INFO", f"Using device-specific image size: {adaptive_image_size}x{adaptive_image_size} for {device.type.upper()}")
         safe_commit(db)
 
         if not training_session.total_images:
@@ -328,7 +337,7 @@ def train_model_group_based(piece_labels: list, db: Session, session_id: int):
             training_session.progress_percentage = group_progress
             safe_commit(db)
             
-            train_single_group(group_name, group_pieces, db, session_id)
+            train_single_group(group_name, group_pieces, db, session_id, device)
             
             # Force cleanup between groups
             force_cleanup_gpu_memory()
@@ -353,7 +362,7 @@ def train_model_group_based(piece_labels: list, db: Session, session_id: int):
         force_cleanup_gpu_memory()
         logger.info("Group-based training process finished and GPU memory cleared.")
 
-def train_single_group(group_name: str, piece_labels: List[str], db: Session, session_id: int):
+def train_single_group(group_name: str, piece_labels: List[str], db: Session, session_id: int, device=None):
     """Train a single group with maximum GPU stability measures."""
     model = None
     try:
@@ -361,6 +370,10 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         if not training_session:
             logger.error(f"Training session {session_id} not found")
             return
+
+        # Use passed device or select new one
+        if device is None:
+            device = select_device()
 
         dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
         models_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
@@ -398,6 +411,18 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             return
             
         dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom', group_name)
+        
+        # CRITICAL FIX: Create the directory structure BEFORE writing data.yaml
+        os.makedirs(dataset_custom_path, exist_ok=True)
+        
+        # Also create the required subdirectories
+        train_images_path = os.path.join(dataset_custom_path, "images", "train")
+        valid_images_path = os.path.join(dataset_custom_path, "images", "valid")
+        train_labels_path = os.path.join(dataset_custom_path, "labels", "train")
+        valid_labels_path = os.path.join(dataset_custom_path, "labels", "valid")
+        
+        for path in [train_images_path, valid_images_path, train_labels_path, valid_labels_path]:
+            os.makedirs(path, exist_ok=True)
 
         data_yaml_path = os.path.join(dataset_custom_path, "data.yaml")
         
@@ -408,12 +433,14 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             "names": class_mapping
         }
         
+        # Now it's safe to write the data.yaml file
         with open(data_yaml_path, 'w') as f:
             yaml.dump(data_yaml_content, f, default_flow_style=False)
         
         training_session.add_log("INFO", f"Created data.yaml for group {group_name} with content: {data_yaml_content}")
         safe_commit(db)
 
+        # Now call rotation which will populate the directory structure we just created
         logger.info(f"Starting rotation and augmentation for group {group_name}")
         training_session.add_log("INFO", f"Starting rotation and augmentation for group {group_name}")
         safe_commit(db)
@@ -425,10 +452,9 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             training_session.add_log("WARNING", f"Rotation failed for group {group_name}: {str(rotation_error)}")
         safe_commit(db)
 
+        # Rest of the function remains the same...
         existing_classes = check_existing_classes_in_model(model_save_path)
         new_classes = list(class_mapping.keys())
-        
-        device = select_device()
         
         if os.path.exists(model_save_path):
             training_session.add_log("INFO", f"Loading existing model for group {group_name} (incremental learning)")
@@ -452,7 +478,8 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             training_session.add_log("INFO", f"GPU memory before training - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
             safe_commit(db)
         
-        imgsz = get_training_image_size()
+        # Get device-specific image size and batch size
+        imgsz = get_training_image_size(device)
         batch_size = adjust_batch_size(device)
         hyperparameters = adjust_hyperparameters_for_incremental(existing_classes, new_classes, device)
         
@@ -642,9 +669,11 @@ def train_model(piece_labels: list, db: Session, session_id: int):
 
 def train_single_piece(piece_label: str, db: Session, service_dir: str, session_id: int, is_resumed: bool = False):
     """Backward compatibility wrapper - redirects single piece to group-based training."""
+    device = select_device()
     return train_single_group(
         group_name=extract_group_from_piece_label(piece_label),
         piece_labels=[piece_label],
         db=db,
-        session_id=session_id
+        session_id=session_id,
+        device=device
     )
