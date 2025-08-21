@@ -119,13 +119,38 @@ def start_basler_camera(request: BaslerCameraRequest):
 
 @camera_router.get("/video_feed")
 def video_feed():
-    """Stream video from the current camera"""
+    """Stream video from the current camera in MJPEG format"""
     if not frame_source.camera_is_running:
         raise HTTPException(
             status_code=503,
             detail="Camera is not running or hardware is unavailable"
         )
-    return StreamingResponse(frame_source.generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(
+        frame_source.generate_frames(), 
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+@camera_router.get("/raw_jpeg_stream")
+def raw_jpeg_stream():
+    """Stream raw JPEG frames for video streaming service consumption"""
+    if not frame_source.camera_is_running:
+        raise HTTPException(
+            status_code=503,
+            detail="Camera is not running or hardware is unavailable"
+        )
+    
+    print(f"Starting raw JPEG stream for {frame_source.type} camera")
+    
+    return StreamingResponse(
+        frame_source.generate_raw_jpeg_stream(),
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Connection": "close"
+        }
+    )
 
 @camera_router.get("/capture_images/{piece_label}")
 async def capture_images(
@@ -216,7 +241,61 @@ async def check_camera():
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-# New endpoints for circuit breaker management
+@camera_router.get("/status")
+async def get_camera_status():
+    """Get detailed camera status"""
+    return {
+        "camera_is_running": frame_source.camera_is_running,
+        "camera_type": frame_source.type,
+        "camera_id": frame_source.cam_id,
+        "is_open": frame_source._check_camera() if frame_source.camera_is_running else False
+    }
+# Add this to your camera router
+@camera_router.get("/single_frame")
+def get_single_frame():
+    """Get a single frame as JPEG for video streaming service"""
+    if not frame_source.camera_is_running:
+        raise HTTPException(
+            status_code=503,
+            detail="Camera is not running or hardware is unavailable"
+        )
+    
+    try:
+        # Get a single frame directly from the camera
+        frame = frame_source.frame()
+        
+        if frame is None:
+            raise HTTPException(status_code=503, detail="Failed to capture frame")
+        
+        # Encode as JPEG
+        success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not success:
+            raise HTTPException(status_code=503, detail="Failed to encode frame as JPEG")
+        
+        return Response(
+            content=buffer.tobytes(),
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+        
+    except Exception as e:
+       
+        raise HTTPException(status_code=503, detail=f"Failed to get frame: {str(e)}")
+
+@camera_router.get("/frame_info")
+def get_frame_info():
+    """Get information about the camera and frame status"""
+    return {
+        "camera_is_running": frame_source.camera_is_running,
+        "camera_type": frame_source.type,
+        "camera_id": frame_source.cam_id,
+        "is_open": frame_source._check_camera() if frame_source.camera_is_running else False
+    }
+# Circuit breaker management endpoints
 @camera_router.get("/circuit-breaker-status", response_model=Dict[str, CircuitBreakerStatusResponse])
 async def get_circuit_breaker_status():
     """Get the status of all circuit breakers"""

@@ -1,4 +1,4 @@
-# basic_video_streaming_service.py - Streaming with freeze capability for basic mode
+# basic_video_streaming_service.py - Polling approach for reliable frame capture
 import cv2
 import asyncio
 import logging
@@ -8,7 +8,6 @@ from typing import Optional, Dict, Any
 import time
 import uuid
 from dataclasses import dataclass
-
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +21,7 @@ class BasicStreamConfig:
     """Simple configuration for basic streaming"""
     camera_id: int
     stream_quality: int = 85
-    target_fps: int = 25
+    target_fps: int = 15  # Reduced for polling approach
 
 class BasicStreamManager:
     """Lightweight stream manager for basic mode with freeze capability"""
@@ -68,7 +67,7 @@ class BasicStreamManager:
         return None
 
 class BasicStreamState:
-    """Stream state with freeze capability for detection"""
+    """Stream state with freeze capability using polling approach"""
     
     def __init__(self, config: BasicStreamConfig):
         self.config = config
@@ -93,13 +92,25 @@ class BasicStreamState:
         try:
             logger.info(f"🚀 Initializing basic stream for camera {self.config.camera_id}")
             
-            # Create HTTP session
-            timeout = aiohttp.ClientTimeout(total=None)
+            # Create HTTP session with reasonable timeouts
+            timeout = aiohttp.ClientTimeout(total=10, connect=5)
             self.session = aiohttp.ClientSession(timeout=timeout)
+            
+            # Test connection to hardware service
+            try:
+                async with self.session.get(f"{HARDWARE_SERVICE_URL}/camera/frame_info") as response:
+                    if response.status == 200:
+                        info = await response.json()
+                        logger.info(f"📡 Hardware service info: {info}")
+                    else:
+                        logger.warning(f"Hardware service responded with status {response.status}")
+            except Exception as e:
+                logger.warning(f"Could not get hardware service info: {e}")
+            
             self.is_active = True
             
             # Start frame producer
-            self.frame_producer_task = asyncio.create_task(self._frame_producer())
+            self.frame_producer_task = asyncio.create_task(self._frame_producer_polling())
             
             logger.info(f"✅ Basic stream initialized for camera {self.config.camera_id}")
             
@@ -108,98 +119,125 @@ class BasicStreamState:
             await self.cleanup()
             raise
     
-    async def _frame_producer(self):
-        """Frame producer that can be frozen for detection"""
-        logger.info(f"🎥 Starting basic frame producer for camera {self.config.camera_id}")
+    async def _frame_producer_polling(self):
+        """Frame producer using polling approach - much more reliable"""
+        logger.info(f"🎥 Starting polling-based frame producer for camera {self.config.camera_id}")
         
         consecutive_failures = 0
+        max_failures = 10
+        poll_interval = 1.0 / self.config.target_fps  # Convert FPS to seconds
+        last_poll_time = 0
         
         try:
             while self.is_active and not self.stop_event.is_set():
+                current_time = time.time()
+                
+                # Rate limiting
+                time_since_last_poll = current_time - last_poll_time
+                if time_since_last_poll < poll_interval:
+                    sleep_time = poll_interval - time_since_last_poll
+                    await asyncio.sleep(sleep_time)
+                
+                # Skip if no consumers and not frozen
+                if not self.consumers and not self.is_frozen:
+                    await asyncio.sleep(0.1)
+                    continue
+                
                 try:
-                    # Connect to hardware service
-                    async with self.session.get(f"{HARDWARE_SERVICE_URL}/camera/video_feed") as response:
-                        if response.status != 200:
-                            logger.error(f"Frame stream failed with status {response.status}")
-                            consecutive_failures += 1
-                            if consecutive_failures > 5:
-                                break
-                            await asyncio.sleep(1.0)
-                            continue
-                        
+                    # Poll for a single frame
+                    frame_bytes = await self._poll_single_frame()
+                    
+                    if frame_bytes is not None:
                         consecutive_failures = 0
-                        buffer = bytearray()
                         
-                        async for chunk in response.content.iter_chunked(8192):
-                            if self.stop_event.is_set() or not self.consumers:
-                                break
-                                
-                            buffer.extend(chunk)
-                            
-                            # Process complete JPEG frames
-                            while True:
-                                jpeg_start = buffer.find(b'\xff\xd8')
-                                if jpeg_start == -1:
-                                    break
-                                
-                                jpeg_end = buffer.find(b'\xff\xd9', jpeg_start + 2)
-                                if jpeg_end == -1:
-                                    break
-                                
-                                jpeg_data = bytes(buffer[jpeg_start:jpeg_end + 2])
-                                buffer = buffer[jpeg_end + 2:]
-                                
-                                try:
-                                    # Store frame (only if not frozen)
-                                    if not self.is_frozen:
-                                        await self._store_frame(jpeg_data)
-                                except Exception as e:
-                                    logger.debug(f"Frame processing error: {e}")
-                                    
-                            # Prevent buffer from growing too large
-                            if len(buffer) > 100000:
-                                buffer = buffer[-50000:]
+                        # Store frame (only if not frozen)
+                        if not self.is_frozen:
+                            await self._store_frame(frame_bytes)
+                        
+                        last_poll_time = time.time()
+                    else:
+                        consecutive_failures += 1
+                        if consecutive_failures > max_failures:
+                            logger.error(f"❌ Too many consecutive failures ({consecutive_failures}), stopping polling")
+                            break
+                        
+                        # Exponential backoff for failures
+                        await asyncio.sleep(min(2.0, 0.1 * consecutive_failures))
                 
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.error(f"Error in basic frame producer: {e}")
+                    logger.error(f"Error in polling frame producer: {e}")
                     consecutive_failures += 1
-                    if consecutive_failures > 10:
-                        logger.error("Too many consecutive failures, stopping producer")
+                    if consecutive_failures > max_failures:
                         break
                     await asyncio.sleep(1.0)
         
         finally:
-            logger.info(f"🛑 Basic frame producer stopped for camera {self.config.camera_id}")
+            logger.info(f"🛑 Polling frame producer stopped for camera {self.config.camera_id}")
     
-    async def _store_frame(self, jpeg_data: bytes):
+    async def _poll_single_frame(self) -> Optional[bytes]:
+        """Poll for a single frame from the hardware service"""
+        try:
+            url = f"{HARDWARE_SERVICE_URL}/camera/single_frame"
+            
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    frame_bytes = await response.read()
+                    
+                    # Validate frame
+                    if len(frame_bytes) > 1000:  # Reasonable minimum size for JPEG
+                        return frame_bytes
+                    else:
+                        logger.debug(f"Frame too small: {len(frame_bytes)} bytes")
+                        return None
+                else:
+                    logger.debug(f"Frame poll failed with status {response.status}")
+                    return None
+                    
+        except asyncio.TimeoutError:
+            logger.debug("Frame poll timeout")
+            return None
+        except Exception as e:
+            logger.debug(f"Frame poll error: {e}")
+            return None
+    
+    async def _store_frame(self, frame_bytes: bytes):
         """Store frame for streaming (respects freeze state)"""
         try:
             # If frozen, don't update the latest frame
             if self.is_frozen:
                 return
-                
-            # Decode and resize frame for efficiency
-            nparr = np.frombuffer(jpeg_data, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            if frame is not None and frame.size > 0:
-                # Resize frame
-                frame = cv2.resize(frame, (640, 480))
+            # Optional: resize frame for efficiency
+            if self.config.stream_quality < 85:
+                nparr = np.frombuffer(frame_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
-                # Re-encode with specified quality
-                encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.config.stream_quality]
-                success, buffer = cv2.imencode('.jpg', frame, encode_params)
+                if frame is not None:
+                    # Resize if needed
+                    height, width = frame.shape[:2]
+                    if width > 800:
+                        frame = cv2.resize(frame, (800, 600))
+                    
+                    # Re-encode with specified quality
+                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.config.stream_quality]
+                    success, buffer = cv2.imencode('.jpg', frame, encode_params)
+                    
+                    if success:
+                        frame_bytes = buffer.tobytes()
+            
+            async with self.frame_lock:
+                self.latest_frame = frame_bytes
+                self.frame_count += 1
+                self.last_frame_time = time.time()
                 
-                if success:
-                    async with self.frame_lock:
-                        self.latest_frame = buffer.tobytes()
-                        self.frame_count += 1
-                        self.last_frame_time = time.time()
+                # Log progress
+                if self.frame_count % 50 == 0:
+                    logger.info(f"📦 Stored {self.frame_count} frames for camera {self.config.camera_id}")
                         
         except Exception as e:
-            logger.error(f"Error storing frame: {e}")
+            logger.debug(f"Error storing frame: {e}")
     
     async def freeze_stream(self):
         """Freeze the stream to current frame"""
@@ -272,7 +310,8 @@ class BasicStreamState:
             'consumers_count': len(self.consumers),
             'frames_processed': self.frame_count,
             'last_frame_time': self.last_frame_time,
-            'stream_quality': self.config.stream_quality
+            'stream_quality': self.config.stream_quality,
+            'target_fps': self.config.target_fps
         }
     
     async def cleanup(self):
@@ -286,9 +325,9 @@ class BasicStreamState:
         if self.frame_producer_task and not self.frame_producer_task.done():
             self.frame_producer_task.cancel()
             try:
-                await asyncio.wait_for(self.frame_producer_task, timeout=2.0)
+                await asyncio.wait_for(self.frame_producer_task, timeout=3.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+                logger.warning(f"Frame producer task cleanup timeout for camera {self.config.camera_id}")
         
         # Close HTTP session
         if self.session and not self.session.closed:

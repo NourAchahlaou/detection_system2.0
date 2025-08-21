@@ -18,12 +18,7 @@ class CameraService:
         
     def __init__(self, hardware_service_url: str = "http://host.docker.internal:8003"):
         self.hardware_client = CameraClient(base_url=hardware_service_url)
-        
-
-     
-                    
-  
-    
+          
     def get_camera_by_id(self, db: Session, camera_id: int) -> Camera:
         """Get a camera by its ID."""
         camera = db.query(Camera).filter(Camera.id == camera_id).first()
@@ -79,11 +74,3 @@ class CameraService:
         except Exception as e:
             logger.error(f"Error checking camera: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to check camera: {str(e)}")
-    
-
-
-    
-    
-   
-    
-    
