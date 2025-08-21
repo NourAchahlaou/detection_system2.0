@@ -25,20 +25,20 @@ class CaptureService:
         self.hardware_client = CameraClient(base_url=hardware_service_url)
         self.temp_photos = []
         
-        # Updated dataset structure: shared_data/dataset/piece/piece/{piece_label}/
+        # Updated dataset structure: shared_data/dataset/piece/piece/{piece_group}/{piece_label}/
         self.dataset_base_path = dataset_base_path
-        self.dataset_piece_path = os.path.join(self.dataset_base_path, "piece", "piece")
+        self.dataset_piece_base = os.path.join(self.dataset_base_path, "piece", "piece")
         
         # Create the base dataset structure if it doesn't exist with error handling
         try:
-            os.makedirs(self.dataset_piece_path, exist_ok=True)
-            logger.info(f"Successfully created/verified dataset directory: {self.dataset_piece_path}")
+            os.makedirs(self.dataset_piece_base, exist_ok=True)
+            logger.info(f"Successfully created/verified dataset directory: {self.dataset_piece_base}")
         except PermissionError as e:
-            logger.error(f"Permission denied creating dataset directory {self.dataset_piece_path}: {str(e)}")
+            logger.error(f"Permission denied creating dataset directory {self.dataset_piece_base}: {str(e)}")
             logger.error("Please check directory permissions and user ownership")
             raise HTTPException(
                 status_code=500, 
-                detail=f"Cannot create dataset directory due to permission error. Please check directory permissions for {self.dataset_piece_path}"
+                detail=f"Cannot create dataset directory due to permission error. Please check directory permissions for {self.dataset_piece_base}"
             )
         except Exception as e:
             logger.error(f"Unexpected error creating dataset directory: {str(e)}")
@@ -53,21 +53,34 @@ class CaptureService:
             raise
         
         logger.info(f"Dataset base path: {self.dataset_base_path}")
-        logger.info(f"Dataset piece path: {self.dataset_piece_path}")
+        logger.info(f"Dataset piece base: {self.dataset_piece_base}")
+
+    def _extract_piece_group(self, piece_label: str) -> str:
+        """Extract the group prefix from the piece label (e.g., G123 from G123.12345.123.12)."""
+        match = re.match(r'^([A-Z]\d{3})', piece_label)
+        if not match:
+            raise HTTPException(status_code=400, detail=f"Invalid piece_label format: {piece_label}")
+        return match.group(1)
     
     def _create_piece_directory(self, piece_label: str) -> tuple[str, str]:
         """Create directory structure for a piece if it doesn't exist."""
-        piece_dir = os.path.join(self.dataset_piece_path, piece_label)
+        # Extract the group from piece label
+        piece_group = self._extract_piece_group(piece_label)
+        
+        # Create path: dataset/piece/piece/{piece_group}/{piece_label}/
+        piece_dir = os.path.join(self.dataset_piece_base, piece_group, piece_label)
         images_dir = os.path.join(piece_dir, "images", "valid")
         labels_dir = os.path.join(piece_dir, "labels", "valid")
         
-        # Create the directory structure: shared_data/dataset/piece/piece/{piece_label}/images/valid
-        # and shared_data/dataset/piece/piece/{piece_label}/labels/valid
+        # Create the directory structure
         os.makedirs(images_dir, exist_ok=True)
         os.makedirs(labels_dir, exist_ok=True)
         
-        logger.info(f"Created/verified directory structure: {images_dir} and {labels_dir}")
+        logger.info(f"Created/verified directory structure for group {piece_group}:")
+        logger.info(f"  Images: {images_dir}")
+        logger.info(f"  Labels: {labels_dir}")
         return images_dir, labels_dir
+    
     def get_piece_by_id(self, db: Session, piece_id: int) -> Piece:
         """Get a piece by its ID."""
         piece = db.query(Piece).filter(Piece.id == piece_id).first()
@@ -77,11 +90,13 @@ class CaptureService:
     
     def _get_piece_images_path(self, piece_label: str) -> str:
         """Get the images directory path for a piece."""
-        return os.path.join(self.dataset_piece_path, piece_label, "images", "valid")
+        piece_group = self._extract_piece_group(piece_label)
+        return os.path.join(self.dataset_piece_base, piece_group, piece_label, "images", "valid")
 
     def _get_piece_labels_path(self, piece_label: str) -> str:
         """Get the labels directory path for a piece."""
-        return os.path.join(self.dataset_piece_path, piece_label, "labels", "valid")
+        piece_group = self._extract_piece_group(piece_label)
+        return os.path.join(self.dataset_piece_base, piece_group, piece_label, "labels", "valid")
 
     def _count_existing_images(self, piece_label: str) -> int:
         """Count existing images in the piece's dataset directory."""
@@ -92,10 +107,11 @@ class CaptureService:
         # Count .jpg files in the directory
         jpg_files = [f for f in os.listdir(images_dir) if f.lower().endswith('.jpg')]
         return len(jpg_files)
+    
     def capture_images(self, piece_label: str) -> bytes:
         """Capture images for a piece and store them temporarily."""
-        # Validate piece label format
-        if not re.match(r'([A-Z]\d{3}\.\d{5})', piece_label):
+        # Validate piece label format - updated regex to match your example
+        if not re.match(r'^[A-Z]\d{3}\.\d{5}\.\d{3}\.\d{2}$', piece_label):
             logger.error(f"Invalid piece_label format: {piece_label}")
             raise HTTPException(status_code=400, detail="Invalid piece_label format.")
         
@@ -129,12 +145,12 @@ class CaptureService:
                 logger.warning(f"Maximum photo limit reached for piece {piece_label}: {total_count}/10")
                 raise HTTPException(status_code=400, detail="Maximum 10 photos per piece reached.")
             
-            # FIXED: Calculate the next sequential number properly
+            # Calculate the next sequential number properly
             # Get existing temp image numbers for this piece
             existing_temp_numbers = []
             for photo in self.temp_photos:
                 if photo['piece_label'] == piece_label:
-                    # Extract number from image name (e.g., "G123.12345.123.11_5.jpg" -> 5)
+                    # Extract number from image name (e.g., "G123.12345.123.12_5.jpg" -> 5)
                     match = re.search(r'_(\d+)\.jpg$', photo['image_name'])
                     if match:
                         existing_temp_numbers.append(int(match.group(1)))
@@ -202,7 +218,8 @@ class CaptureService:
             self.temp_photos.append(photo_metadata)
             logger.info(f"Added photo metadata to temp list. Current temp photos count: {len(self.temp_photos)}")
             
-            logger.info(f"Successfully captured image {next_number} for piece {piece_label} (total: {len(all_existing_numbers) + 1})")
+            piece_group = self._extract_piece_group(piece_label)
+            logger.info(f"Successfully captured image {next_number} for piece {piece_label} in group {piece_group} (total: {len(all_existing_numbers) + 1})")
             return image_data
             
         except HTTPException:
@@ -247,9 +264,10 @@ class CaptureService:
     def save_images_to_database(self, db: Session, piece_label: str) -> Dict[str, str]:
         """Save captured images to the dataset and database."""
         # Extract the group prefix from the piece label
-        match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
-        if not match:
-            raise HTTPException(status_code=400, detail="Invalid piece_label format.")
+        try:
+            piece_group = self._extract_piece_group(piece_label)
+        except HTTPException:
+            raise  # Re-raise the validation error
         
         # Check if the piece already exists in the database
         piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
@@ -288,7 +306,7 @@ class CaptureService:
                     detail=f"Adding {len(piece_photos)} photos would exceed the maximum of 10 images for this piece."
                 )
             
-            # Create the piece directory structure
+            # Create the piece directory structure (now includes group)
             images_dir, labels_dir = self._create_piece_directory(piece_label)
             
             saved_images = []
@@ -309,7 +327,7 @@ class CaptureService:
                     shutil.move(temp_file_path, final_file_path)
                     logger.info(f"Moved image from {temp_file_path} to {final_file_path}")
                     
-                    # Create PieceImage record - REMOVED the 'url' parameter that was causing the error
+                    # Create PieceImage record
                     piece_image = PieceImage(
                         piece_id=piece.id,
                         file_name=photo_data['image_name'],
@@ -335,11 +353,12 @@ class CaptureService:
             # Clear temp photos for this piece from memory
             self.temp_photos = [p for p in self.temp_photos if p['piece_label'] != piece_label]
             
-            logger.info(f"Successfully saved {len(saved_images)} images for piece {piece_label} to dataset")
+            logger.info(f"Successfully saved {len(saved_images)} images for piece {piece_label} (group {piece_group}) to dataset")
             
             return {
                 "message": f"Successfully saved {len(saved_images)} images to dataset",
                 "piece_label": piece_label,
+                "piece_group": piece_group,
                 "images_saved": saved_images,
                 "total_images": piece.nbre_img,
                 "dataset_path": images_dir,
@@ -354,12 +373,14 @@ class CaptureService:
 
     def get_piece_dataset_info(self, piece_label: str) -> Dict[str, Any]:
         """Get information about a piece's dataset directory."""
+        piece_group = self._extract_piece_group(piece_label)
         images_dir = self._get_piece_images_path(piece_label)
         labels_dir = self._get_piece_labels_path(piece_label)
         
         if not os.path.exists(images_dir):
             return {
                 "piece_label": piece_label,
+                "piece_group": piece_group,
                 "images_path": images_dir,
                 "labels_path": labels_dir,
                 "exists": False,
@@ -379,6 +400,7 @@ class CaptureService:
         
         return {
             "piece_label": piece_label,
+            "piece_group": piece_group,
             "images_path": images_dir,
             "labels_path": labels_dir,
             "exists": True,

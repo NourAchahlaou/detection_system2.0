@@ -1,14 +1,16 @@
 import cv2
 import torch
 from fastapi import HTTPException
-from detection.app.service.model_service import load_my_model
+from detection.app.service.model_service import load_my_model, get_model_for_group, extract_group_from_piece_label
 import numpy as np
 
 class DetectionSystem:
-    def __init__(self, confidence_threshold=0.8):
+    def __init__(self, confidence_threshold=0.8, target_piece_label=None):
         self.confidence_threshold = confidence_threshold
+        self.target_piece_label = target_piece_label
         self.device = self.get_device()  # Get the device (CPU or GPU)
         self.model = self.get_my_model()  # Load the model once
+        self.current_group = None  # Track current loaded group
 
     def get_device(self):
         """Check for GPU availability and return the appropriate device."""
@@ -20,8 +22,8 @@ class DetectionSystem:
             return torch.device('cpu')
 
     def get_my_model(self):
-        """Load the YOLO model based on available device."""
-        model = load_my_model()
+        """Load the YOLO model based on available device and target piece."""
+        model = load_my_model(self.target_piece_label)
         if model is None:
             raise HTTPException(status_code=404, detail="Model not found.")
 
@@ -32,7 +34,44 @@ class DetectionSystem:
         if self.device.type == 'cuda':
             model.half()  # Convert model to FP16
 
+        # Track which group model is currently loaded
+        if self.target_piece_label:
+            self.current_group = extract_group_from_piece_label(self.target_piece_label)
+            print(f"Loaded model for group: {self.current_group}")
+
         return model
+
+    def switch_model_for_piece(self, new_target_piece_label):
+        """
+        Switch to a different model if the target piece belongs to a different group.
+        This is useful when you want to detect different pieces without recreating the DetectionSystem.
+        """
+        new_group = extract_group_from_piece_label(new_target_piece_label)
+        
+        # Only reload model if switching to a different group
+        if new_group != self.current_group:
+            print(f"Switching from group {self.current_group} to group {new_group}")
+            
+            # Load the new group model
+            new_model = get_model_for_group(new_group)
+            if new_model is None:
+                print(f"Could not load model for group {new_group}, keeping current model")
+                return False
+            
+            # Update the model and current group
+            self.model = new_model
+            self.model.to(self.device)
+            if self.device.type == 'cuda':
+                self.model.half()
+            
+            self.current_group = new_group
+            self.target_piece_label = new_target_piece_label
+            print(f"Successfully switched to model for group {new_group}")
+            return True
+        else:
+            # Same group, just update target piece label
+            self.target_piece_label = new_target_piece_label
+            return True
 
     def detect_and_contour(self, frame, target_label):
         # Convert the frame to a tensor

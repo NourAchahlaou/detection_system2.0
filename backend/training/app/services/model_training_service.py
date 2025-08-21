@@ -9,6 +9,10 @@ from ultralytics import YOLO
 import yaml
 from datetime import datetime
 import time
+import re
+from collections import defaultdict
+from typing import List, Dict, Tuple
+import gc
 
 from training.app.db.models.piece_image import PieceImage
 from training.app.services.basic_rotation_service import rotate_and_update_images
@@ -18,7 +22,7 @@ from training.app.db.session import create_new_session, safe_commit, safe_close
 
 # Set up logging with dedicated log volume
 log_dir = os.getenv("LOG_PATH", "/usr/srv/logs")
-log_file = os.path.join(log_dir, "model_training_service.log")
+log_file = os.path.join(log_dir, "group_model_training_service.log")
 
 # Ensure log directory exists and is writable
 os.makedirs(log_dir, exist_ok=True)
@@ -39,8 +43,8 @@ logger = logging.getLogger(__name__)
 stop_event = asyncio.Event()
 stop_sign = False
 
-# FIXED: Consistent image size matching detection system
-DETECTION_IMAGE_SIZE = 640  # Fixed size to match detection system (640, 480) -> use 640 as YOLO standard
+# FIXED: More conservative image size for GPU
+DETECTION_IMAGE_SIZE = 416  # Reduced from 640 for better GPU compatibility
 
 async def stop_training():
     """Set the stop event to signal training to stop."""
@@ -49,15 +53,31 @@ async def stop_training():
     stop_sign = True
     logger.info("Stop training signal sent.")
 
+def extract_group_from_piece_label(piece_label: str) -> str:
+    """Extract group identifier from piece label (e.g., 'E539.12345' -> 'E539')"""
+    match = re.match(r'([A-Z]\d{3})', piece_label)
+    if match:
+        return match.group(1)
+    return None
+
+def group_pieces_by_prefix(piece_labels: List[str]) -> Dict[str, List[str]]:
+    """Group piece labels by their prefix (e.g., E539, G053, etc.)"""
+    groups = defaultdict(list)
+    for piece_label in piece_labels:
+        group = extract_group_from_piece_label(piece_label)
+        if group:
+            groups[group].append(piece_label)
+        else:
+            logger.warning(f"Could not extract group from piece label: {piece_label}")
+    return dict(groups)
+
 def select_device():
-    """Select the best available device (GPU if available, else CPU) with detailed diagnostics."""
+    """Select the best available device with conservative GPU settings."""
     
-    # Check CUDA availability
     logger.info(f"PyTorch version: {torch.__version__}")
     logger.info(f"CUDA available: {torch.cuda.is_available()}")
     logger.info(f"CUDA version: {torch.version.cuda}")
     
-    # Check for NVIDIA environment variables
     nvidia_visible_devices = os.environ.get('NVIDIA_VISIBLE_DEVICES', 'Not set')
     nvidia_driver_capabilities = os.environ.get('NVIDIA_DRIVER_CAPABILITIES', 'Not set')
     logger.info(f"NVIDIA_VISIBLE_DEVICES: {nvidia_visible_devices}")
@@ -73,13 +93,19 @@ def select_device():
             logger.info(f"  Memory: {device_props.total_memory / 1024**3:.1f} GB")
             logger.info(f"  Compute capability: {device_props.major}.{device_props.minor}")
         
-        # Use first available GPU
         device = torch.device('cuda:0')
         logger.info(f"Selected device: {device}")
         
-        # Test GPU functionality
+        # Set memory fraction for small GPUs
+        total_memory = torch.cuda.get_device_properties(0).total_memory
+        if total_memory <= 4 * 1024**3:  # 4GB or less
+            torch.cuda.set_per_process_memory_fraction(0.7)  # Use only 70% of GPU memory
+            logger.info("Set GPU memory fraction to 0.7 for small GPU")
+        
         try:
             test_tensor = torch.randn(10, 10).to(device)
+            del test_tensor
+            torch.cuda.empty_cache()
             logger.info("GPU functionality test: PASSED")
         except Exception as e:
             logger.error(f"GPU functionality test failed: {e}")
@@ -88,116 +114,195 @@ def select_device():
         
         return device
     else:
-        logger.info("No GPU detected. Checking possible causes:")
-        
-        # Check if running in container
-        if os.path.exists('/.dockerenv'):
-            logger.info("Running in Docker container")
-            logger.info("Make sure Docker is configured with GPU access (nvidia-docker or deploy.resources.reservations.devices)")
-        
-        # Check if CUDA drivers are available
-        try:
-            import subprocess
-            result = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
-            if result.returncode == 0:
-                logger.info("nvidia-smi is available on host, but not accessible in container")
-            else:
-                logger.info("nvidia-smi not available - NVIDIA drivers may not be installed")
-        except FileNotFoundError:
-            logger.info("nvidia-smi command not found")
-        
-        logger.info("Using CPU for training")
+        logger.info("No GPU detected. Using CPU for training")
         return torch.device('cpu')
 
 def adjust_batch_size(device, base_batch_size=8):
-    """Adjust batch size based on the available device and fixed image size."""
+    """Ultra-conservative batch sizes for GPU stability."""
     if device.type == 'cuda':
         total_memory = torch.cuda.get_device_properties(0).total_memory
-        # Adjust batch size based on memory, considering fixed 640x640 image size
-        if total_memory > 12 * 1024**3:  # If GPU has more than 12GB of memory
-            return base_batch_size * 2  # 16
-        elif total_memory > 8 * 1024**3:  # If GPU has more than 8GB of memory
-            return base_batch_size  # 8
-        elif total_memory > 6 * 1024**3:  # If GPU has more than 6GB of memory
-            return max(4, base_batch_size // 2)  # 4
+        if total_memory <= 4 * 1024**3:  # T600 4GB
+            return 1  # Single batch for maximum stability
+        elif total_memory <= 6 * 1024**3:
+            return 2
         else:
-            return max(2, base_batch_size // 4)  # 2 minimum
+            return 4
     else:
-        return max(1, base_batch_size // 4)  # CPU with smaller batch
+        return max(2, base_batch_size // 2)
 
 def get_training_image_size():
-    """Return fixed image size for training to match detection system."""
+    """Return conservative image size for GPU training."""
     return DETECTION_IMAGE_SIZE
 
-def validate_dataset(data_yaml_path):
-    """Validate dataset for label consistency and data split ratio."""
-    logger.info("Validating dataset...")
-    with open(data_yaml_path, 'r') as f:
-        data = yaml.safe_load(f)
+def force_cleanup_gpu_memory():
+    """Aggressive GPU memory cleanup."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        gc.collect()
+        
+        # Log memory status
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        cached = torch.cuda.memory_reserved() / 1024**3
+        logger.info(f"GPU memory after cleanup - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
 
-    # Check split ratio
-    train_images = len(os.listdir(data['train']))
-    val_images = len(os.listdir(data['val']))
+def cleanup_old_datasets(dataset_base_path: str, keep_latest: int = 2):
+    """Clean up old dataset_custom directories to save space."""
+    try:
+        dataset_custom_base = os.path.join(dataset_base_path, 'dataset_custom')
+        if not os.path.exists(dataset_custom_base):
+            return
+        
+        group_dirs = []
+        for item in os.listdir(dataset_custom_base):
+            item_path = os.path.join(dataset_custom_base, item)
+            if os.path.isdir(item_path):
+                creation_time = os.path.getctime(item_path)
+                group_dirs.append((item, creation_time, item_path))
+        
+        group_dirs.sort(key=lambda x: x[1], reverse=True)
+        
+        if len(group_dirs) > keep_latest:
+            for group_name, _, group_path in group_dirs[keep_latest:]:
+                logger.info(f"Cleaning up old dataset directory: {group_path}")
+                shutil.rmtree(group_path)
+        
+        logger.info(f"Dataset cleanup completed. Kept {min(len(group_dirs), keep_latest)} most recent group datasets.")
+    except Exception as e:
+        logger.warning(f"Dataset cleanup failed: {str(e)}")
+
+def get_dataset_statistics(dataset_base_path: str) -> Dict:
+    """Get statistics about dataset usage."""
+    try:
+        dataset_custom_base = os.path.join(dataset_base_path, 'dataset_custom')
+        if not os.path.exists(dataset_custom_base):
+            return {"error": "No dataset_custom directory found"}
+        
+        stats = {
+            "total_groups": 0,
+            "total_size_gb": 0,
+            "groups": {}
+        }
+        
+        for group_dir in os.listdir(dataset_custom_base):
+            group_path = os.path.join(dataset_custom_base, group_dir)
+            if os.path.isdir(group_path):
+                stats["total_groups"] += 1
+                
+                size = 0
+                for dirpath, dirnames, filenames in os.walk(group_path):
+                    for filename in filenames:
+                        filepath = os.path.join(dirpath, filename)
+                        if os.path.exists(filepath):
+                            size += os.path.getsize(filepath)
+                
+                stats["groups"][group_dir] = {
+                    "size_gb": size / (1024**3),
+                    "creation_time": datetime.fromtimestamp(os.path.getctime(group_path)).isoformat()
+                }
+                stats["total_size_gb"] += size / (1024**3)
+        
+        return stats
+    except Exception as e:
+        return {"error": f"Failed to get dataset statistics: {str(e)}"}
+
+def check_existing_classes_in_model(model_path: str) -> List[str]:
+    """Check what classes exist in an existing model."""
+    try:
+        if os.path.exists(model_path):
+            model = YOLO(model_path)
+            if hasattr(model.model, 'names') and model.model.names:
+                return list(model.model.names.values())
+            elif hasattr(model, 'names') and model.names:
+                return list(model.names.values())
+    except Exception as e:
+        logger.warning(f"Could not load existing model classes: {e}")
+    return []
+
+def adjust_hyperparameters_for_incremental(existing_classes: List[str], new_classes: List[str], device=None) -> Dict:
+    """Ultra-conservative hyperparameters for GPU stability."""
+    is_incremental = len(existing_classes) > 0
+    total_classes = len(set(existing_classes + new_classes))
+    is_gpu = device and device.type == 'cuda'
     
-    total_images = train_images + val_images 
-
-    if not (0.75 <= train_images / total_images <= 0.85):
-        logger.warning("Train dataset split ratio is outside the recommended range (75-85%).")
-    if not (0.05 <= val_images / total_images <= 0.15):
-        logger.warning("Validation dataset split ratio is outside the recommended range (5-15%).")
-
-    logger.info("Dataset validation complete.")
-
-def add_background_images(data_yaml_path):
-    """Add background images to the dataset to reduce false positives."""
-    logger.info("Adding background images to the dataset...")
-    with open(data_yaml_path, 'r') as f:
-        data = yaml.safe_load(f)
-
-    background_dir = data['background']  # Assuming a separate directory for background images
-    if os.path.exists(background_dir):
-        logger.info(f"Adding {len(os.listdir(background_dir))} background images to the training set.")
+    logger.info(f"Training mode: {'Incremental' if is_incremental else 'New'}")
+    logger.info(f"Device: {device}")
+    logger.info(f"Existing classes: {len(existing_classes)}, New classes: {len(new_classes)}, Total: {total_classes}")
+    
+    # Ultra-conservative base parameters for GPU
+    base_params = {
+        "cos_lr": False,
+        "momentum": 0.8,  # Reduced momentum
+        "warmup_epochs": 3.0,  # Shorter warmup
+        "warmup_momentum": 0.7,
+        "warmup_bias_lr": 0.01,
+        "patience": 10,  # Shorter patience
+        "box": 7.5,
+        "cls": 0.5,
+        "dfl": 1.5,
+        "label_smoothing": 0.0,
+        "close_mosaic": 5,  # Close mosaic earlier
+        "dropout": 0.0,
+    }
+    
+    if is_gpu:
+        # Ultra-conservative GPU parameters
+        if is_incremental:
+            gpu_params = {
+                "lr0": 0.000005,     # Very low learning rate
+                "lrf": 0.0001,       # Very low final learning rate
+                "weight_decay": 0.0001,
+            }
+        else:
+            gpu_params = {
+                "lr0": 0.00001,      # Very low learning rate
+                "lrf": 0.001,        
+                "weight_decay": 0.0002,
+            }
     else:
-        logger.warning("No background images found.")
-
-
-def train_model(piece_labels: list, db: Session, session_id: int):
-    """Train models for multiple pieces with resume capability."""
+        # CPU parameters
+        if is_incremental:
+            gpu_params = {
+                "lr0": 0.00005,
+                "lrf": 0.005,
+                "weight_decay": 0.0008,
+            }
+        else:
+            gpu_params = {
+                "lr0": 0.0001,
+                "lrf": 0.01,
+                "weight_decay": 0.0005,
+            }
     
-    # Ensure piece_labels is a list
+    base_params.update(gpu_params)
+    return base_params
+
+def train_model_group_based(piece_labels: list, db: Session, session_id: int):
+    """Train models using group-based approach with enhanced GPU stability."""
+    
     if isinstance(piece_labels, str):
         piece_labels = [piece_labels]
     
     try:
-        # Get training session
         training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
         if not training_session:
             logger.error(f"Training session {session_id} not found")
             return
 
-        # Set service directory
-        service_dir = os.path.dirname(os.path.abspath(__file__))
-        logger.info(f"Service directory: {service_dir}")
+        piece_groups = group_pieces_by_prefix(piece_labels)
+        logger.info(f"Grouped {len(piece_labels)} pieces into {len(piece_groups)} groups: {list(piece_groups.keys())}")
         
-        # Check if this is a resumed session
-        is_resumed = training_session.current_epoch > 1
-        if is_resumed:
-            training_session.add_log("INFO", f"Resuming training from epoch {training_session.current_epoch + 1} for piece labels: {piece_labels}")
-        else:
-            training_session.add_log("INFO", f"Starting new training process for piece labels: {piece_labels}")
+        training_session.add_log("INFO", f"Starting group-based training for {len(piece_groups)} groups: {list(piece_groups.keys())}")
         safe_commit(db)
 
-        # Select device and update session
         device = select_device()
         training_session.device_used = str(device)
         
-        # FIXED: Set consistent image size
         fixed_image_size = get_training_image_size()
         training_session.image_size = fixed_image_size
-        training_session.add_log("INFO", f"Using fixed image size: {fixed_image_size}x{fixed_image_size} to match detection system")
+        training_session.add_log("INFO", f"Using conservative image size: {fixed_image_size}x{fixed_image_size} for GPU stability")
         safe_commit(db)
 
-        # Count total images across all pieces (only if not already set)
         if not training_session.total_images:
             total_images = 0
             for piece_label in piece_labels:
@@ -206,32 +311,37 @@ def train_model(piece_labels: list, db: Session, session_id: int):
                     images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
                     total_images += len(images)
 
-            # Update session with total images
             training_session.total_images = total_images
             safe_commit(db)
 
-        # Process each piece
-        for i, piece_label in enumerate(piece_labels):
+        for group_idx, (group_name, group_pieces) in enumerate(piece_groups.items()):
             if stop_event.is_set():
                 training_session.add_log("INFO", "Stop event detected. Ending training.")
                 safe_commit(db)
                 break
                 
-            logger.info(f"Training piece: {piece_label}")
-            training_session.add_log("INFO", f"Training piece: {piece_label}")
-            
+            logger.info(f"Training group: {group_name} with {len(group_pieces)} pieces")
+            training_session.add_log("INFO", f"Training group: {group_name} with pieces: {group_pieces}")
             safe_commit(db)
             
-            # Update progress percentage based on piece completion
-            piece_progress = (i / len(piece_labels)) * 100
-            training_session.progress_percentage = piece_progress
+            group_progress = (group_idx / len(piece_groups)) * 100
+            training_session.progress_percentage = group_progress
             safe_commit(db)
             
-            train_single_piece(piece_label, db, service_dir, session_id, is_resumed)
+            train_single_group(group_name, group_pieces, db, session_id)
+            
+            # Force cleanup between groups
+            force_cleanup_gpu_memory()
+            
+        dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
+        cleanup_old_datasets(dataset_base_path, keep_latest=3)
+        
+        stats = get_dataset_statistics(dataset_base_path)
+        training_session.add_log("INFO", f"Dataset statistics: {stats}")
+        safe_commit(db)
             
     except Exception as e:
-        logger.error(f"An error occurred during training: {str(e)}", exc_info=True)
-        # Update session with error
+        logger.error(f"An error occurred during group-based training: {str(e)}", exc_info=True)
         try:
             db.refresh(training_session)
             training_session.add_log("ERROR", f"Training failed: {str(e)}")
@@ -240,329 +350,301 @@ def train_model(piece_labels: list, db: Session, session_id: int):
             logger.error(f"Failed to update session with error: {str(update_error)}")
     finally:
         stop_event.clear()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.info("Training process finished and GPU memory cleared.")
+        force_cleanup_gpu_memory()
+        logger.info("Group-based training process finished and GPU memory cleared.")
 
-def train_single_piece(piece_label: str, db: Session, service_dir: str, session_id: int, is_resumed: bool = False):
-    """
-    Train a single piece model with real-time loss updates and resume capability.
-    
-    Args:
-        piece_label: Label of the piece to train
-        db: Database session
-        service_dir: Service directory path
-        session_id: Training session ID
-        is_resumed: Whether this is a resumed training session
-    """
+def train_single_group(group_name: str, piece_labels: List[str], db: Session, session_id: int):
+    """Train a single group with maximum GPU stability measures."""
     model = None
     try:
-        # Get training session
         training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
         if not training_session:
             logger.error(f"Training session {session_id} not found")
             return
 
-        # Fetch the specific piece from the database
-        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
-        if not piece:
-            error_msg = f"Piece with label '{piece_label}' not found."
-            logger.error(error_msg)
-            training_session.add_log("ERROR", error_msg)
-            db.commit()
-            return
-
-        if not piece.is_annotated:
-            error_msg = f"Piece with label '{piece_label}' is not annotated. Training cannot proceed."
-            logger.error(error_msg)
-            training_session.add_log("ERROR", error_msg)
-            db.commit()
-            return
-
-        training_session.add_log("INFO", f"Found annotated piece: {piece_label}")
-        db.commit()
-
-        # Retrieve all images for the piece
-        images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
-        if not images:
-            error_msg = f"No images found for piece '{piece_label}'. Training cannot proceed."
-            logger.error(error_msg)
-            training_session.add_log("ERROR", error_msg)
-            db.commit()
-            return
-
-        training_session.add_log("INFO", f"Found {len(images)} images for piece: {piece_label}")
-        db.commit()
-
-        # Get the dataset base path from environment variable
         dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
-        
-        # Get the models base path from environment variable
         models_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
         
-        # Ensure models directory exists
         os.makedirs(models_base_path, exist_ok=True)
         
-        # Create dataset_custom directory structure
-        dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom')
+        model_save_path = os.path.join(models_base_path, f"model_{group_name}.pt")
         
-        # Directory paths
-        image_dir = os.path.join(dataset_custom_path, "images", "valid", piece_label)
-        image_dir_train = os.path.join(dataset_custom_path, "images", "train", piece_label)
-        label_dir = os.path.join(dataset_custom_path, "labels", "valid", piece_label)
-        label_dir_train = os.path.join(dataset_custom_path, "labels", "train", piece_label)
+        valid_pieces = []
+        total_images = 0
+        class_mapping = {}
         
-        # Create all necessary directories
-        os.makedirs(image_dir, exist_ok=True)
-        os.makedirs(label_dir, exist_ok=True)
-        os.makedirs(image_dir_train, exist_ok=True)
-        os.makedirs(label_dir_train, exist_ok=True)
-
-        training_session.add_log("INFO", f"Created dataset directories for piece: {piece_label}")
-        db.commit()
-
-        # Only copy images and create annotation files if not resumed or if dataset doesn't exist
-        if not is_resumed or not os.path.exists(os.path.join(image_dir, os.listdir(image_dir)[0] if os.listdir(image_dir) else "")):
-            # Copy images and create annotation files
-            for image in images:
-                # Copy to validation directory
-                shutil.copy(image.image_path, os.path.join(image_dir, os.path.basename(image.image_path)))
+        for piece_label in piece_labels:
+            piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+            if not piece:
+                training_session.add_log("WARNING", f"Piece '{piece_label}' not found in database")
+                continue
                 
-                # Query annotations directly
-                annotations = db.query(Annotation).filter(Annotation.piece_image_id == image.id).all()
+            if not piece.is_annotated:
+                training_session.add_log("WARNING", f"Piece '{piece_label}' is not annotated, skipping")
+                continue
                 
-                # Create annotations for validation directory
-                for annotation in annotations:
-                    label_path = os.path.join(label_dir, annotation.annotationTXT_name)
-                    with open(label_path, "w") as label_file:
-                        label_file.write(f"{piece.class_data_id} {annotation.x} {annotation.y} {annotation.width} {annotation.height}\n")
+            images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+            if not images:
+                training_session.add_log("WARNING", f"No images found for piece '{piece_label}', skipping")
+                continue
+                
+            valid_pieces.append(piece)
+            total_images += len(images)
+            class_mapping[piece_label] = len(class_mapping)
+        
+        if not valid_pieces:
+            training_session.add_log("ERROR", f"No valid pieces found for group {group_name}")
+            safe_commit(db)
+            return
+            
+        dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom', group_name)
 
-            training_session.add_log("INFO", f"Copied {len(images)} images and their annotations to dataset directory")
-            db.commit()
-
-        # Create a custom data.yaml for this piece
         data_yaml_path = os.path.join(dataset_custom_path, "data.yaml")
         
-        # Create the data.yaml file with correct paths (always create/update)
         data_yaml_content = {
-            'train': os.path.join(dataset_custom_path, 'images', 'train'),
-            'val': os.path.join(dataset_custom_path, 'images', 'valid'),
-            'nc': 1,  # Number of classes (assuming single class per piece)
-            'names': [piece_label]
+            "path": dataset_custom_path,
+            "train": "images/train",
+            "val": "images/valid", 
+            "names": class_mapping
         }
         
         with open(data_yaml_path, 'w') as f:
-            yaml.dump(data_yaml_content, f)
+            yaml.dump(data_yaml_content, f, default_flow_style=False)
         
-        training_session.add_log("INFO", f"Created data.yaml at: {data_yaml_path}")
-        db.commit()
-        
-        # Model save path using shared models volume
-        model_save_path = os.path.join(models_base_path, f"model.pt")
-        
-        # Validate dataset for issues (only if not resumed)
-        if not is_resumed:
-            validate_dataset(data_yaml_path)
+        training_session.add_log("INFO", f"Created data.yaml for group {group_name} with content: {data_yaml_content}")
+        safe_commit(db)
 
-        # Rotate and update images for the specific piece (only if not resumed)
-        if not is_resumed:
-            logger.info(f"Rotating and augmenting images for piece: {piece_label}")
-            training_session.add_log("INFO", "Starting image rotation and augmentation process")
-            db.commit()
-            rotate_and_update_images(piece_label, db)
+        logger.info(f"Starting rotation and augmentation for group {group_name}")
+        training_session.add_log("INFO", f"Starting rotation and augmentation for group {group_name}")
+        safe_commit(db)
+        
+        try:
+            rotate_and_update_images(piece_labels, db)
+            training_session.add_log("INFO", f"Completed rotation and augmentation for group {group_name}")
+        except Exception as rotation_error:
+            training_session.add_log("WARNING", f"Rotation failed for group {group_name}: {str(rotation_error)}")
+        safe_commit(db)
 
-        # Initialize the model
+        existing_classes = check_existing_classes_in_model(model_save_path)
+        new_classes = list(class_mapping.keys())
+        
         device = select_device()
         
-        # Load model based on resume status
-        if is_resumed and os.path.exists(model_save_path):
-            training_session.add_log("INFO", f"Resuming training: Loading checkpoint model for piece {piece_label}")
-            model = YOLO(model_save_path)  # Load the checkpoint model for resuming
-        elif os.path.exists(model_save_path):
-            training_session.add_log("INFO", f"Loading existing model for piece {piece_label}")
-            model = YOLO(model_save_path)  # Load the pre-trained model for fine-tuning
+        if os.path.exists(model_save_path):
+            training_session.add_log("INFO", f"Loading existing model for group {group_name} (incremental learning)")
+            try:
+                model = YOLO(model_save_path)
+            except Exception as e:
+                training_session.add_log("WARNING", f"Failed to load existing model, creating new one: {e}")
+                model = YOLO("yolov8n.pt")  # Use nano model for GPU
         else:
-            training_session.add_log("INFO", "No pre-existing model found. Starting training from scratch.")
-            model_path = os.path.join(models_base_path, "yolov8m.pt")
-            if os.path.exists(model_path):
-                model = YOLO(model_path)
-            else:
-                # Fallback to default YOLO model download location
-                model = YOLO("yolov8m.pt")  # Load a base YOLO model
+            training_session.add_log("INFO", f"Creating new model for group {group_name}")
+            model = YOLO("yolov8n.pt")  # Use nano model for better GPU compatibility
 
         model.to(device)
         
-        # FIXED: Use consistent image size and adjusted batch size
-        imgsz = get_training_image_size()  # Fixed 640
-        batch_size = adjust_batch_size(device)
+        # Force memory cleanup before training
+        force_cleanup_gpu_memory()
         
-        # Update training session with configuration
+        if device.type == 'cuda':
+            allocated = torch.cuda.memory_allocated()/1024**3
+            cached = torch.cuda.memory_reserved()/1024**3
+            training_session.add_log("INFO", f"GPU memory before training - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
+            safe_commit(db)
+        
+        imgsz = get_training_image_size()
+        batch_size = adjust_batch_size(device)
+        hyperparameters = adjust_hyperparameters_for_incremental(existing_classes, new_classes, device)
+        
         training_session.batch_size = batch_size
         training_session.image_size = imgsz
-        training_session.add_log("INFO", f"Training configuration - Image size: {imgsz}, Batch size: {batch_size}, Device: {device}")
-        db.commit()
+        training_session.add_log("INFO", f"Group {group_name} config - Image: {imgsz}, Batch: {batch_size}, Device: {device}")
+        safe_commit(db)
 
-        # FIXED: Optimized hyperparameters for consistent 640x640 training
-        hyperparameters = {
-            "cos_lr": False,
-            "lr0": 0.0001,  # Conservative learning rate for fine-tuning
-            "lrf": 0.01,
-            "momentum": 0.937,
-            "weight_decay": 0.0005,
-            "dropout": 0.2, 
-            "warmup_epochs": 5.0,  # Reduced warmup for faster convergence at fixed size
-            "warmup_momentum": 0.8,
-            "warmup_bias_lr": 0.1,
-            "label_smoothing": 0.1,
-        }
-
-        # FIXED: Optimized augmentation parameters for 640x640 fixed size
+        # Ultra-conservative augmentation for GPU
         augmentations = {
-            "hsv_h": 0.015,  
-            "hsv_s": 0.7,  
-            "hsv_v": 0.4,  
-            "degrees": 15.0,  # Slightly increased rotation for better variance at fixed size
-            "translate": 0.15,  # Moderate translation to avoid border issues
-            "scale": 0.2,  # Conservative scaling to maintain object proportions
-            "shear": 0.0,
-            "perspective": 0.0,
-            "flipud": 0.0,
-            "fliplr": 0.5,  # Standard horizontal flip
-            "mosaic": 0.8,  # Higher mosaic for better multi-object detection
-            "mixup": 0.15,  # Moderate mixup for regularization
-            "copy_paste": 0.1,  # Light copy-paste augmentation
-            "erasing": 0.4,  # Moderate erasing to improve robustness
-            "crop_fraction": 1.0,
+            "hsv_h": 0.005,      # Minimal augmentation
+            "hsv_s": 0.2,        
+            "hsv_v": 0.2,        
+            "degrees": 5.0,      # Minimal rotation
+            "translate": 0.05,   # Minimal translation
+            "scale": 0.1,        # Minimal scaling
+            "shear": 0.0,        
+            "perspective": 0.0,  
+            "flipud": 0.0,       
+            "fliplr": 0.3,       # Reduced flip probability
+            "mosaic": 0.0,       # Disable mosaic for stability
+            "mixup": 0.0,        # Disable mixup
+            "copy_paste": 0.0,   
+            "erasing": 0.0,      # Disable erasing
         }
-
+        
         hyperparameters.update(augmentations)
         
-        # FIXED RESUME LOGIC
-        if is_resumed:
-            # Resume from the NEXT epoch after current_epoch
-            start_epoch = training_session.current_epoch + 1
-            logger.info(f"Resuming training for piece: {piece_label} from epoch {start_epoch} to {training_session.epochs}")
-            training_session.add_log("INFO", f"Resuming training for piece: {piece_label} from epoch {start_epoch} to {training_session.epochs}")
-        else:
-            # Start from epoch 1 for new training
-            start_epoch = 1
-            logger.info(f"Starting training for piece: {piece_label} with {training_session.epochs} epochs at fixed size {imgsz}")
-            training_session.add_log("INFO", f"Starting training for piece: {piece_label} with {training_session.epochs} epochs at fixed size {imgsz}")
-        
-        db.commit()
-        
-        # Validate that we have epochs left to train
-        if start_epoch > training_session.epochs:
-            training_session.add_log("INFO", f"Training already completed for piece {piece_label}. Current epoch: {training_session.current_epoch}, Total epochs: {training_session.epochs}")
-            db.commit()
+        # Validate model with minimal memory usage
+        try:
+            test_input = torch.randn(1, 3, imgsz, imgsz).to(device)
+            with torch.no_grad():
+                _ = model.model(test_input)
+            del test_input
+            force_cleanup_gpu_memory()
+            training_session.add_log("INFO", f"Model validation passed for group {group_name}")
+            safe_commit(db)
+        except Exception as e:
+            training_session.add_log("ERROR", f"Model validation failed: {e}")
+            safe_commit(db)
             return
-
-        # Fine-tuning loop (continue from where we left off)
-        for current_epoch_num in range(start_epoch, training_session.epochs + 1):
+        
+        training_session.add_log("INFO", f"Starting training for group {group_name} with {training_session.epochs} epochs")
+        training_session.add_log("INFO", f"Training hyperparameters: {hyperparameters}")
+        safe_commit(db)
+        
+        # Disable AMP completely for GPU to prevent NaN
+        use_amp = False
+        
+        # Modified training loop with enhanced stability
+        for epoch in range(1, training_session.epochs + 1):
             if stop_event.is_set():
-                training_session.add_log("INFO", "Stop event detected. Ending training.")
-                db.commit()
+                training_session.add_log("INFO", "Stop event detected during group training")
+                safe_commit(db)
                 break
             
-            logger.info(f"Starting training for piece {piece_label}: Epoch {current_epoch_num}/{training_session.epochs} at size {imgsz}")  
-            
-            # Update current epoch and progress BEFORE training
-            training_session.current_epoch = current_epoch_num
-            epoch_progress = (current_epoch_num / training_session.epochs) * 100
+            training_session.current_epoch = epoch
+            epoch_progress = (epoch / training_session.epochs) * 100
             training_session.progress_percentage = epoch_progress
             
-            logger.info(f"Training piece {piece_label}: Epoch {current_epoch_num}/{training_session.epochs} - Progress: {epoch_progress:.2f}%")
-            training_session.add_log("INFO", f"Starting epoch {current_epoch_num}/{training_session.epochs} for piece {piece_label} (size: {imgsz}, batch: {batch_size})")
-            db.commit()
-
-            # Start the training process for this epoch
-            results = model.train(
-                data=data_yaml_path,
-                epochs=1,  # Train for 1 epoch at a time
-                imgsz=imgsz,  # FIXED: Use consistent image size
-                batch=batch_size,
-                device=device,
-                project=os.path.dirname(model_save_path),
-                name=f"{piece_label}_epoch_{current_epoch_num}",
-                exist_ok=True,
-                amp=True,
-                plots=False,
-                patience=10,
-                augment=True,
-                **hyperparameters
-            )
+            training_session.add_log("INFO", f"Group {group_name} - Epoch {epoch}/{training_session.epochs} (Progress: {epoch_progress:.1f}%)")
+            safe_commit(db)
             
-            # Update losses and metrics if available
-            if hasattr(results, 'results_dict'):
-                results_dict = results.results_dict
-                if 'train/box_loss' in results_dict:
-                    training_session.update_losses(
-                        box_loss=results_dict.get('train/box_loss'),
-                        cls_loss=results_dict.get('train/cls_loss'),
-                        dfl_loss=results_dict.get('train/dfl_loss')
-                    )
+            try:
+                # Aggressive memory cleanup before each epoch
+                force_cleanup_gpu_memory()
                 
-                if 'lr/pg0' in results_dict:
-                    training_session.update_metrics(
-                        lr=results_dict.get('lr/pg0'),
-                        momentum=hyperparameters.get('momentum', 0.937)
-                    )
+                # Check GPU memory before training
+                if device.type == 'cuda':
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    if allocated > 2.0:  # If using more than 2GB, something's wrong
+                        training_session.add_log("WARNING", f"High GPU memory usage before epoch: {allocated:.2f}GB")
+                        force_cleanup_gpu_memory()
                 
-                db.commit()
-            
-            # Validate the model periodically during training
-            if current_epoch_num % 5 == 0:
-                training_session.add_log("INFO", f"Running validation after epoch {current_epoch_num} for piece {piece_label}")
-                db.commit()
-                
-                validation_results = model.val(
+                # Train with minimal settings
+                results = model.train(
                     data=data_yaml_path,
-                    imgsz=imgsz,  # FIXED: Use consistent image size for validation
+                    epochs=1,
+                    imgsz=imgsz,
                     batch=batch_size,
                     device=device,
+                    project=os.path.dirname(model_save_path),
+                    name=f"{group_name}_epoch_{epoch}",
+                    exist_ok=True,
+                    amp=use_amp,
+                    plots=False,  # Disable plots to save memory
+                    resume=False,
+                    augment=True,
+                    verbose=False,  # Reduce verbose output
+                    workers=1,  # Single worker to reduce memory usage
+                    **hyperparameters
                 )
                 
-                training_session.add_log("INFO", f"Validation completed after epoch {current_epoch_num}")
-                db.commit()
+                # Immediate cleanup after training step
+                force_cleanup_gpu_memory()
+                
+                # Validate results and check for NaN
+                if hasattr(results, 'results_dict'):
+                    results_dict = results.results_dict
+                    
+                    has_nan = False
+                    nan_keys = []
+                    for key, value in results_dict.items():
+                        if isinstance(value, (int, float)) and (value != value or value == float('inf') or value == float('-inf')):
+                            has_nan = True
+                            nan_keys.append(key)
+                    
+                    if has_nan:
+                        training_session.add_log("ERROR", f"NaN detected in epoch {epoch} for keys: {nan_keys}")
+                        safe_commit(db)
+                        break
+                    
+                    # Update losses if valid
+                    if 'train/box_loss' in results_dict and not has_nan:
+                        training_session.update_losses(
+                            box_loss=results_dict.get('train/box_loss'),
+                            cls_loss=results_dict.get('train/cls_loss'),
+                            dfl_loss=results_dict.get('train/dfl_loss')
+                        )
+                    
+                    if 'lr/pg0' in results_dict:
+                        training_session.update_metrics(
+                            lr=results_dict.get('lr/pg0'),
+                            momentum=hyperparameters.get('momentum', 0.8)
+                        )
+                    safe_commit(db)
+                
+            except Exception as train_error:
+                error_str = str(train_error).lower()
+                training_session.add_log("ERROR", f"Training error in epoch {epoch}: {str(train_error)}")
+                safe_commit(db)
+                
+                # Handle specific GPU errors
+                if any(keyword in error_str for keyword in ["out of memory", "cuda", "nan", "memory"]):
+                    training_session.add_log("ERROR", "GPU memory or NaN error detected. Stopping training.")
+                    safe_commit(db)
+                    break
+                else:
+                    # For other errors, try to continue
+                    continue
+            
+            # Skip validation to save memory - only save model periodically
+            if epoch % 5 == 0:
+                try:
+                    model.save(model_save_path)
+                    training_session.add_log("INFO", f"Checkpoint saved for group {group_name} after epoch {epoch}")
+                    safe_commit(db)
+                except Exception as save_error:
+                    training_session.add_log("WARNING", f"Failed to save checkpoint: {str(save_error)}")
+                    safe_commit(db)
 
-            # Save the model after each epoch (checkpoint)
-            if current_epoch_num % 1 == 0:
-                model.save(model_save_path)
-                training_session.add_log("INFO", f"Checkpoint saved after epoch {current_epoch_num}")
-                db.commit()
-
-        # After the loop, check if training completed successfully
-        if current_epoch_num == training_session.epochs:
-            training_session.add_log("INFO", f"Training completed for piece {piece_label} after {current_epoch_num} epochs at size {imgsz}")    
+        # Final model save
+        try:
+            model.save(model_save_path)
+            training_session.add_log("INFO", f"Training completed for group {group_name}. Final model saved to {model_save_path}")
+        except Exception as save_error:
+            training_session.add_log("ERROR", f"Failed to save final model: {str(save_error)}")
+        
+        # Mark pieces as trained
+        for piece in valid_pieces:
             piece.is_yolo_trained = True
-            db.commit()
-            training_session.add_log("INFO", f"Updated piece {piece_label} is_yolo_trained status to True")
-            db.commit()
-        else:
-            training_session.add_log("WARNING", f"Training for piece {piece_label} did not complete all epochs. Last completed epoch: {current_epoch_num}")
-            db.commit()
+        safe_commit(db)
+        
+        training_session.add_log("INFO", f"Updated training status for all pieces in group {group_name}")
+        safe_commit(db)
 
     except Exception as e:
-        error_msg = f"An error occurred during training piece {piece_label}: {str(e)}"
+        error_msg = f"Error during group {group_name} training: {str(e)}"
         logger.error(error_msg, exc_info=True)
         
-        # Update session with error
         training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
         if training_session:
             training_session.add_log("ERROR", error_msg)
-            db.commit()
-        
-        if model:
-            try:
-                model.save(model_save_path)
-                training_session.add_log("INFO", f"Model saved at {model_save_path} after encountering an error.")
-                db.commit()
-            except Exception as save_error:
-                save_error_msg = f"Failed to save model after error: {str(save_error)}"
-                logger.error(save_error_msg)
-                training_session.add_log("ERROR", save_error_msg)
-                db.commit()
+            safe_commit(db)
+    
     finally:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.info(f"Training process finished for piece {piece_label} and GPU memory cleared.")
+        # Cleanup model from memory
+        if model:
+            del model
+        force_cleanup_gpu_memory()
+        logger.info(f"Training completed for group {group_name}")
+
+# Backward compatibility functions
+def train_model(piece_labels: list, db: Session, session_id: int):
+    """Backward compatibility wrapper - redirects to group-based training."""
+    return train_model_group_based(piece_labels, db, session_id)
+
+def train_single_piece(piece_label: str, db: Session, service_dir: str, session_id: int, is_resumed: bool = False):
+    """Backward compatibility wrapper - redirects single piece to group-based training."""
+    return train_single_group(
+        group_name=extract_group_from_piece_label(piece_label),
+        piece_labels=[piece_label],
+        db=db,
+        session_id=session_id
+    )

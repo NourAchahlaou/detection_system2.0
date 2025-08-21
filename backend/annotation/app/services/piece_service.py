@@ -28,6 +28,13 @@ def get_api_base_url():
     else:
         return f"http://localhost/api/artifact_keeper"
 
+def _extract_piece_group(piece_label: str) -> str:
+    """Extract the group prefix from the piece label (e.g., G123 from G123.12345.123.12)."""
+    match = re.match(r'^([A-Z]\d{3})', piece_label)
+    if not match:
+        raise HTTPException(status_code=400, detail=f"Invalid piece_label format: {piece_label}")
+    return match.group(1)
+
 def get_images_of_piece(piece_label: str, db: Session):
     """Fetch all images of a piece with their annotation status."""
     db_piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
@@ -181,9 +188,12 @@ def update_piece_annotation_status(piece_label: str, is_annotated: bool):
         return False
 
 def create_yolo_directory_structure(base_path: str, piece_label: str):
-    """Create YOLO directory structure for a piece in the unified dataset folder"""
-    # UPDATED: New unified structure - shared_data/dataset/piece/{piece_label}/
-    piece_path = os.path.join(base_path, "piece","piece", piece_label)
+    """Create YOLO directory structure for a piece in the unified dataset folder with group structure"""
+    # Extract piece group (e.g., G123 from G123.12345.123.12)
+    piece_group = _extract_piece_group(piece_label)
+    
+    # UPDATED: New structure - shared_data/dataset/piece/piece/{piece_group}/{piece_label}/
+    piece_path = os.path.join(base_path, "piece", "piece", piece_group, piece_label)
     
     # Create the YOLO directories
     directories = [
@@ -202,8 +212,11 @@ def create_yolo_directory_structure(base_path: str, piece_label: str):
 def copy_image_to_yolo_structure(source_image_path: str, piece_label: str, image_filename: str, dataset_base_path: str):
     """Copy image from captured location to YOLO structure within the same dataset folder"""
     try:
-        # UPDATED: Destination is now in the unified structure
-        dest_image_path = os.path.join(dataset_base_path, "piece","piece", piece_label, "images", "valid", image_filename)
+        # Extract piece group
+        piece_group = _extract_piece_group(piece_label)
+        
+        # UPDATED: Destination is now in the group-based structure
+        dest_image_path = os.path.join(dataset_base_path, "piece", "piece", piece_group, piece_label, "images", "valid", image_filename)
 
         # Check if source and destination are the same
         if os.path.abspath(source_image_path) == os.path.abspath(dest_image_path):
@@ -310,6 +323,53 @@ def get_piece_annotation_status(piece_label: str):
         print(f"Error calling artifact_keeper API: {str(e)}")
         return None
 
+def update_group_data_yaml(dataset_base_path: str, piece_group: str, piece_label: str, class_id: int):
+    """Update group-specific data.yaml file with new class data."""
+    # Create group-specific data.yaml path
+    group_data_yaml_path = os.path.join(dataset_base_path, "piece", "piece", piece_group, "data.yaml")
+    
+    # Load existing group data if it exists
+    if os.path.exists(group_data_yaml_path):
+        with open(group_data_yaml_path, 'r') as yaml_file:
+            group_data_yaml = yaml.safe_load(yaml_file)
+            print(f"Existing group data_yaml loaded for {piece_group}: {group_data_yaml}")
+    else:
+        # Create new group-specific data.yaml with relative paths for YOLO training
+        group_data_yaml = {
+            'names': {},
+            'nc': 0,
+            'path': os.path.join(dataset_base_path, "piece", "piece", piece_group),
+            'train': '*/images/train',
+            'val': '*/images/valid'
+        }
+        print(f"No existing group data_yaml found for {piece_group}. Creating new.")
+
+    # Update the group data_yaml with new class data
+    # For group-specific numbering: assign sequential IDs within the group
+    if piece_label not in group_data_yaml['names'].values():
+        # Find the next available ID within this group
+        existing_ids = list(group_data_yaml['names'].keys()) if group_data_yaml['names'] else []
+        next_group_id = 0
+        while next_group_id in existing_ids:
+            next_group_id += 1
+        
+        group_data_yaml['names'][next_group_id] = piece_label
+        group_data_yaml['nc'] = len(group_data_yaml['names'])
+        
+        print(f"Added {piece_label} with ID {next_group_id} to group {piece_group}")
+
+    # Create directories if needed
+    os.makedirs(os.path.dirname(group_data_yaml_path), exist_ok=True)
+
+    # Write to group-specific data.yaml
+    try:
+        with open(group_data_yaml_path, 'w') as yaml_file:
+            yaml.dump(group_data_yaml, yaml_file, default_flow_style=False)
+        print(f"Group data.yaml file updated at: {group_data_yaml_path}")
+        print(f"Current group {piece_group} classes: {group_data_yaml['names']}")
+    except IOError as e:
+        print(f"Warning: Failed to write group data.yaml: {e}")
+
 def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     """Save all annotations from virtual storage to the database and create YOLO structure."""
 
@@ -332,20 +392,22 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
     extracted_label = match.group(1)
 
+    # Extract piece group
+    piece_group = _extract_piece_group(piece_label)
+
     # Use the unified dataset path
     dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
     
-    # Create YOLO directory structure in the unified dataset folder
+    # Create YOLO directory structure in the unified dataset folder with group structure
     piece_path = create_yolo_directory_structure(dataset_base_path, piece_label)
     
-    # Set save folder for labels within the unified structure
+    # Set save folder for labels within the group-based structure
     labels_save_folder = os.path.join(piece_path, "labels", "valid")
     
     print(f"Created YOLO structure at: {piece_path}")
     print(f"Labels will be saved to: {labels_save_folder}")
 
     # Collect unique class IDs and labels from annotations
-    class_id_to_label = {}
     processed_images = set()
     annotated_image_ids = []  # Track which images we've annotated
 
@@ -400,8 +462,24 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         # Set the file path for saving the annotation in YOLO structure
         file_path = os.path.join(labels_save_folder, annotationTXT_name)
 
-        # Prepare annotation in YOLO format
-        annotationTXT = f"{piece.class_data_id} {x_center_normalized} {y_center_normalized} {width_normalized} {height_normalized}\n"
+        # Get the group-specific class ID for this piece
+        group_data_yaml_path = os.path.join(dataset_base_path, "piece", "piece", piece_group, "data.yaml")
+        group_class_id = 0  # Default to 0
+        
+        if os.path.exists(group_data_yaml_path):
+            try:
+                with open(group_data_yaml_path, 'r') as yaml_file:
+                    group_data = yaml.safe_load(yaml_file)
+                    # Find the group-specific ID for this piece_label
+                    for gid, label in group_data.get('names', {}).items():
+                        if label == piece_label:
+                            group_class_id = gid
+                            break
+            except Exception as e:
+                print(f"Warning: Could not read group data.yaml: {e}")
+
+        # Prepare annotation in YOLO format with group-specific class ID
+        annotationTXT = f"{group_class_id} {x_center_normalized} {y_center_normalized} {width_normalized} {height_normalized}\n"
 
         # Save the annotation inside a text file
         try:
@@ -430,8 +508,6 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         # Track this image as annotated
         if annotation_data['image_id'] not in annotated_image_ids:
             annotated_image_ids.append(annotation_data['image_id'])
-
-        class_id_to_label[piece.class_data_id] = piece.piece_label
 
     # Commit annotation service's own data first
     try:
@@ -474,8 +550,8 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                 else:
                     print("Warning: Failed to update piece annotation status via API")
                 
-                # Update data.yaml in the unified dataset folder
-                update_data_yaml(dataset_base_path, piece, class_id_to_label)
+                # Update group-specific data.yaml
+                update_group_data_yaml(dataset_base_path, piece_group, piece_label, piece.class_data_id)
             else:
                 print(f"Piece not fully annotated yet. {remaining_unannotated} images remaining.")
         else:
@@ -491,44 +567,10 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         "status": "Annotations saved successfully", 
         "save_folder": labels_save_folder, 
         "yolo_structure": piece_path,
+        "piece_group": piece_group,
         "updated_images": update_successes,
         "total_images": len(annotated_image_ids)
     }
-
-def update_data_yaml(dataset_base_path: str, piece: Piece, class_id_to_label: dict):
-    """Update data.yaml file with new class data."""
-    data_yaml_path = os.path.join(dataset_base_path, "data.yaml")
-
-    # Load existing data if it exists
-    if os.path.exists(data_yaml_path):
-        with open(data_yaml_path, 'r') as yaml_file:
-            data_yaml = yaml.safe_load(yaml_file)
-            print(f"Existing data_yaml loaded: {data_yaml}")
-    else:
-        # Create new data.yaml with relative paths for YOLO training
-        data_yaml = {
-            'names': {},
-            'nc': 0,
-            'path': dataset_base_path,
-            'train': 'piece/*/images/train',
-            'val': 'piece/*/images/valid'
-        }
-        print("No existing data_yaml found. Creating new.")
-
-    # Update the data_yaml with new class data
-    data_yaml['names'].update(class_id_to_label)
-    data_yaml['nc'] = len(data_yaml['names'])
-
-    # Create directories if needed
-    os.makedirs(os.path.dirname(data_yaml_path), exist_ok=True)
-
-    # Write to data.yaml
-    try:
-        with open(data_yaml_path, 'w') as yaml_file:
-            yaml.dump(data_yaml, yaml_file, default_flow_style=False)
-        print(f"data.yaml file updated at: {data_yaml_path}")
-    except IOError as e:
-        print(f"Warning: Failed to write data.yaml: {e}")
 
 def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]:
     """Delete a specific annotation from the database"""
@@ -554,6 +596,7 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         # Store information before deletion for file cleanup
         annotation_txt_name = annotation.annotationTXT_name
         piece_label = piece.piece_label
+        piece_group = _extract_piece_group(piece_label)
         
         # Delete the annotation first
         db.delete(annotation)
@@ -588,9 +631,9 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
         
         # Delete the corresponding annotation text file if it exists
         try:
-            # UPDATED: Use the unified dataset path for YOLO structure
+            # UPDATED: Use the group-based dataset path for YOLO structure
             dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
-            labels_folder = os.path.join(dataset_base_path, "piece","piece", piece_label, "labels", "valid")
+            labels_folder = os.path.join(dataset_base_path, "piece", "piece", piece_group, piece_label, "labels", "valid")
             
             # Get the annotation file name
             annotation_file_path = os.path.join(labels_folder, annotation_txt_name)
@@ -612,6 +655,7 @@ def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]
             "message": f"Annotation {annotation_id} deleted successfully",
             "image_still_annotated": remaining_annotations > 0,
             "piece_label": piece_label,
+            "piece_group": piece_group,
             "annotation_file_deleted": True
         }
         
@@ -706,3 +750,143 @@ def get_virtual_annotations_service(piece_label: str, virtual_storage: Dict) -> 
     except Exception as e:
         print(f"Error getting virtual annotations: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting virtual annotations: {str(e)}")
+
+def get_group_pieces_info(db: Session, piece_group: str) -> Dict[str, Any]:
+    """Get information about all pieces in a specific group"""
+    try:
+        # Query all pieces that belong to this group
+        pieces = db.query(Piece).filter(
+            Piece.piece_label.like(f"{piece_group}.%")
+        ).all()
+        
+        if not pieces:
+            return {
+                "group": piece_group,
+                "pieces": [],
+                "total_pieces": 0,
+                "annotated_pieces": 0
+            }
+        
+        pieces_info = []
+        annotated_count = 0
+        
+        for piece in pieces:
+            piece_info = {
+                "piece_label": piece.piece_label,
+                "class_data_id": piece.class_data_id,
+                "is_annotated": piece.is_annotated,
+                "image_count": piece.nbre_img
+            }
+            pieces_info.append(piece_info)
+            
+            if piece.is_annotated:
+                annotated_count += 1
+        
+        return {
+            "group": piece_group,
+            "pieces": pieces_info,
+            "total_pieces": len(pieces),
+            "annotated_pieces": annotated_count
+        }
+        
+    except Exception as e:
+        print(f"Error getting group pieces info: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting group pieces info: {str(e)}")
+
+def get_all_groups_info(db: Session) -> Dict[str, Any]:
+    """Get information about all groups in the database"""
+    try:
+        # Get all pieces and extract unique groups
+        all_pieces = db.query(Piece).all()
+        
+        groups_info = {}
+        
+        for piece in all_pieces:
+            try:
+                group = _extract_piece_group(piece.piece_label)
+                
+                if group not in groups_info:
+                    groups_info[group] = {
+                        "group": group,
+                        "pieces": [],
+                        "total_pieces": 0,
+                        "annotated_pieces": 0
+                    }
+                
+                piece_info = {
+                    "piece_label": piece.piece_label,
+                    "class_data_id": piece.class_data_id,
+                    "is_annotated": piece.is_annotated,
+                    "image_count": piece.nbre_img
+                }
+                
+                groups_info[group]["pieces"].append(piece_info)
+                groups_info[group]["total_pieces"] += 1
+                
+                if piece.is_annotated:
+                    groups_info[group]["annotated_pieces"] += 1
+                    
+            except Exception as group_error:
+                print(f"Error processing piece {piece.piece_label}: {group_error}")
+                continue
+        
+        return {
+            "groups": list(groups_info.values()),
+            "total_groups": len(groups_info)
+        }
+        
+    except Exception as e:
+        print(f"Error getting all groups info: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting all groups info: {str(e)}")
+
+def validate_group_data_yaml(dataset_base_path: str, piece_group: str) -> Dict[str, Any]:
+    """Validate and repair group data.yaml file if needed"""
+    try:
+        group_data_yaml_path = os.path.join(dataset_base_path, "piece", "piece", piece_group, "data.yaml")
+        
+        validation_result = {
+            "group": piece_group,
+            "yaml_path": group_data_yaml_path,
+            "exists": os.path.exists(group_data_yaml_path),
+            "valid": False,
+            "issues": [],
+            "repaired": False
+        }
+        
+        if not validation_result["exists"]:
+            validation_result["issues"].append("data.yaml file does not exist")
+            return validation_result
+        
+        # Load and validate the YAML
+        try:
+            with open(group_data_yaml_path, 'r') as yaml_file:
+                yaml_data = yaml.safe_load(yaml_file)
+                
+            # Check required fields
+            required_fields = ['names', 'nc', 'path', 'train', 'val']
+            missing_fields = [field for field in required_fields if field not in yaml_data]
+            
+            if missing_fields:
+                validation_result["issues"].extend([f"Missing field: {field}" for field in missing_fields])
+            
+            # Check if nc matches the number of names
+            if 'names' in yaml_data and 'nc' in yaml_data:
+                actual_count = len(yaml_data['names'])
+                declared_count = yaml_data['nc']
+                
+                if actual_count != declared_count:
+                    validation_result["issues"].append(f"Class count mismatch: declared={declared_count}, actual={actual_count}")
+            
+            if not validation_result["issues"]:
+                validation_result["valid"] = True
+            
+            validation_result["content"] = yaml_data
+            
+        except Exception as yaml_error:
+            validation_result["issues"].append(f"YAML parsing error: {str(yaml_error)}")
+        
+        return validation_result
+        
+    except Exception as e:
+        print(f"Error validating group data.yaml: {e}")
+        raise HTTPException(status_code=500, detail=f"Error validating group data.yaml: {str(e)}")

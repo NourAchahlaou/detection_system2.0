@@ -162,18 +162,81 @@ export const datasetService = {
   },
 
   // Train multiple pieces - FIXED
-  trainMultiplePieces: async (pieceLabels) => {
-    try {
-      const response = await api.post("/api/training/training/train", {
-        piece_labels: Array.isArray(pieceLabels) ? pieceLabels : [pieceLabels]
-      });
-      console.log(response.data.message || "Training started successfully");
-      return response.data;
-    } catch (error) {
-      console.error("Error starting training for multiple pieces:", error.response?.data?.detail || error.message);
-      throw error;
+// Fixed version of trainMultiplePieces in your datasetService
+trainMultiplePieces: async (pieceLabels) => {
+  console.log('=== datasetService.trainMultiplePieces START ===');
+  console.log('Input:', pieceLabels);
+  
+  try {
+    // Validate input
+    if (!Array.isArray(pieceLabels) || pieceLabels.length === 0) {
+      console.error('Invalid input to trainMultiplePieces:', pieceLabels);
+      const errorResult = { success: false, error: 'Invalid piece labels: must be a non-empty array' };
+      console.log('Returning error result:', errorResult);
+      return errorResult; // ✅ EXPLICIT RETURN
     }
-  },
+    
+    const requestPayload = {
+      piece_labels: pieceLabels
+    };
+    
+    console.log('Making API request with payload:', requestPayload);
+    console.log('API endpoint: /api/training/training/train');
+    
+    // Check if api object exists
+    if (!api) {
+      console.error('API object not available');
+      const errorResult = { success: false, error: 'API client not available' };
+      console.log('Returning error result:', errorResult);
+      return errorResult; // ✅ EXPLICIT RETURN
+    }
+    
+    console.log('API client available, making POST request...');
+    
+    const response = await api.post("/api/training/training/train", requestPayload);
+    console.log('API response received:', response);
+    console.log('Response data:', response.data);
+    console.log('Response status:', response.status);
+    
+    // ✅ FIXED: More robust response handling
+    if (response && response.status >= 200 && response.status < 300) {
+      // Success response - wrap the API response data
+      const successResult = {
+        success: true,
+        data: response.data,
+        message: response.data?.message || 'Training started successfully',
+        session_id: response.data?.session_id
+      };
+      console.log('Success! Returning success result:', successResult);
+      return successResult; // ✅ EXPLICIT RETURN WITH WRAPPED DATA
+    } else {
+      // Unexpected response format
+      console.error('Unexpected response format:', response);
+      const errorResult = { 
+        success: false, 
+        error: 'Unexpected response format',
+        response: response
+      };
+      console.log('Returning error result:', errorResult);
+      return errorResult; // ✅ EXPLICIT RETURN
+    }
+  } catch (error) {
+    console.error('Exception in trainMultiplePieces:', error);
+    console.log('Error response data:', error.response?.data);
+    console.log('Error status:', error.response?.status);
+    
+    const errorResult = {
+      success: false,
+      error: error.response?.data?.detail || error.message || 'Unknown error occurred',
+      statusCode: error.response?.status,
+      details: error.response?.data
+    };
+    console.log('Returning exception result:', errorResult);
+    return errorResult; // ✅ EXPLICIT RETURN
+  } finally {
+    console.log('=== datasetService.trainMultiplePieces END ===');
+  }
+},
 
   // Train all non-trained pieces - FIXED
   trainAllPieces: async () => {
@@ -235,7 +298,26 @@ export const datasetService = {
       return false;
     }
   },
+getTrainingSessions: async (params = {}) => {
+  try {
+    const queryParams = new URLSearchParams();
+    
+    // Add parameters
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== '' && value !== null && value !== undefined) {
+        queryParams.append(key, value);
+      }
+    });
 
+    const response = await api.get(
+      `/api/training/training/sessions?${queryParams.toString()}`
+    );
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching training sessions:", error.response?.data?.detail || error.message);
+    throw error;
+  }
+},
   // NEW: Get training logs
   getTrainingLogs: async (limit = 50) => {
     try {
