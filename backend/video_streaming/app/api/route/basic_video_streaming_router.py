@@ -3,10 +3,12 @@
 import asyncio
 import logging
 import time
+from typing import Annotated, Dict
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query,File, UploadFile
 from fastapi.responses import StreamingResponse,Response
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 # Import existing dependencies (adapt these to your actual imports)
@@ -20,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize services
 camera_service = CameraService()
+class CameraIDRequest(BaseModel):
+    camera_id: int = Field(..., description="The database ID of the camera")
+
 
 # Create the router
 basic_router = APIRouter(
@@ -27,7 +32,15 @@ basic_router = APIRouter(
     tags=["Basic Video Streaming"],
     responses={404: {"description": "Not found"}},
 )
+# Database dependency
+db_dependency = Annotated[Session, Depends(get_session)]
 
+@basic_router.post("/start", response_model=Dict[str, str])
+async def start_camera(request: CameraIDRequest, db: db_dependency):
+    """
+    Start a camera by its ID.
+    """
+    return camera_service.start_camera(db, request.camera_id)
 @basic_router.get("/stream/{camera_id}")
 async def basic_video_stream(
     camera_id: int,

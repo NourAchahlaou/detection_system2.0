@@ -903,7 +903,7 @@ export class BasicStreamManager {
       const timeoutId = setTimeout(() => controller.abort(), this.detectionService.CAMERA_START_TIMEOUT);
 
       try {
-        const cameraResponse = await api.post("/api/artifact_keeper/camera/start", {
+        const cameraResponse = await api.post("/api/video_streaming/video/basic/start", {
           camera_id: numericCameraId
         }, {
           signal: controller.signal,
