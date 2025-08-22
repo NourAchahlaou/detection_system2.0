@@ -120,7 +120,7 @@ docker-compose up --build
 Train YOLO model (optional)
 
 
-yolo train model=yolov8m.pt data=your_data.yaml --img 640 --batch -1 --epochs 100 --amp
+yolo train model=yolov8n.pt data=your_data.yaml --img 640 --batch -1 --epochs 100 --amp
 📁 Folder Structure (Recommended)
 
 📦 piece-verification-system

@@ -80,4 +80,4 @@ fi
 cd .. 
 # Start the application
 echo "Starting application"
-exec uvicorn annotation.app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn annotation.app.main:app --host 0.0.0.0 --port 8000  

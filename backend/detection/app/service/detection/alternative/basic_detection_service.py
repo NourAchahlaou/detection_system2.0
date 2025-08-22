@@ -281,14 +281,13 @@ class BasicDetectionProcessor:
             if frame is None:
                 raise Exception(f"Could not get current frame from camera {request.camera_id}")
             
-            # Prepare frame
-            if frame.shape[:2] != (480, 640):
-                frame = cv2.resize(frame, (640, 480))
+            # REMOVED PROBLEMATIC RESIZING - Let DetectionSystem handle it properly
+            # The original DetectionSystem (paste 1) works perfectly without forced resizing
             if not frame.flags['C_CONTIGUOUS']:
                 frame = np.ascontiguousarray(frame)
             
-            # Perform detection
-            logger.info(f"🎯 Running detection on frame from camera {request.camera_id}")
+            # Perform detection - DetectionSystem will handle sizing internally
+            logger.info(f"🎯 Running detection on frame from camera {request.camera_id} - Original size: {frame.shape}")
             loop = asyncio.get_event_loop()
             detection_results = await loop.run_in_executor(
                 None, 

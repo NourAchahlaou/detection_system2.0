@@ -5,7 +5,7 @@ from detection.app.service.model_service import load_my_model, get_model_for_gro
 import numpy as np
 
 class DetectionSystem:
-    def __init__(self, confidence_threshold=0.8, target_piece_label=None):
+    def __init__(self, confidence_threshold=0.6, target_piece_label=None):
         self.confidence_threshold = confidence_threshold
         self.target_piece_label = target_piece_label
         self.device = self.get_device()  # Get the device (CPU or GPU)
@@ -32,7 +32,7 @@ class DetectionSystem:
 
         # Convert to half precision if using a GPU
         if self.device.type == 'cuda':
-            model.half()  # Convert model to FP16
+            model.half()
 
         # Track which group model is currently loaded
         if self.target_piece_label:
@@ -74,13 +74,25 @@ class DetectionSystem:
             return True
 
     def detect_and_contour(self, frame, target_label):
-        # Convert the frame to a tensor
-        frame_tensor = torch.tensor(frame).permute(2, 0, 1).float().to(self.device)
-        frame_tensor /= 255.0  # Normalize
-        frame_tensor = frame_tensor.half() if self.device.type == 'cuda' else frame_tensor
-
+        # FIXED: Use model.predict() instead of manual tensor processing
+        # This automatically handles YOLO input requirements (stride divisibility, etc.)
+        
         try:
-            results = self.model(frame_tensor.unsqueeze(0))[0]  # Batch dim
+            # Use the model's predict method - this handles all preprocessing correctly
+            results = self.model.predict(
+                frame,  # Pass frame directly - YOLO will handle resizing
+                conf=self.confidence_threshold,
+                device=self.device,
+                verbose=False  # Reduce console output
+            )
+            
+            # Check if we got results
+            if not results or len(results) == 0:
+                return frame, False, 0, 0, 0, 0.0
+                
+            # Get the first result
+            result = results[0]
+            
         except Exception as e:
             print(f"Detection failed: {e}")
             return frame, False, 0, 0, 0, 0.0
@@ -95,12 +107,13 @@ class DetectionSystem:
         correct_pieces_count = 0
         max_confidence = 0.0
 
-        if results.boxes is None or len(results.boxes) == 0:
+        # Check if boxes exist
+        if result.boxes is None or len(result.boxes) == 0:
             return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
 
         frame_height, frame_width = frame.shape[:2]
 
-        for box in results.boxes:
+        for box in result.boxes:
             confidence = box.conf.item()
             max_confidence = max(max_confidence, confidence)
 
@@ -170,7 +183,7 @@ class DetectionSystem:
         return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
 
     @staticmethod
-    def resize_frame_optimized(frame: np.ndarray, target_size=(640, 480)) -> np.ndarray:
+    def resize_frame_optimized(frame: np.ndarray, target_size=(512, 512)) -> np.ndarray:
         """Optimized frame resizing with better interpolation."""
         if frame.shape[:2] != target_size[::-1]:  # Check if resize is needed
             return cv2.resize(frame, target_size, interpolation=cv2.INTER_LINEAR)

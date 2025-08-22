@@ -23,46 +23,137 @@ def rotate_and_save_images_and_annotations(piece_labels: List[str], rotation_ang
         return cv2.flip(image, flip_code)
     
     def rotate_annotation(annotation: list, angle: float, image_size: tuple) -> list:
-        w, h = image_size
-        x_center, y_center, width, height = annotation[1] * w, annotation[2] * h, annotation[3] * w, annotation[4] * h
-        x_min, y_min = x_center - width / 2, y_center - height / 2
-        x_max, y_max = x_center + width / 2, y_center + height / 2
-
-        angle_rad = np.radians(-angle)
-        cos_angle, sin_angle = np.cos(angle_rad), np.sin(angle_rad)
+        """
+        Rotate YOLO format annotation correctly.
+        
+        Args:
+            annotation: [class_id, x_center, y_center, width, height] (normalized)
+            angle: rotation angle in degrees
+            image_size: (height, width) of the image
+            
+        Returns:
+            Rotated annotation in YOLO format
+        """
+        h, w = image_size  # Note: cv2 image shape is (height, width, channels)
+        
+        # Extract normalized YOLO coordinates
+        class_id = annotation[0]
+        x_center_norm = annotation[1]
+        y_center_norm = annotation[2] 
+        width_norm = annotation[3]
+        height_norm = annotation[4]
+        
+        # Convert normalized coordinates to pixel coordinates
+        x_center = x_center_norm * w
+        y_center = y_center_norm * h
+        bbox_width = width_norm * w
+        bbox_height = height_norm * h
+        
+        # Calculate the four corners of the bounding box
+        x1 = x_center - bbox_width / 2
+        y1 = y_center - bbox_height / 2
+        x2 = x_center + bbox_width / 2
+        y2 = y_center - bbox_height / 2
+        x3 = x_center + bbox_width / 2
+        y3 = y_center + bbox_height / 2
+        x4 = x_center - bbox_width / 2
+        y4 = y_center + bbox_height / 2
+        
+        # Create corners array
+        corners = np.array([[x1, y1], [x2, y2], [x3, y3], [x4, y4]])
+        
+        # Image center for rotation
         cx, cy = w / 2, h / 2
-
-        def rotate_point(x, y):
-            return (
-                cos_angle * (x - cx) - sin_angle * (y - cy) + cx,
-                sin_angle * (x - cx) + cos_angle * (y - cy) + cy
-            )
-
-        corners = [rotate_point(*p) for p in [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]]
-        x_min_new, y_min_new = max(0, min(x for x, _ in corners)), max(0, min(y for _, y in corners))
-        x_max_new, y_max_new = min(w, max(x for x, _ in corners)), min(h, max(y for _, y in corners))
-
-        if x_max_new <= x_min_new or y_max_new <= y_min_new:
-            return None  # Discard invalid bounding box
-
-        new_x_center = (x_min_new + x_max_new) / 2 / w
-        new_y_center = (y_min_new + y_max_new) / 2 / h
-        new_width = (x_max_new - x_min_new) / w
-        new_height = (y_max_new - y_min_new) / h
-
-        if 0 <= new_x_center <= 1 and 0 <= new_y_center <= 1 and new_width > 0 and new_height > 0:
-            return [annotation[0], new_x_center, new_y_center, new_width, new_height]
-        return None
-
+        
+        # Convert angle to radians (negative because cv2 rotates clockwise)
+        angle_rad = np.radians(-angle)
+        
+        # Rotation matrix
+        cos_a = np.cos(angle_rad)
+        sin_a = np.sin(angle_rad)
+        
+        # Rotate each corner around image center
+        rotated_corners = []
+        for corner in corners:
+            x, y = corner
+            # Translate to origin
+            x_translated = x - cx
+            y_translated = y - cy
+            
+            # Apply rotation
+            x_rotated = x_translated * cos_a - y_translated * sin_a
+            y_rotated = x_translated * sin_a + y_translated * cos_a
+            
+            # Translate back
+            x_final = x_rotated + cx
+            y_final = y_rotated + cy
+            
+            rotated_corners.append([x_final, y_final])
+        
+        rotated_corners = np.array(rotated_corners)
+        
+        # Find the axis-aligned bounding box of the rotated corners
+        x_min = np.min(rotated_corners[:, 0])
+        y_min = np.min(rotated_corners[:, 1])
+        x_max = np.max(rotated_corners[:, 0])
+        y_max = np.max(rotated_corners[:, 1])
+        
+        # Calculate new center and dimensions
+        new_x_center = (x_min + x_max) / 2
+        new_y_center = (y_min + y_max) / 2
+        new_width = x_max - x_min
+        new_height = y_max - y_min
+        
+        # Clamp to image boundaries
+        new_x_center = max(0, min(w, new_x_center))
+        new_y_center = max(0, min(h, new_y_center))
+        new_width = min(w, new_width)
+        new_height = min(h, new_height)
+        
+        # Convert back to normalized coordinates
+        new_x_center_norm = new_x_center / w
+        new_y_center_norm = new_y_center / h
+        new_width_norm = new_width / w
+        new_height_norm = new_height / h
+        
+        # Ensure values are within valid range [0, 1]
+        new_x_center_norm = max(0, min(1, new_x_center_norm))
+        new_y_center_norm = max(0, min(1, new_y_center_norm))
+        new_width_norm = max(0, min(1, new_width_norm))
+        new_height_norm = max(0, min(1, new_height_norm))
+        
+        return [
+            class_id,
+            new_x_center_norm,
+            new_y_center_norm, 
+            new_width_norm,
+            new_height_norm
+        ]
+    
     def flip_annotation(annotation: list, flip_code: int, image_size: tuple) -> list:
-        w, h = image_size
-        x_center, y_center = annotation[1], annotation[2]
+        """
+        Flip YOLO format annotation.
+        
+        Args:
+            annotation: [class_id, x_center, y_center, width, height] (normalized)
+            flip_code: 1 for horizontal flip, 0 for vertical flip
+            image_size: (height, width) of the image
+            
+        Returns:
+            Flipped annotation in YOLO format
+        """
+        class_id = annotation[0]
+        x_center = annotation[1]
+        y_center = annotation[2]
+        width = annotation[3]
+        height = annotation[4]
+        
         if flip_code == 1:  # Horizontal flip
-            x_center = 1 - x_center
+            x_center = 1.0 - x_center
         elif flip_code == 0:  # Vertical flip
-            y_center = 1 - y_center
-
-        return [annotation[0], x_center, y_center, annotation[3], annotation[4]]
+            y_center = 1.0 - y_center
+        
+        return [class_id, x_center, y_center, width, height]
 
     def save_annotations(annotation_file: str, annotations: list):
         """Save annotations to a file."""
@@ -238,16 +329,25 @@ def rotate_and_save_images_and_annotations(piece_labels: List[str], rotation_ang
                             annotations = [line.strip().split() for line in file.readlines()]
                             annotations = [list(map(float, annotation)) for annotation in annotations]
 
-                        # Rotate and flip annotations
-                        rotated_annotations = [rotate_annotation(annotation, angle, image.shape[:2]) for annotation in annotations]
-                        flipped_annotations = [flip_annotation(annotation, flip_code, image.shape[:2]) for annotation in rotated_annotations if annotation]
-                        valid_annotations = [annotation for annotation in flipped_annotations if annotation]
+                        # Rotate and flip annotations using the corrected functions
+                        # Note: Pass image.shape (which is height, width, channels) correctly
+                        rotated_annotations = []
+                        for annotation in annotations:
+                            rotated_ann = rotate_annotation(annotation, angle, image.shape[:2])  # Pass (height, width)
+                            if rotated_ann:
+                                rotated_annotations.append(rotated_ann)
+                        
+                        flipped_annotations = []
+                        for annotation in rotated_annotations:
+                            flipped_ann = flip_annotation(annotation, flip_code, image.shape[:2])  # Pass (height, width)
+                            if flipped_ann:
+                                flipped_annotations.append(flipped_ann)
 
-                        if valid_annotations:
+                        if flipped_annotations:
                             # Save augmented annotations to train folder
                             new_annotation_file = f"{group_label}_{piece_label}_{angle}_{flip_code}_{i}_{image_file.replace('.jpg', '.txt').replace('.png', '.txt')}"
                             new_annotation_path = os.path.join(dest_labels_train, new_annotation_file)
-                            save_annotations(new_annotation_path, valid_annotations)
+                            save_annotations(new_annotation_path, flipped_annotations)
                             
                             total_augmented_images += 1
 

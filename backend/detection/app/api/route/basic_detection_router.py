@@ -45,8 +45,9 @@ basic_detection_router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 @basic_detection_router.post("/lots", response_model=Dict[str, Any])
-async def create_detection_lot(lot_request: CreateLotRequest, db: db_dependency):
+async def create_detection_lot(lot_request: CreateLotRequest, db: Session = Depends(get_session)):
     """
     Create a new detection lot for tracking detection sessions
     
@@ -81,7 +82,7 @@ async def create_detection_lot(lot_request: CreateLotRequest, db: db_dependency)
         raise HTTPException(status_code=500, detail=f"Failed to create detection lot: {str(e)}")
 
 @basic_detection_router.get("/all_lots", response_model=List[LotResponse])
-async def get_all_detection_lots(db: db_dependency):
+async def get_all_detection_lots(db: Session = Depends(get_session)):
     """
     Get all detection lots with their current status and statistics
     
@@ -105,7 +106,7 @@ async def get_all_detection_lots(db: db_dependency):
         raise HTTPException(status_code=500, detail=f"Failed to get detection lots: {str(e)}")
 
 @basic_detection_router.get("/lots/{lot_id}", response_model=Dict[str, Any])
-async def get_detection_lot(lot_id: int, db: db_dependency):
+async def get_detection_lot(lot_id: int, db: Session = Depends(get_session)):
     """
     Get detection lot information including statistics
     """
@@ -134,7 +135,7 @@ async def get_detection_lot(lot_id: int, db: db_dependency):
         raise HTTPException(status_code=500, detail=f"Failed to get detection lot: {str(e)}")
 
 @basic_detection_router.put("/lots/{lot_id}/status", response_model=Dict[str, Any])
-async def update_lot_target_match_status(lot_id: int, status_request: UpdateLotStatusRequest, db: db_dependency):
+async def update_lot_target_match_status(lot_id: int, status_request: UpdateLotStatusRequest, db: Session = Depends(get_session)):
     """
     Update lot target match status
     
@@ -187,7 +188,7 @@ async def update_lot_target_match_status(lot_id: int, status_request: UpdateLotS
 async def detect_with_database_tracking(
     camera_id: int,
     request: DetectionWithLotRequest,
-    db: db_dependency
+    db: Session = Depends(get_session)
 ):
     """
     Perform detection with database tracking
@@ -256,7 +257,7 @@ async def detect_with_database_tracking(
         raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
 
 @basic_detection_router.get("/lots/{lot_id}/sessions")
-async def get_lot_detection_sessions(lot_id: int, db: db_dependency):
+async def get_lot_detection_sessions(lot_id: int, db: Session = Depends(get_session)):
     """
     Get all detection sessions for a specific lot
     """
@@ -299,7 +300,7 @@ async def get_lot_detection_sessions(lot_id: int, db: db_dependency):
 async def detect_with_automatic_lot_creation(
     camera_id: int,
     request: Request,
-    db: db_dependency
+    db: Session = Depends(get_session)
 ):
     """
     Create a lot and perform detection in one operation
@@ -405,7 +406,7 @@ async def unfreeze_stream_after_detection(camera_id: int):
 async def detect_with_automatic_lot_correction(
     camera_id: int,
     request: Request,
-    db: db_dependency
+    db: Session = Depends(get_session)
 ):
     """
     Perform detection with automatic lot correction workflow

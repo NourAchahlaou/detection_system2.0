@@ -13,7 +13,6 @@ import re
 from collections import defaultdict
 from typing import List, Dict, Tuple
 import gc
-import math
 
 from training.app.db.models.piece_image import PieceImage
 from training.app.services.basic_rotation_service import rotate_and_update_images
@@ -44,9 +43,9 @@ logger = logging.getLogger(__name__)
 stop_event = asyncio.Event()
 stop_sign = False
 
-# Image size constants based on device - KEEP YOUR PREFERRED SIZES
-GPU_IMAGE_SIZE = 512  # Your preferred size 512
-CPU_IMAGE_SIZE = 640  # Your preferred size
+# Image size constants based on device
+GPU_IMAGE_SIZE = 416  # Conservative size for GPU
+CPU_IMAGE_SIZE = 640  # Higher resolution for CPU
 
 async def stop_training():
     """Set the stop event to signal training to stop."""
@@ -101,8 +100,8 @@ def select_device():
         # Set memory fraction for small GPUs
         total_memory = torch.cuda.get_device_properties(0).total_memory
         if total_memory <= 4 * 1024**3:  # 4GB or less
-            torch.cuda.set_per_process_memory_fraction(0.6)  # Reduced from 0.7 for more stability
-            logger.info("Set GPU memory fraction to 0.6 for small GPU")
+            torch.cuda.set_per_process_memory_fraction(0.7)  # Use only 70% of GPU memory
+            logger.info("Set GPU memory fraction to 0.7 for small GPU")
         
         try:
             test_tensor = torch.randn(10, 10).to(device)
@@ -120,17 +119,17 @@ def select_device():
         return torch.device('cpu')
 
 def adjust_batch_size(device, base_batch_size=8):
-    """Ultra-conservative batch sizes for GPU stability - PREVENT NaN."""
+    """Ultra-conservative batch sizes for GPU stability."""
     if device.type == 'cuda':
         total_memory = torch.cuda.get_device_properties(0).total_memory
         if total_memory <= 4 * 1024**3:  # T600 4GB
             return 1  # Single batch for maximum stability
         elif total_memory <= 6 * 1024**3:
-            return 1  # Also use 1 for 6GB cards to prevent NaN
+            return 2
         else:
-            return 2  # Very conservative even for larger GPUs
+            return 4
     else:
-        return max(1, base_batch_size // 4)  # More conservative CPU batch size
+        return max(2, base_batch_size // 2)
 
 def get_training_image_size(device):
     """Return image size based on device type."""
@@ -229,7 +228,7 @@ def check_existing_classes_in_model(model_path: str) -> List[str]:
     return []
 
 def adjust_hyperparameters_for_incremental(existing_classes: List[str], new_classes: List[str], device=None) -> Dict:
-    """FIXED hyperparameters to prevent NaN - much more conservative settings."""
+    """Optimized hyperparameters with separate configurations for CPU and GPU."""
     is_incremental = len(existing_classes) > 0
     total_classes = len(set(existing_classes + new_classes))
     is_gpu = device and device.type == 'cuda'
@@ -239,83 +238,70 @@ def adjust_hyperparameters_for_incremental(existing_classes: List[str], new_clas
     logger.info(f"Existing classes: {len(existing_classes)}, New classes: {len(new_classes)}, Total: {total_classes}")
     
     if is_gpu:
-        # GPU hyperparameters - ULTRA CONSERVATIVE to prevent NaN
+        # GPU hyperparameters (already working well)
         base_params = {
-            "cos_lr": False,        # Disable cosine LR - can cause instability
-            "momentum": 0.85,        # Reduced momentum for stability
-            "warmup_epochs": 5.0,   # Longer warmup to prevent early instability
-            "warmup_momentum": 0.6, # Lower warmup momentum
-            "warmup_bias_lr": 0.001,# Much lower warmup bias LR
-            "patience": 25,         # More patience
-            "box": 7.0,             # Reduced box loss weight
-            "cls": 0.5,             # Reduced cls loss weight
-            "dfl": 1.5,             # Reduced dfl loss weight
-            "label_smoothing": 0.0, # Disable label smoothing - can cause NaN
-            "close_mosaic": 10,     # Close mosaic later
-            "dropout": 0.0,         # Add dropout for regularization
-            "weight_decay": 0.0005, # Lower weight decay
+            "cos_lr": False,
+            "momentum": 0.8,  # Reduced momentum
+            "warmup_epochs": 3.0,  # Shorter warmup
+            "warmup_momentum": 0.7,
+            "warmup_bias_lr": 0.01,
+            "patience": 10,  # Shorter patience
+            "box": 7.5,
+            "cls": 0.5,
+            "dfl": 1.5,
+            "label_smoothing": 0.0,
+            "close_mosaic": 5,  # Close mosaic earlier
+            "dropout": 0.0,
         }
         
         if is_incremental:
             gpu_params = {
-                "lr0": 0.0001,      # Very conservative learning rate
-                "lrf": 0.01,        # Conservative final LR ratio
+                "lr0": 0.000005,     # Very low learning rate
+                "lrf": 0.0001,       # Very low final learning rate
+                "weight_decay": 0.0001,
             }
         else:
             gpu_params = {
-                "lr0": 0.0005,      # Still conservative for new training
-                "lrf": 0.01,        
+                "lr0": 0.00001,      # Very low learning rate
+                "lrf": 0.001,        
+                "weight_decay": 0.0002,
             }
         
         base_params.update(gpu_params)
         
     else:
-        # CPU hyperparameters - more aggressive but still stable
+        # CPU hyperparameters (optimized for better learning curve)
         base_params = {
-            "cos_lr": True,
-            "momentum": 0.9,        
-            "warmup_epochs": 3.0,   
+            "cos_lr": True,           # Enable cosine LR scheduling for better convergence
+            "momentum": 0.937,        # Higher momentum for CPU
+            "warmup_epochs": 5.0,     # Longer warmup for stability
             "warmup_momentum": 0.8,
             "warmup_bias_lr": 0.1,
-            "patience": 20,         
+            "patience": 50,           # More patience for CPU training
             "box": 7.5,
             "cls": 0.5,
             "dfl": 1.5,
-            "label_smoothing": 0.05,  
-            "close_mosaic": 8,        
+            "label_smoothing": 0.1,   # Add label smoothing for regularization
+            "close_mosaic": 10,       # Keep mosaic longer for CPU
             "dropout": 0.0,
-            "weight_decay": 0.0003,
         }
         
         if is_incremental:
             cpu_params = {
-                "lr0": 0.003,       # Moderate learning rate for CPU
-                "lrf": 0.05,        
+                "lr0": 0.001,         # Higher learning rate for CPU
+                "lrf": 0.01,          # Higher final learning rate
+                "weight_decay": 0.0005,
             }
         else:
             cpu_params = {
-                "lr0": 0.01,        
-                "lrf": 0.05,        
+                "lr0": 0.01,          # Standard learning rate for new training
+                "lrf": 0.1,           
+                "weight_decay": 0.0005,
             }
         
         base_params.update(cpu_params)
     
     return base_params
-
-
-
-def check_for_nan_in_results(results_dict: Dict) -> bool:
-    """Check if results contain NaN values."""
-    nan_keys = []
-    for key, value in results_dict.items():
-        if isinstance(value, (int, float)):
-            if math.isnan(value) or math.isinf(value):
-                nan_keys.append(key)
-    
-    if nan_keys:
-        logger.error(f"NaN/Inf detected in: {nan_keys}")
-        return True
-    return False
 
 def train_model_group_based(piece_labels: list, db: Session, session_id: int):
     """Train models using group-based approach with enhanced GPU stability."""
@@ -395,7 +381,7 @@ def train_model_group_based(piece_labels: list, db: Session, session_id: int):
         logger.info("Group-based training process finished and GPU memory cleared.")
 
 def train_single_group(group_name: str, piece_labels: List[str], db: Session, session_id: int, device=None):
-    """Train a single group with NaN prevention and stability improvements."""
+    """Train a single group with maximum GPU stability measures."""
     model = None
     try:
         training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
@@ -409,13 +395,11 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
 
         dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
         models_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
-        cpu_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models/cpu')
-        gpu_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models/gpu')
+        
         os.makedirs(models_base_path, exist_ok=True)
         
         model_save_path = os.path.join(models_base_path, f"model_{group_name}.pt")
-        training_path_cpu = os.path.join(cpu_base_path,group_name)
-        training_path_gpu = os.path.join(gpu_base_path,group_name)
+        
         valid_pieces = []
         total_images = 0
         class_mapping = {}
@@ -443,16 +427,13 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             training_session.add_log("ERROR", f"No valid pieces found for group {group_name}")
             safe_commit(db)
             return
-        
-        if len(valid_pieces) < 2:
-            training_session.add_log("WARNING", f"Only {len(valid_pieces)} piece(s) in group {group_name}. Consider adding more data for better training stability.")
             
         dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom', group_name)
         
-        # Create directory structure
+        # CRITICAL FIX: Create the directory structure BEFORE writing data.yaml
         os.makedirs(dataset_custom_path, exist_ok=True)
         
-        # Create required subdirectories
+        # Also create the required subdirectories
         train_images_path = os.path.join(dataset_custom_path, "images", "train")
         valid_images_path = os.path.join(dataset_custom_path, "images", "valid")
         train_labels_path = os.path.join(dataset_custom_path, "labels", "train")
@@ -463,23 +444,21 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
 
         data_yaml_path = os.path.join(dataset_custom_path, "data.yaml")
         
-        # CRITICAL FIX: Use integer indices for class mapping, not the piece labels
-        class_names = {i: label for i, label in enumerate(class_mapping.keys())}
-        
         data_yaml_content = {
             "path": dataset_custom_path,
             "train": "images/train",
             "val": "images/valid", 
-            "names": class_names  # Use integer-indexed names
+            "names": class_mapping
         }
         
+        # Now it's safe to write the data.yaml file
         with open(data_yaml_path, 'w') as f:
             yaml.dump(data_yaml_content, f, default_flow_style=False)
         
-        training_session.add_log("INFO", f"Created data.yaml for group {group_name} with {len(class_names)} classes")
+        training_session.add_log("INFO", f"Created data.yaml for group {group_name} with content: {data_yaml_content}")
         safe_commit(db)
 
-        # Rotation and augmentation
+        # Now call rotation which will populate the directory structure we just created
         logger.info(f"Starting rotation and augmentation for group {group_name}")
         training_session.add_log("INFO", f"Starting rotation and augmentation for group {group_name}")
         safe_commit(db)
@@ -491,8 +470,7 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             training_session.add_log("WARNING", f"Rotation failed for group {group_name}: {str(rotation_error)}")
         safe_commit(db)
 
-
-        # Check existing model
+        # Rest of the function remains the same...
         existing_classes = check_existing_classes_in_model(model_save_path)
         new_classes = list(class_mapping.keys())
         
@@ -502,10 +480,10 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
                 model = YOLO(model_save_path)
             except Exception as e:
                 training_session.add_log("WARNING", f"Failed to load existing model, creating new one: {e}")
-                model = YOLO("yolov8n.pt")  # Use nano model for better stability
+                model = YOLO("yolov8n.pt")  # Use nano model for GPU
         else:
             training_session.add_log("INFO", f"Creating new model for group {group_name}")
-            model = YOLO("yolov8n.pt")  # Use nano model for better stability
+            model = YOLO("yolov8n.pt")  # Use nano model for better GPU compatibility
 
         model.to(device)
         
@@ -518,7 +496,7 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             training_session.add_log("INFO", f"GPU memory before training - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
             safe_commit(db)
         
-        # Get device-specific configuration
+        # Get device-specific image size and batch size
         imgsz = get_training_image_size(device)
         batch_size = adjust_batch_size(device)
         hyperparameters = adjust_hyperparameters_for_incremental(existing_classes, new_classes, device)
@@ -528,39 +506,32 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         training_session.add_log("INFO", f"Group {group_name} config - Image: {imgsz}, Batch: {batch_size}, Device: {device}")
         safe_commit(db)
 
-        # CONSERVATIVE augmentation settings to prevent NaN
+        # Ultra-conservative augmentation for GPU
         augmentations = {
-            "hsv_h": 0.01,       # Very small color variation
-            "hsv_s": 0.3,        # Reduced saturation changes
-            "hsv_v": 0.2,        # Reduced brightness variation
-            "degrees": 10.0,     # Reduced rotation
-            "translate": 0.05,   # Very small translation
-            "scale": 0.2,        # Reduced scale variation
-            "shear": 0.0,        # Disable shear - can cause instability
-            "perspective": 0.0,  # Disable perspective
-            "flipud": 0.0,       # No vertical flip
-            "fliplr": 0.3,       # Reduced horizontal flip probability
-            "mosaic": 0.5,       # Reduced mosaic - can cause NaN with small datasets
-            "mixup": 0.0,        # Disable mixup - can cause instability
+            "hsv_h": 0.005,      # Minimal augmentation
+            "hsv_s": 0.2,        
+            "hsv_v": 0.2,        
+            "degrees": 5.0,      # Minimal rotation
+            "translate": 0.05,   # Minimal translation
+            "scale": 0.1,        # Minimal scaling
+            "shear": 0.0,        
+            "perspective": 0.0,  
+            "flipud": 0.0,       
+            "fliplr": 0.3,       # Reduced flip probability
+            "mosaic": 0.0,       # Disable mosaic for stability
+            "mixup": 0.0,        # Disable mixup
             "copy_paste": 0.0,   
-            "erasing": 0.0,
+            "erasing": 0.0,      # Disable erasing
         }
         
         hyperparameters.update(augmentations)
         
-        # Validate model with dummy input
+        # Validate model with minimal memory usage
         try:
             test_input = torch.randn(1, 3, imgsz, imgsz).to(device)
             with torch.no_grad():
-                test_output = model.model(test_input)
-                
-            # Check for NaN in test output
-            if any(torch.isnan(tensor).any() for tensor in test_output if torch.is_tensor(tensor)):
-                training_session.add_log("ERROR", "Model produces NaN on test input")
-                safe_commit(db)
-                return
-                
-            del test_input, test_output
+                _ = model.model(test_input)
+            del test_input
             force_cleanup_gpu_memory()
             training_session.add_log("INFO", f"Model validation passed for group {group_name}")
             safe_commit(db)
@@ -573,79 +544,74 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         training_session.add_log("INFO", f"Training hyperparameters: {hyperparameters}")
         safe_commit(db)
         
-        # Disable AMP completely for stability
+        # Disable AMP completely for GPU to prevent NaN
         use_amp = False
         
-        if device.type == 'cpu':
-            # CPU: Train with fewer epochs first to test stability
-            test_epochs = min(5, training_session.epochs)
-            try:
-                training_session.add_log("INFO", f"CPU Training: Starting with {test_epochs} test epochs")
+        # Modified training loop with enhanced stability
+        for epoch in range(1, training_session.epochs + 1):
+            if stop_event.is_set():
+                training_session.add_log("INFO", "Stop event detected during group training")
                 safe_commit(db)
+                break
+            
+            training_session.current_epoch = epoch
+            epoch_progress = (epoch / training_session.epochs) * 100
+            training_session.progress_percentage = epoch_progress
+            
+            training_session.add_log("INFO", f"Group {group_name} - Epoch {epoch}/{training_session.epochs} (Progress: {epoch_progress:.1f}%)")
+            safe_commit(db)
+            
+            try:
+                # Aggressive memory cleanup before each epoch
+                force_cleanup_gpu_memory()
                 
+                # Check GPU memory before training
+                if device.type == 'cuda':
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    if allocated > 2.0:  # If using more than 2GB, something's wrong
+                        training_session.add_log("WARNING", f"High GPU memory usage before epoch: {allocated:.2f}GB")
+                        force_cleanup_gpu_memory()
+                
+                # Train with minimal settings
                 results = model.train(
                     data=data_yaml_path,
-                    epochs=test_epochs,
+                    epochs=1,
                     imgsz=imgsz,
                     batch=batch_size,
                     device=device,
-                    project=os.path.dirname(training_path_cpu),
-                    name=f"{group_name}_test_training",
+                    project=os.path.dirname(model_save_path),
+                    name=f"{group_name}_epoch_{epoch}",
                     exist_ok=True,
                     amp=use_amp,
-                    plots=True,
+                    plots=False,  # Disable plots to save memory
                     resume=False,
                     augment=True,
-                    verbose=True,
-                    workers=1,  # Single worker to prevent data loading issues
+                    verbose=False,  # Reduce verbose output
+                    workers=1,  # Single worker to reduce memory usage
                     **hyperparameters
                 )
                 
-                # Check results for NaN
-                if hasattr(results, 'results_dict'):
-                    if check_for_nan_in_results(results.results_dict):
-                        training_session.add_log("ERROR", "NaN detected in test training, aborting")
-                        safe_commit(db)
-                        return
+                # Immediate cleanup after training step
+                force_cleanup_gpu_memory()
                 
-                # If test training successful, continue with full training
-                if training_session.epochs > test_epochs:
-                    remaining_epochs = training_session.epochs - test_epochs
-                    training_session.add_log("INFO", f"Test training successful, continuing with {remaining_epochs} more epochs")
-                    
-                    results = model.train(
-                        data=data_yaml_path,
-                        epochs=remaining_epochs,
-                        imgsz=imgsz,
-                        batch=batch_size,
-                        device=device,
-                        project=os.path.dirname(training_path_cpu),
-                        name=f"{group_name}_full_training",
-                        exist_ok=True,
-                        amp=use_amp,
-                        plots=True,
-                        resume=False,
-                        augment=True,
-                        verbose=True,
-                        workers=1,
-                        **hyperparameters
-                    )
-                
-                # Update progress
-                training_session.current_epoch = training_session.epochs
-                training_session.progress_percentage = 100.0
-                
-                # Extract final results
+                # Validate results and check for NaN
                 if hasattr(results, 'results_dict'):
                     results_dict = results.results_dict
                     
-                    # Final NaN check
-                    if check_for_nan_in_results(results_dict):
-                        training_session.add_log("ERROR", "NaN detected in final results")
-                        safe_commit(db)
-                        return
+                    has_nan = False
+                    nan_keys = []
+                    for key, value in results_dict.items():
+                        if isinstance(value, (int, float)) and (value != value or value == float('inf') or value == float('-inf')):
+                            has_nan = True
+                            nan_keys.append(key)
                     
-                    if 'train/box_loss' in results_dict:
+                    if has_nan:
+                        training_session.add_log("ERROR", f"NaN detected in epoch {epoch} for keys: {nan_keys}")
+                        safe_commit(db)
+                        break
+                    
+                    # Update losses if valid
+                    if 'train/box_loss' in results_dict and not has_nan:
                         training_session.update_losses(
                             box_loss=results_dict.get('train/box_loss'),
                             cls_loss=results_dict.get('train/cls_loss'),
@@ -655,163 +621,38 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
                     if 'lr/pg0' in results_dict:
                         training_session.update_metrics(
                             lr=results_dict.get('lr/pg0'),
-                            momentum=hyperparameters.get('momentum', 0.9)
+                            momentum=hyperparameters.get('momentum', 0.8)
                         )
-                safe_commit(db)
+                    safe_commit(db)
                 
             except Exception as train_error:
-                training_session.add_log("ERROR", f"CPU Training failed: {str(train_error)}")
+                error_str = str(train_error).lower()
+                training_session.add_log("ERROR", f"Training error in epoch {epoch}: {str(train_error)}")
                 safe_commit(db)
-                return
                 
-        else:
-            # GPU: Train epoch by epoch with extensive NaN checking
-            consecutive_nan_count = 0
-            max_consecutive_nans = 3
-            
-            for epoch in range(1, training_session.epochs + 1):
-                if stop_event.is_set():
-                    training_session.add_log("INFO", "Stop event detected during group training")
+                # Handle specific GPU errors
+                if any(keyword in error_str for keyword in ["out of memory", "cuda", "nan", "memory"]):
+                    training_session.add_log("ERROR", "GPU memory or NaN error detected. Stopping training.")
                     safe_commit(db)
                     break
-                
-                training_session.current_epoch = epoch
-                epoch_progress = (epoch / training_session.epochs) * 100
-                training_session.progress_percentage = epoch_progress
-                
-                training_session.add_log("INFO", f"GPU Training - Epoch {epoch}/{training_session.epochs} (Progress: {epoch_progress:.1f}%)")
-                safe_commit(db)
-                
+                else:
+                    # For other errors, try to continue
+                    continue
+            
+            # Skip validation to save memory - only save model periodically
+            if epoch % 5 == 0:
                 try:
-                    # Aggressive memory cleanup before each epoch
-                    force_cleanup_gpu_memory()
-                    
-                    # Check GPU memory
-                    if device.type == 'cuda':
-                        allocated = torch.cuda.memory_allocated() / 1024**3
-                        if allocated > 2.0:  # If using more than 2GB
-                            training_session.add_log("WARNING", f"High GPU memory usage: {allocated:.2f}GB")
-                            force_cleanup_gpu_memory()
-                    
-                    # Train single epoch with gradient clipping
-                    results = model.train(
-                        data=data_yaml_path,
-                        epochs=1,
-                        imgsz=imgsz,
-                        batch=batch_size,
-                        device=device,
-                        project=os.path.dirname(training_path_gpu),
-                        name=f"{group_name}_epoch_{epoch}",
-                        exist_ok=True,
-                        amp=use_amp,
-                        plots=False,  # Disable plots to save memory
-                        resume=False,
-                        augment=False,  # Disable augment for stability
-                        verbose=False,
-                        workers=1,  # Single worker for GPU
-                        **hyperparameters
-                    )
-                    
-                    force_cleanup_gpu_memory()
-                    
-                    # Process results with extensive NaN checking
-                    if hasattr(results, 'results_dict'):
-                        results_dict = results.results_dict
-                        
-                        # Check for NaN values
-                        if check_for_nan_in_results(results_dict):
-                            consecutive_nan_count += 1
-                            training_session.add_log("ERROR", f"NaN detected in epoch {epoch} (consecutive: {consecutive_nan_count})")
-                            
-                            if consecutive_nan_count >= max_consecutive_nans:
-                                training_session.add_log("ERROR", f"Too many consecutive NaN epochs ({consecutive_nan_count}), stopping training")
-                                safe_commit(db)
-                                break
-                            else:
-                                # Try to continue with next epoch
-                                safe_commit(db)
-                                continue
-                        else:
-                            # Reset consecutive NaN count on successful epoch
-                            consecutive_nan_count = 0
-                        
-                        # Update losses if valid
-                        if 'train/box_loss' in results_dict:
-                            box_loss = results_dict.get('train/box_loss')
-                            cls_loss = results_dict.get('train/cls_loss')
-                            dfl_loss = results_dict.get('train/dfl_loss')
-                            
-                            # Additional validation of loss values
-                            if all(isinstance(loss, (int, float)) and not math.isnan(loss) and not math.isinf(loss) 
-                                   for loss in [box_loss, cls_loss, dfl_loss] if loss is not None):
-                                training_session.update_losses(
-                                    box_loss=box_loss,
-                                    cls_loss=cls_loss,
-                                    dfl_loss=dfl_loss
-                                )
-                        
-                        if 'lr/pg0' in results_dict:
-                            lr = results_dict.get('lr/pg0')
-                            if isinstance(lr, (int, float)) and not math.isnan(lr) and not math.isinf(lr):
-                                training_session.update_metrics(
-                                    lr=lr,
-                                    momentum=hyperparameters.get('momentum', 0.7)
-                                )
-                        safe_commit(db)
-                    
-                except Exception as train_error:
-                    error_str = str(train_error).lower()
-                    training_session.add_log("ERROR", f"Training error in epoch {epoch}: {str(train_error)}")
+                    model.save(model_save_path)
+                    training_session.add_log("INFO", f"Checkpoint saved for group {group_name} after epoch {epoch}")
                     safe_commit(db)
-                    
-                    # Handle specific error types
-                    if any(keyword in error_str for keyword in ["out of memory", "cuda"]):
-                        training_session.add_log("ERROR", "GPU memory error. Stopping training.")
-                        safe_commit(db)
-                        break
-                    elif "nan" in error_str or "inf" in error_str:
-                        consecutive_nan_count += 1
-                        training_session.add_log("ERROR", f"NaN/Inf error in epoch {epoch} (consecutive: {consecutive_nan_count})")
-                        if consecutive_nan_count >= max_consecutive_nans:
-                            training_session.add_log("ERROR", "Too many NaN errors, stopping training")
-                            safe_commit(db)
-                            break
-                    else:
-                        continue
-                
-                # Save checkpoint every 10 epochs or if approaching end
-                if epoch % 10 == 0 or epoch >= training_session.epochs - 2:
-                    try:
-                        model.save(model_save_path)
-                        training_session.add_log("INFO", f"Checkpoint saved after epoch {epoch}")
-                        safe_commit(db)
-                    except Exception as save_error:
-                        training_session.add_log("WARNING", f"Failed to save checkpoint: {str(save_error)}")
-                        safe_commit(db)
+                except Exception as save_error:
+                    training_session.add_log("WARNING", f"Failed to save checkpoint: {str(save_error)}")
+                    safe_commit(db)
 
-        # Final model save with validation
+        # Final model save
         try:
             model.save(model_save_path)
-            training_session.add_log("INFO", f"Training completed for group {group_name}. Model saved to {model_save_path}")
-            
-            # Verify model can be loaded and doesn't produce NaN
-            test_model = YOLO(model_save_path)
-            class_names = test_model.names
-            
-            # Test model with dummy input
-            test_input = torch.randn(1, 3, imgsz, imgsz).to(device)
-            with torch.no_grad():
-                test_output = test_model.model(test_input)
-                
-            # Check for NaN in final model output
-            if any(torch.isnan(tensor).any() for tensor in test_output if torch.is_tensor(tensor)):
-                training_session.add_log("ERROR", "Final model produces NaN output!")
-                safe_commit(db)
-            else:
-                training_session.add_log("INFO", f"Model verification successful. Classes: {class_names}")
-            
-            del test_model, test_input, test_output
-            
+            training_session.add_log("INFO", f"Training completed for group {group_name}. Final model saved to {model_save_path}")
         except Exception as save_error:
             training_session.add_log("ERROR", f"Failed to save final model: {str(save_error)}")
         

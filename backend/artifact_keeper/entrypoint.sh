@@ -107,4 +107,4 @@ echo "Database setup verification complete!"
 
 # Start the application
 echo "Starting application"
-exec uvicorn artifact_keeper.app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn artifact_keeper.app.main:app --host 0.0.0.0 --port 8000  

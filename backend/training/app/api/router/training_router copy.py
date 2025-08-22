@@ -136,7 +136,7 @@ def create_training_session(db: Session, piece_labels: List[str]) -> TrainingSes
         
         training_session = TrainingSession(
             session_name=session_name,
-            model_type="YOLOV8X",
+            model_type="yolov8n",
             epochs=30,
             batch_size=8,
             learning_rate=0.0001,

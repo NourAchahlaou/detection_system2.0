@@ -268,7 +268,7 @@ def get_single_frame():
             raise HTTPException(status_code=503, detail="Failed to capture frame")
         
         # Encode as JPEG
-        success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         if not success:
             raise HTTPException(status_code=503, detail="Failed to encode frame as JPEG")
         

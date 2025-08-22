@@ -113,8 +113,8 @@ echo "Setting up YOLO model..."
 
 # Set model paths based on environment variables or defaults
 MODELS_BASE_PATH=${MODELS_BASE_PATH:-/app/shared/models}
-YOLO_MODEL_PATH="$MODELS_BASE_PATH/yolov8m.pt"
-YOLO_MODEL_URL="https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8m.pt"
+YOLO_MODEL_PATH="$MODELS_BASE_PATH/yolov8n.pt"
+YOLO_MODEL_URL="https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt"
 
 echo "Model configuration:"
 echo "  Models base path: $MODELS_BASE_PATH"
@@ -129,7 +129,7 @@ mkdir -p "$MODELS_BASE_PATH"
 if [ -f "$YOLO_MODEL_PATH" ]; then
     echo "✓ YOLO model already exists at $YOLO_MODEL_PATH"
     
-    # Verify the file size (yolov8m.pt should be around 50MB)
+    # Verify the file size (yolov8n.pt should be around 50MB)
     MODEL_SIZE=$(stat -c%s "$YOLO_MODEL_PATH" 2>/dev/null || echo "0")
     MIN_SIZE=40000000  # 40MB minimum
     
