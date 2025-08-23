@@ -327,9 +327,9 @@ class HybridStreamState:
                     # Resize if needed (Basler cameras might need different sizing)
                     height, width = frame.shape[:2]
                     if self.config.camera_type == CameraType.BASLER and width > 800:
-                        frame = cv2.resize(frame, (800, 600))
+                        frame = cv2.resize(frame, (1920, 1152))
                     elif self.config.camera_type == CameraType.REGULAR and width > 1024:
-                        frame = cv2.resize(frame, (1024, 768))
+                        frame = cv2.resize(frame, (1920, 1152))
                     
                     # Re-encode with specified quality
                     encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.config.stream_quality]

@@ -83,7 +83,8 @@ class DetectionSystem:
                 frame,  # Pass frame directly - YOLO will handle resizing
                 conf=self.confidence_threshold,
                 device=self.device,
-                verbose=False  # Reduce console output
+                imgsz=512,  # YOLOv8 default size
+                
             )
             
             # Check if we got results
