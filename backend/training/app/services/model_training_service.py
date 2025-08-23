@@ -248,7 +248,7 @@ def adjust_hyperparameters_for_incremental(existing_classes: List[str], new_clas
             "warmup_bias_lr": 0.001,# Much lower warmup bias LR
             "patience": 25,         # More patience
             "box": 7.0,             # Reduced box loss weight
-            "cls": 0.5,             # Reduced cls loss weight
+            "cls": 1,             # Reduced cls loss weight
             "dfl": 1.5,             # Reduced dfl loss weight
             "label_smoothing": 0.0, # Disable label smoothing - can cause NaN
             "close_mosaic": 10,     # Close mosaic later
@@ -540,7 +540,7 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             "perspective": 0.0,  # Disable perspective
             "flipud": 0.0,       # No vertical flip
             "fliplr": 0.3,       # Reduced horizontal flip probability
-            "mosaic": 0.5,       # Reduced mosaic - can cause NaN with small datasets
+            "mosaic": 0.3,       # Reduced mosaic - can cause NaN with small datasets
             "mixup": 0.0,        # Disable mixup - can cause instability
             "copy_paste": 0.0,   
             "erasing": 0.0,
