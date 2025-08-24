@@ -95,13 +95,13 @@ def process_images_and_labels(image_dir, label_dir, output_dir):
 # Example usage
 def main():
     # Directories for training and validation images and labels
-    train_image_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053\images\train\G053.42874.105.03"
-    train_label_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053\labels\train\G053.42874.105.03"
-    output_train_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053\output\train\G053.42874.105.03"
+    train_image_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053_cropped\images\train\G053.42874.105.03"
+    train_label_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053_cropped\labels\train\G053.42874.105.03"
+    output_train_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053_cropped\output\train\G053.42874.105.03"
 
-    val_image_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053\images\valid\G053.42874.105.03"
-    val_label_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053\labels\valid\G053.42874.105.03"
-    output_val_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053\output\valid\G053.42874.105.03"
+    val_image_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053_cropped\images\valid\G053.42874.105.03"
+    val_label_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053_cropped\labels\valid\G053.42874.105.03"
+    output_val_dir = r"C:\Users\hp\Desktop\airbus2.0\detection_System2.0\shared_data\dataset\dataset_custom\G053_cropped\output\valid\G053.42874.105.03"
 
     # Process the images and labels
     print("Processing training images...")

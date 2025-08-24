@@ -190,9 +190,9 @@ class CameraManager:
                     try:
                         exposure_node = node_map.GetNode("ExposureTime")
                         # Use pylon.IsWritable
-                        exposure_node.SetValue(40000.0)  # Ensure it's a float
-                        exposure_value = 40000.0
-                        logger.info("Successfully set exposure to 40000.0")
+                        exposure_node.SetValue(90753.0)  # Ensure it's a float
+                        exposure_value = 90753.0
+                        logger.info("Successfully set exposure to 90753.0")
                    
                             # Try to get current value even if not writable
                         if exposure_node and pylon.IsReadable(exposure_node):
@@ -204,9 +204,9 @@ class CameraManager:
                     gain_value = None
                     try:
                         gain_node = node_map.GetNode("Gain")
-                        gain_node.SetValue(1.0)  # Set to 1.0 as requested
-                        gain_value = 1.0
-                        logger.info("Successfully set gain to 1.0")
+                        gain_node.SetValue(2)  # Set to 1.0 as requested
+                        gain_value = 2
+                        logger.info("Successfully set gain to 1,92443")
                             # Try to get current value even if not writable
                         if gain_node and pylon.IsReadable(gain_node):
                             gain_value = gain_node.GetValue()

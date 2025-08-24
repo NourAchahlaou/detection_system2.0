@@ -2,6 +2,7 @@ import asyncio
 import os
 import logging
 import shutil
+from training.app.services.cropping import SmartCroppingService
 from training.app.db.models.annotation import Annotation
 import torch
 from sqlalchemy.orm import Session
@@ -227,6 +228,92 @@ def check_existing_classes_in_model(model_path: str) -> List[str]:
     except Exception as e:
         logger.warning(f"Could not load existing model classes: {e}")
     return []
+def apply_smart_cropping_to_group(group_label: str, piece_labels: List[str], 
+                                crop_size: int = 980, final_size: int = 512) -> Dict:
+    """
+    Apply smart cropping to all pieces in a group after rotation/augmentation.
+    
+    Args:
+        group_label: Group identifier (e.g., 'E539')
+        piece_labels: List of piece labels in the group
+        crop_size: Size of the crop to extract from original images
+        final_size: Final size for training (what gets passed to YOLO)
+        
+    Returns:
+        Processing statistics and cropped dataset path
+    """
+    
+    # Get dataset paths
+    dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
+    dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom', group_label)
+    
+    if not os.path.exists(dataset_custom_path):
+        raise ValueError(f"Dataset custom path does not exist: {dataset_custom_path}")
+    
+    # Initialize cropping service
+    cropping_service = SmartCroppingService(crop_size=crop_size, final_size=final_size)
+    
+    # Process all pieces
+    total_stats = {
+        'group_label': group_label,
+        'crop_size': crop_size,
+        'final_size': final_size,
+        'total_pieces_processed': 0,
+        'total_images_processed': 0,
+        'total_images_cropped': 0,
+        'total_annotations_updated': 0,
+        'piece_stats': {},
+        'errors': []
+    }
+    
+    logger.info(f"Starting smart cropping for group {group_label} with crop_size={crop_size}, final_size={final_size}")
+    
+    for piece_label in piece_labels:
+        logger.info(f"Processing piece: {piece_label}")
+        
+        try:
+            piece_stats = cropping_service.process_piece_images(piece_label, dataset_custom_path, group_label)
+            
+            total_stats['piece_stats'][piece_label] = piece_stats
+            total_stats['total_pieces_processed'] += 1
+            total_stats['total_images_processed'] += piece_stats['images_processed']
+            total_stats['total_images_cropped'] += piece_stats['images_cropped']
+            total_stats['total_annotations_updated'] += piece_stats['annotations_updated']
+            total_stats['errors'].extend(piece_stats['errors'])
+            
+            logger.info(f"Completed piece {piece_label}: {piece_stats['images_cropped']} images cropped")
+            
+        except Exception as e:
+            error_msg = f"Error processing piece {piece_label}: {str(e)}"
+            logger.error(error_msg)
+            total_stats['errors'].append(error_msg)
+    
+    # Create final cropped dataset structure
+    try:
+        cropped_dataset_path = cropping_service.create_cropped_dataset_structure(dataset_custom_path, group_label)
+        total_stats['cropped_dataset_path'] = cropped_dataset_path
+        logger.info(f"Created cropped dataset at: {cropped_dataset_path}")
+        
+        # Clean up intermediate cropped directories
+        intermediate_dirs = [
+            os.path.join(dataset_custom_path, 'images_cropped'),
+            os.path.join(dataset_custom_path, 'labels_cropped')
+        ]
+        
+        for intermediate_dir in intermediate_dirs:
+            if os.path.exists(intermediate_dir):
+                shutil.rmtree(intermediate_dir)
+                
+    except Exception as e:
+        error_msg = f"Error creating final cropped dataset: {str(e)}"
+        logger.error(error_msg)
+        total_stats['errors'].append(error_msg)
+    
+    logger.info(f"Smart cropping completed for group {group_label}")
+    logger.info(f"Total images processed: {total_stats['total_images_processed']}")
+    logger.info(f"Total images cropped: {total_stats['total_images_cropped']}")
+    
+    return total_stats
 
 def adjust_hyperparameters_for_incremental(existing_classes: List[str], new_classes: List[str], device=None) -> Dict:
     """FIXED hyperparameters to prevent NaN - much more conservative settings."""
@@ -409,13 +496,18 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
 
         dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
         models_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models')
-        cpu_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models/cpu')
-        gpu_base_path = os.getenv('MODELS_BASE_PATH', '/app/shared/models/gpu')
+        cpu_base_path = os.path.join(models_base_path, 'cpu')
+        gpu_base_path = os.path.join(models_base_path, 'gpu')
+
         os.makedirs(models_base_path, exist_ok=True)
-        
+        os.makedirs(cpu_base_path, exist_ok=True)
+        os.makedirs(gpu_base_path, exist_ok=True)
+
         model_save_path = os.path.join(models_base_path, f"model_{group_name}.pt")
-        training_path_cpu = os.path.join(cpu_base_path,group_name)
-        training_path_gpu = os.path.join(gpu_base_path,group_name)
+        training_path_cpu = os.path.join(cpu_base_path, group_name)
+        training_path_gpu = os.path.join(gpu_base_path, group_name)
+        os.makedirs(training_path_cpu, exist_ok=True)
+        os.makedirs(training_path_gpu, exist_ok=True)
         valid_pieces = []
         total_images = 0
         class_mapping = {}
@@ -447,7 +539,7 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         if len(valid_pieces) < 2:
             training_session.add_log("WARNING", f"Only {len(valid_pieces)} piece(s) in group {group_name}. Consider adding more data for better training stability.")
             
-        dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom', group_name)
+        dataset_custom_path = os.path.join(dataset_base_path, 'dataset_custom', f"{group_name}_cropped")
         
         # Create directory structure
         os.makedirs(dataset_custom_path, exist_ok=True)
@@ -491,7 +583,11 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             training_session.add_log("WARNING", f"Rotation failed for group {group_name}: {str(rotation_error)}")
         safe_commit(db)
 
-
+        try:
+            crop_stats = apply_smart_cropping_to_group(group_name, piece_labels, crop_size=980, final_size=512)
+            training_session.add_log("INFO", f"Smart cropping completed for group {group_name}: {crop_stats}")
+        except Exception as crop_error:
+            training_session.add_log("WARNING", f"Smart cropping failed for group {group_name}: {str(crop_error)}")
         # Check existing model
         existing_classes = check_existing_classes_in_model(model_save_path)
         new_classes = list(class_mapping.keys())
@@ -704,7 +800,7 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
                         name=f"{group_name}_epoch_{epoch}",
                         exist_ok=True,
                         amp=use_amp,
-                        plots=False,  # Disable plots to save memory
+                        plots=True,  # Disable plots to save memory
                         resume=False,
                         augment=False,  # Disable augment for stability
                         verbose=False,

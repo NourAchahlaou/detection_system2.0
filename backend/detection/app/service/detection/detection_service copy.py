@@ -1,0 +1,191 @@
+import cv2
+import torch
+from fastapi import HTTPException
+from detection.app.service.model_service import load_my_model, get_model_for_group, extract_group_from_piece_label
+import numpy as np
+
+class DetectionSystem:
+    def __init__(self, confidence_threshold=0.6, target_piece_label=None):
+        self.confidence_threshold = confidence_threshold
+        self.target_piece_label = target_piece_label
+        self.device = self.get_device()  # Get the device (CPU or GPU)
+        self.model = self.get_my_model()  # Load the model once
+        self.current_group = None  # Track current loaded group
+
+    def get_device(self):
+        """Check for GPU availability and return the appropriate device."""
+        if torch.cuda.is_available():
+            print("Using GPU")
+            return torch.device('cuda')
+        else:
+            print("Using CPU")
+            return torch.device('cpu')
+
+    def get_my_model(self):
+        """Load the YOLO model based on available device and target piece."""
+        model = load_my_model(self.target_piece_label)
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found.")
+
+        # Move model to the appropriate device
+        model.to(self.device)
+
+        # Convert to half precision if using a GPU
+        if self.device.type == 'cuda':
+            model.half()
+
+        # Track which group model is currently loaded
+        if self.target_piece_label:
+            self.current_group = extract_group_from_piece_label(self.target_piece_label)
+            print(f"Loaded model for group: {self.current_group}")
+
+        return model
+
+    def switch_model_for_piece(self, new_target_piece_label):
+        """
+        Switch to a different model if the target piece belongs to a different group.
+        This is useful when you want to detect different pieces without recreating the DetectionSystem.
+        """
+        new_group = extract_group_from_piece_label(new_target_piece_label)
+        
+        # Only reload model if switching to a different group
+        if new_group != self.current_group:
+            print(f"Switching from group {self.current_group} to group {new_group}")
+            
+            # Load the new group model
+            new_model = get_model_for_group(new_group)
+            if new_model is None:
+                print(f"Could not load model for group {new_group}, keeping current model")
+                return False
+            
+            # Update the model and current group
+            self.model = new_model
+            self.model.to(self.device)
+            if self.device.type == 'cuda':
+                self.model.half()
+            
+            self.current_group = new_group
+            self.target_piece_label = new_target_piece_label
+            print(f"Successfully switched to model for group {new_group}")
+            return True
+        else:
+            # Same group, just update target piece label
+            self.target_piece_label = new_target_piece_label
+            return True
+
+    def detect_and_contour(self, frame, target_label):
+        # FIXED: Use model.predict() instead of manual tensor processing
+        # This automatically handles YOLO input requirements (stride divisibility, etc.)
+        
+        try:
+            # Use the model's predict method - this handles all preprocessing correctly
+            results = self.model.predict(
+                frame,  # Pass frame directly - YOLO will handle resizing
+                conf=self.confidence_threshold,
+                device=self.device,
+                imgsz=512,  # YOLOv8 default size
+                
+            )
+            
+            # Check if we got results
+            if not results or len(results) == 0:
+                return frame, False, 0, 0, 0, 0.0
+                
+            # Get the first result
+            result = results[0]
+            
+        except Exception as e:
+            print(f"Detection failed: {e}")
+            return frame, False, 0, 0, 0, 0.0
+
+        class_names = self.model.names
+        target_color = (0, 255, 0)  # Green
+        other_color = (0, 0, 255)  # Red
+
+        detected_target = False
+        non_target_count = 0
+        total_pieces_detected = 0
+        correct_pieces_count = 0
+        max_confidence = 0.0
+
+        # Check if boxes exist
+        if result.boxes is None or len(result.boxes) == 0:
+            return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
+
+        frame_height, frame_width = frame.shape[:2]
+
+        for box in result.boxes:
+            confidence = box.conf.item()
+            max_confidence = max(max_confidence, confidence)
+
+            if confidence < self.confidence_threshold:
+                continue
+
+            total_pieces_detected += 1
+
+            xyxy = box.xyxy[0].cpu().numpy()
+            x1, y1, x2, y2 = map(int, xyxy)
+
+            class_id = int(box.cls.item())
+            detected_label = class_names[class_id]
+
+            if detected_label == target_label:
+                color = target_color
+                detected_target = True
+                correct_pieces_count += 1
+            else:
+                color = other_color
+                non_target_count += 1
+
+            # Draw bounding box
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+
+            # ==============================
+            # ✅ Dynamic label placement
+            # ==============================
+            confidence_percent = confidence * 100
+            label = f"{detected_label}: {confidence_percent:.1f}%"
+
+            font_scale = 0.5
+            font_thickness = 1
+            (label_width, label_height), _ = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
+            )
+
+            # Default: place above box
+            label_x = x1
+            label_y = y1 - 10
+
+            # Prevent vertical overflow
+            if label_y - label_height < 0:
+                label_y = y1 + label_height + 5
+            if label_y > frame_height - 5:
+                label_y = frame_height - 5
+
+            # Prevent horizontal overflow
+            if label_x < 0:
+                label_x = 5
+            if label_x + label_width > frame_width:
+                label_x = frame_width - label_width - 5
+
+            # Background rectangle
+            padding = 3
+            bg_x1 = max(0, label_x - padding)
+            bg_y1 = max(0, label_y - label_height - padding)
+            bg_x2 = min(frame_width, label_x + label_width + padding)
+            bg_y2 = min(frame_height, label_y + padding)
+
+            cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+
+            # Draw text
+            cv2.putText(frame, label, (label_x, label_y - 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
+
+        return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
+
+    @staticmethod
+    def resize_frame_optimized(frame: np.ndarray, target_size=(512, 512)) -> np.ndarray:
+        """Optimized frame resizing with better interpolation."""
+        if frame.shape[:2] != target_size[::-1]:  # Check if resize is needed
+            return cv2.resize(frame, target_size, interpolation=cv2.INTER_LINEAR)
+        return frame

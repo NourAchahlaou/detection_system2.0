@@ -291,7 +291,7 @@ class BasicDetectionProcessor:
             loop = asyncio.get_event_loop()
             detection_results = await loop.run_in_executor(
                 None, 
-                self.detection_system.detect_and_contour, 
+                self.detection_system.detect_with_sliding_window, 
                 frame, 
                 request.target_label
             )

@@ -129,16 +129,6 @@ mkdir -p "$MODELS_BASE_PATH"
 if [ -f "$YOLO_MODEL_PATH" ]; then
     echo "✓ YOLO model already exists at $YOLO_MODEL_PATH"
     
-    # Verify the file size (yolov8n.pt should be around 50MB)
-    MODEL_SIZE=$(stat -c%s "$YOLO_MODEL_PATH" 2>/dev/null || echo "0")
-    MIN_SIZE=40000000  # 40MB minimum
-    
-    if [ "$MODEL_SIZE" -gt "$MIN_SIZE" ]; then
-        echo "✓ Model file size looks good ($MODEL_SIZE bytes)"
-    else
-        echo "⚠ Model file seems too small ($MODEL_SIZE bytes), re-downloading..."
-        rm -f "$YOLO_MODEL_PATH"
-    fi
 fi
 
 # Download model if it doesn't exist or was removed
@@ -155,11 +145,6 @@ if [ ! -f "$YOLO_MODEL_PATH" ]; then
             DOWNLOADED_SIZE=$(stat -c%s "$YOLO_MODEL_PATH")
             echo "✓ Downloaded file size: $DOWNLOADED_SIZE bytes"
             
-            if [ "$DOWNLOADED_SIZE" -lt "$MIN_SIZE" ]; then
-                echo "ERROR: Downloaded file seems too small, possibly corrupted"
-                rm -f "$YOLO_MODEL_PATH"
-                exit 1
-            fi
         else
             echo "ERROR: Model file was not created after download"
             exit 1

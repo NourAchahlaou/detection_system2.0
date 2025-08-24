@@ -3,6 +3,11 @@ FROM airvision_base:latest
 WORKDIR /usr/srv
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
+# Fix Intel MKL threading layer compatibility
+ENV MKL_THREADING_LAYER=GNU
+ENV MKL_SERVICE_FORCE_INTEL=1
+ENV OMP_NUM_THREADS=1
+ENV NUMEXPR_MAX_THREADS=1
 
 # Install system dependencies including OpenGL libraries
 RUN apt-get update && apt-get install -y \
@@ -14,18 +19,11 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
-# # Create user and directories with proper permissions
-# RUN useradd -rm -d /code -s /bin/bash -u 1001 ubuntu
+
 # Copy application code
 COPY . /usr/srv/training
 
 RUN mkdir -p /usr/srv/training/migrations
-
-# # Install Python dependencies
-# COPY ./requirements.txt /usr/srv/requirements.txt
-# RUN pip install --no-cache-dir --upgrade -r requirements.txt
-
-
 
 RUN chmod +x /usr/srv/training/entrypoint.sh
 
