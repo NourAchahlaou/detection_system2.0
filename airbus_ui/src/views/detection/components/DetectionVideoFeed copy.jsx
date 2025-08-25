@@ -819,6 +819,38 @@ const DetectionVideoFeed = ({
         )}
       </VideoCard>
 
+      {/* Manual Mode Control Buttons */}
+      {detectionState === DetectionStates.READY && !detectionService.autoModeEnabled && (
+        <Box sx={{ mt: 1, width: '100%', display: 'flex', gap: 1, justifyContent: 'center' }}>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleSwitchToBasic}
+            disabled={isBasicMode || modeTransitioning}
+            color="warning"
+          >
+            Switch to Basic
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleSwitchToOptimized}
+            disabled={!isBasicMode || modeTransitioning}
+            color="success"
+          >
+            Switch to Optimized
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleEnableAutoMode}
+            disabled={modeTransitioning}
+            color="primary"
+          >
+            Enable Auto Mode
+          </Button>
+        </Box>
+      )}
     </div>
   );
 };
