@@ -2,30 +2,27 @@ import React, { useState, useEffect } from "react";
 import { 
   Box, 
   Typography, 
+  Tabs, 
+  Tab, 
   styled, 
+  Grid,
   Card,
   Chip,
   CircularProgress,
-  Button,
-  Collapse,
-  IconButton,
-  Pagination
+  Button
 } from "@mui/material";
 import { 
   CropFree, 
   PhotoLibrary, 
-  Visibility,
-  ExpandMore,
-  ExpandLess,
-  FolderOpen,
   CheckCircle,
   RadioButtonUnchecked,
+  Visibility,
   Edit
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import api from "../../utils/UseAxios";
 
-// STYLED COMPONENTS - Matching the second file exactly
+// STYLED COMPONENTS - Following your theme
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
@@ -38,59 +35,26 @@ const HeaderBox = styled(Box)({
   textAlign: "center",
 });
 
-const GroupSection = styled(Box)(({ theme }) => ({
-  marginBottom: "32px",
-  border: "1px solid rgba(102, 126, 234, 0.15)",
-  borderRadius: "16px",
-  overflow: "hidden",
-  backgroundColor: "#fff",
-  boxShadow: "0 4px 16px rgba(0, 0, 0, 0.08)",
-}));
-
-const GroupHeader = styled(Box)(({ theme }) => ({
-  padding: "20px 24px",
-  backgroundColor: "rgba(102, 126, 234, 0.05)",
-  borderBottom: "1px solid rgba(102, 126, 234, 0.1)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  cursor: "pointer",
-  transition: "all 0.3s ease",
-  "&:hover": {
-    backgroundColor: "rgba(102, 126, 234, 0.1)",
+const StyledTabs = styled(Tabs)({
+  marginBottom: "24px",
+  '& .MuiTabs-indicator': {
+    backgroundColor: "#667eea",
+    height: "3px",
+    borderRadius: "3px",
   },
-}));
-
-const GroupTitle = styled(Typography)({
-  fontSize: "1.3rem",
-  fontWeight: "700",
-  color: "#333",
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
+  '& .MuiTab-root': {
+    textTransform: "none",
+    fontSize: "1rem",
+    fontWeight: "600",
+    color: "#666",
+    minHeight: "48px",
+    '&.Mui-selected': {
+      color: "#667eea",
+    },
+  },
 });
 
-const GroupStats = styled(Box)({
-  display: "flex",
-  alignItems: "center",
-  gap: "16px",
-});
-
-const GroupContent = styled(Box)({
-  padding: "24px",
-});
-
-// Pagination controls for groups
-const GroupPagination = styled(Box)({
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "16px 24px",
-  backgroundColor: "rgba(102, 126, 234, 0.03)",
-  borderTop: "1px solid rgba(102, 126, 234, 0.1)",
-});
-
-// EXACT SAME GRID as the second file - FIXED: Simple CSS Grid with exactly 4 columns and auto rows
+// FIXED: Simple CSS Grid with exactly 4 columns and auto rows
 const CardsGridContainer = styled('div')(({ theme }) => ({
   display: 'grid',
   gridTemplateColumns: 'repeat(4, 1fr)', // Always 4 columns
@@ -111,7 +75,6 @@ const CardsGridContainer = styled('div')(({ theme }) => ({
   },
 }));
 
-// EXACT SAME CARD STYLING as the second file
 const PieceCard = styled(Card)(({ theme }) => ({
   padding: "20px",
   cursor: "pointer",
@@ -133,7 +96,6 @@ const PieceCard = styled(Card)(({ theme }) => ({
   },
 }));
 
-// EXACT SAME STYLING as the second file
 const CardHeader = styled(Box)({
   display: "flex",
   alignItems: "flex-start",
@@ -188,7 +150,6 @@ const ImagePreview = styled("img")({
   border: "2px solid rgba(102, 126, 234, 0.2)",
 });
 
-// EXACT SAME STATUS CHIP as the second file
 const StatusChip = styled(Chip)(({ variant }) => ({
   fontSize: "0.75rem",
   fontWeight: "600",
@@ -208,7 +169,6 @@ const StatusChip = styled(Chip)(({ variant }) => ({
   },
 }));
 
-// EXACT SAME ACTION BUTTON as the second file
 const ActionButton = styled(Button)(({ variant }) => ({
   textTransform: "none",
   fontWeight: "600",
@@ -245,25 +205,23 @@ const EmptyState = styled(Box)({
   textAlign: "center",
 });
 
-// Constants for pagination
-const PIECES_PER_PAGE = 12;
-const GROUPS_PER_PAGE = 5;
+function TabPanel({ children, value, index }) {
+  return (
+    <div hidden={value !== index}>
+      {value === index && children}
+    </div>
+  );
+}
 
-export default function PiecesGroupOverview() {
+export default function PiecesOverview() {
+  const [tabValue, setTabValue] = useState(0);
   const [allPieces, setAllPieces] = useState([]);
-  const [groupedPieces, setGroupedPieces] = useState({});
   const [loading, setLoading] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState({});
-  const [groupPages, setGroupPages] = useState({});
-  const [currentGroupPage, setCurrentGroupPage] = useState(1);
-  const [totalGroups, setTotalGroups] = useState(0);
   const [stats, setStats] = useState({
-    totalPieces: 0,
-    totalGroups: 0,
-    totalImages: 0,
+    total: 0,
     annotated: 0,
-    partial: 0,
-    nonAnnotated: 0
+    nonAnnotated: 0,
+    partial: 0
   });
   
   const navigate = useNavigate();
@@ -283,45 +241,29 @@ export default function PiecesGroupOverview() {
       
       setAllPieces(piecesData);
       
-      // Group pieces by pattern
-      const grouped = groupPiecesByPattern(piecesData);
-      setGroupedPieces(grouped);
-      
-      // Initialize pagination for each group
-      const initialPages = {};
-      Object.keys(grouped).forEach(groupName => {
-        initialPages[groupName] = 1;
-      });
-      setGroupPages(initialPages);
-      
-      // Calculate stats - EXACT SAME as second file
       const totalPieces = piecesData.length;
       const fullyAnnotatedPieces = piecesData.filter(piece => piece.is_fully_annotated).length;
       const partiallyAnnotatedPieces = piecesData.filter(piece => 
         piece.annotated_count > 0 && !piece.is_fully_annotated
       ).length;
       const notStartedPieces = piecesData.filter(piece => piece.annotated_count === 0).length;
-      const totalImages = piecesData.reduce((sum, piece) => sum + (piece.nbr_img || 0), 0);
       
       setStats({
-        totalPieces: totalPieces,
-        totalGroups: Object.keys(grouped).length,
-        totalImages: totalImages,
+        total: totalPieces,
         annotated: fullyAnnotatedPieces,
         partial: partiallyAnnotatedPieces,
         nonAnnotated: notStartedPieces
       });
       
-      setTotalGroups(Object.keys(grouped).length);
-      
     } catch (error) {
       console.error("Error fetching pieces:", error);
       
-      // Fallback logic (same as both files)
       try {
         console.log("Trying fallback endpoint...");
         const fallbackResponse = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
         const nonAnnotatedData = fallbackResponse.data || [];
+        
+        console.log("Fallback data:", nonAnnotatedData);
         
         const convertedData = nonAnnotatedData.map(piece => ({
           piece_label: piece.piece_label,
@@ -333,80 +275,31 @@ export default function PiecesGroupOverview() {
         
         setAllPieces(convertedData);
         
-        const grouped = groupPiecesByPattern(convertedData);
-        setGroupedPieces(grouped);
-        
         const partiallyAnnotated = convertedData.filter(piece => piece.annotated_count > 0).length;
-        const totalImages = convertedData.reduce((sum, piece) => sum + (piece.nbr_img || 0), 0);
-        
         setStats({
-          totalPieces: convertedData.length,
-          totalGroups: Object.keys(grouped).length,
-          totalImages: totalImages,
+          total: convertedData.length,
           annotated: 0,
           partial: partiallyAnnotated,
           nonAnnotated: convertedData.length - partiallyAnnotated
         });
-        
       } catch (fallbackError) {
         console.error("Fallback fetch also failed:", fallbackError);
         setAllPieces([]);
-        setGroupedPieces({});
-        setStats({ totalPieces: 0, totalGroups: 0, totalImages: 0, annotated: 0, partial: 0, nonAnnotated: 0 });
+        setStats({ total: 0, annotated: 0, partial: 0, nonAnnotated: 0 });
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // Function to group pieces by common patterns - Enhanced for G053 style grouping
-  const groupPiecesByPattern = (pieces) => {
-    const groups = {};
-    
-    pieces.forEach(piece => {
-      // Extract group name from piece label
-      let groupName = extractGroupName(piece.piece_label);
-      
-      if (!groups[groupName]) {
-        groups[groupName] = [];
-      }
-      groups[groupName].push(piece);
-    });
-    
-    return groups;
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
   };
 
-  // Enhanced extract group name function for G053 style grouping
-  const extractGroupName = (pieceLabel) => {
-    // Pattern for G053 style (G + 3 digits)
-    const gPatternMatch = pieceLabel.match(/^(G\d{3})/);
-    if (gPatternMatch) {
-      return gPatternMatch[1];
-    }
-    
-    // Pattern 1: Extract prefix before first underscore or dash
-    const prefixMatch = pieceLabel.match(/^([^_-]+)/);
-    if (prefixMatch) {
-      return prefixMatch[1];
-    }
-    
-    // Pattern 2: Extract everything before numbers
-    const beforeNumbersMatch = pieceLabel.match(/^([^\d]+)/);
-    if (beforeNumbersMatch) {
-      return beforeNumbersMatch[1].replace(/[-_\s]+$/, '');
-    }
-    
-    // Pattern 3: Group by first word
-    const firstWordMatch = pieceLabel.match(/^(\w+)/);
-    if (firstWordMatch) {
-      return firstWordMatch[1];
-    }
-    
-    // Fallback: use first 3 characters
-    return pieceLabel.substring(0, 3) || 'Other';
+  const handlePieceClick = (pieceLabel) => {
+    navigate(`/annotation?piece=${encodeURIComponent(pieceLabel)}`);
   };
 
-  // EXACT SAME STATUS FUNCTION as second file
   const getStatusInfo = (piece) => {
     if (piece.annotated_count === 0) {
       return {
@@ -432,26 +325,7 @@ export default function PiecesGroupOverview() {
     }
   };
 
-  const handleGroupToggle = (groupName) => {
-    setExpandedGroups(prev => ({
-      ...prev,
-      [groupName]: !prev[groupName]
-    }));
-  };
-
-  const handlePieceClick = (pieceLabel) => {
-    navigate(`/annotation?piece=${encodeURIComponent(pieceLabel)}`);
-  };
-
-  const handleGroupPageChange = (groupName, page) => {
-    setGroupPages(prev => ({
-      ...prev,
-      [groupName]: page
-    }));
-  };
-
-  // EXACT SAME RENDER FUNCTION as second file but with piece data
-  const renderPieceCard = (piece) => {
+  const renderPieceCard = (piece, index) => {
     const statusInfo = getStatusInfo(piece);
     
     return (
@@ -509,87 +383,17 @@ export default function PiecesGroupOverview() {
     );
   };
 
-  const renderGroup = (groupName, pieces) => {
-    const isExpanded = expandedGroups[groupName] || false;
-    const currentPage = groupPages[groupName] || 1;
-    const totalPages = Math.ceil(pieces.length / PIECES_PER_PAGE);
-    const startIndex = (currentPage - 1) * PIECES_PER_PAGE;
-    const paginatedPieces = pieces.slice(startIndex, startIndex + PIECES_PER_PAGE);
-    const totalImages = pieces.reduce((sum, piece) => sum + (piece.nbr_img || 0), 0);
-    
-    // Calculate group stats
-    const fullyAnnotated = pieces.filter(piece => piece.is_fully_annotated).length;
-    const partiallyAnnotated = pieces.filter(piece => 
-      piece.annotated_count > 0 && !piece.is_fully_annotated
-    ).length;
-    const notStarted = pieces.filter(piece => piece.annotated_count === 0).length;
-
-    return (
-      <GroupSection key={groupName}>
-        <GroupHeader onClick={() => handleGroupToggle(groupName)}>
-          <GroupTitle>
-            <FolderOpen />
-            {groupName}
-          </GroupTitle>
-          
-          <GroupStats>
-            <Chip
-              label={`${pieces.length} pieces`}
-              size="small"
-              sx={{ 
-                backgroundColor: "rgba(102, 126, 234, 0.15)", 
-                color: "#667eea",
-                fontWeight: "600"
-              }}
-            />
-            <Chip
-              label={`${totalImages} images`}
-              size="small"
-              sx={{ 
-                backgroundColor: "rgba(102, 126, 234, 0.15)", 
-                color: "#667eea",
-                fontWeight: "600"
-              }}
-            />
-            <Chip
-              label={`${fullyAnnotated} completed`}
-              size="small"
-              sx={{ 
-                backgroundColor: "rgba(76, 175, 80, 0.15)", 
-                color: "#4caf50",
-                fontWeight: "600"
-              }}
-            />
-            <IconButton size="small">
-              {isExpanded ? <ExpandLess /> : <ExpandMore />}
-            </IconButton>
-          </GroupStats>
-        </GroupHeader>
-        
-        <Collapse in={isExpanded}>
-          <GroupContent>
-            <CardsGridContainer>
-              {paginatedPieces.map(renderPieceCard)}
-            </CardsGridContainer>
-            
-            {totalPages > 1 && (
-              <GroupPagination>
-                <Typography variant="body2" sx={{ color: "#666" }}>
-                  Showing {startIndex + 1}-{Math.min(startIndex + PIECES_PER_PAGE, pieces.length)} of {pieces.length} pieces
-                </Typography>
-                <Pagination
-                  count={totalPages}
-                  page={currentPage}
-                  onChange={(event, page) => handleGroupPageChange(groupName, page)}
-                  size="small"
-                  color="primary"
-                />
-              </GroupPagination>
-            )}
-          </GroupContent>
-        </Collapse>
-      </GroupSection>
-    );
+  const getFilteredPieces = () => {
+    switch (tabValue) {
+      case 0:
+        return allPieces;
+      case 1:
+        return allPieces.filter(piece => !piece.is_fully_annotated);
+      case 2:
+        return allPieces.filter(piece => piece.is_fully_annotated);
+      default:
+        return allPieces;
+    }
   };
 
   if (loading) {
@@ -605,15 +409,10 @@ export default function PiecesGroupOverview() {
     );
   }
 
-  // Paginate groups
-  const groupNames = Object.keys(groupedPieces);
-  const totalGroupPages = Math.ceil(groupNames.length / GROUPS_PER_PAGE);
-  const startGroupIndex = (currentGroupPage - 1) * GROUPS_PER_PAGE;
-  const currentGroups = groupNames.slice(startGroupIndex, startGroupIndex + GROUPS_PER_PAGE);
+  const filteredPieces = getFilteredPieces();
 
   return (
     <Container>
-      {/* EXACT SAME HEADER as second file but with group stats */}
       <HeaderBox>       
         <Box sx={{ 
           display: 'flex', 
@@ -624,15 +423,7 @@ export default function PiecesGroupOverview() {
         }}>
           <Box sx={{ textAlign: 'center' }}>
             <Typography variant="h4" sx={{ color: '#667eea', fontWeight: '700' }}>
-              {stats.totalGroups}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Groups
-            </Typography>
-          </Box>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" sx={{ color: '#667eea', fontWeight: '700' }}>
-              {stats.totalPieces}
+              {stats.total}
             </Typography>
             <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
               Total Pieces
@@ -662,59 +453,68 @@ export default function PiecesGroupOverview() {
               Not Started
             </Typography>
           </Box>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" sx={{ color: '#9c27b0', fontWeight: '700' }}>
-              {stats.totalImages}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Total Images
-            </Typography>
-          </Box>
         </Box>
       </HeaderBox>
 
-      {/* Groups Display */}
-      {currentGroups.length > 0 ? (
-        <>
-          {currentGroups.map(groupName => 
-            renderGroup(groupName, groupedPieces[groupName])
-          )}
-          
-          {/* Main Groups Pagination */}
-          {totalGroupPages > 1 && (
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              mt: 4,
-              p: 2,
-              backgroundColor: 'rgba(102, 126, 234, 0.05)',
-              borderRadius: '12px'
-            }}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <Typography variant="body2" sx={{ color: "#666" }}>
-                  Showing groups {startGroupIndex + 1}-{Math.min(startGroupIndex + GROUPS_PER_PAGE, groupNames.length)} of {groupNames.length}
-                </Typography>
-                <Pagination
-                  count={totalGroupPages}
-                  page={currentGroupPage}
-                  onChange={(event, page) => setCurrentGroupPage(page)}
-                  color="primary"
-                />
-              </Box>
-            </Box>
-          )}
-        </>
-      ) : (
-        <EmptyState>
-          <FolderOpen sx={{ fontSize: 64, opacity: 0.4, mb: 2 }} />
-          <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
-            No Pieces Found
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.7 }}>
-            No pieces are available in the system
-          </Typography>
-        </EmptyState>
-      )}
+      <StyledTabs value={tabValue} onChange={handleTabChange}>
+        <Tab label={`All Pieces (${stats.total})`} />
+        <Tab label={`Need Annotation (${stats.nonAnnotated + stats.partial})`} />
+        <Tab label={`Completed (${stats.annotated})`} />
+      </StyledTabs>
+
+      <TabPanel value={tabValue} index={0}>
+        <CardsGridContainer>
+          {filteredPieces.map(renderPieceCard)}
+        </CardsGridContainer>
+        
+        {filteredPieces.length === 0 && (
+          <EmptyState>
+            <CropFree sx={{ fontSize: 64, opacity: 0.4, mb: 2 }} />
+            <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
+              No Pieces Found
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.7 }}>
+              No pieces are available in the system
+            </Typography>
+          </EmptyState>
+        )}
+      </TabPanel>
+
+      <TabPanel value={tabValue} index={1}>
+        <CardsGridContainer>
+          {filteredPieces.map(renderPieceCard)}
+        </CardsGridContainer>
+        
+        {filteredPieces.length === 0 && (
+          <EmptyState>
+            <CheckCircle sx={{ fontSize: 64, opacity: 0.4, mb: 2, color: '#4caf50' }} />
+            <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
+              All Pieces Completed!
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.7 }}>
+              All pieces have been fully annotated
+            </Typography>
+          </EmptyState>
+        )}
+      </TabPanel>
+
+      <TabPanel value={tabValue} index={2}>
+        <CardsGridContainer>
+          {filteredPieces.map(renderPieceCard)}
+        </CardsGridContainer>
+        
+        {filteredPieces.length === 0 && (
+          <EmptyState>
+            <RadioButtonUnchecked sx={{ fontSize: 64, opacity: 0.4, mb: 2 }} />
+            <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
+              No Completed Pieces
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.7 }}>
+              No pieces have been fully annotated yet
+            </Typography>
+          </EmptyState>
+        )}
+      </TabPanel>
     </Container>
   );
 }

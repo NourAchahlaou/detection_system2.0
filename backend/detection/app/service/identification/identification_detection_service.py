@@ -543,7 +543,7 @@ class PieceIdentificationProcessor:
             logger.info(f"Confidence threshold updated to {threshold}")
             return True
         return False
-    
+    #this needs to be corrected
     def get_available_groups(self) -> List[str]:
         """Get list of available group models"""
         try:
