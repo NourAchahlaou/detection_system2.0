@@ -346,7 +346,7 @@ class DetectionSystem:
             label_text = f"{detected_label}: {confidence_percent:.1f}%"
             
             # Dynamic label placement
-            font_scale = 0.6
+            font_scale = 1.0
             font_thickness = 2
             (label_width, label_height), _ = cv2.getTextSize(
                 label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
@@ -446,8 +446,8 @@ class DetectionSystem:
             confidence_percent = confidence * 100
             label = f"{detected_label}: {confidence_percent:.1f}%"
 
-            font_scale = 0.5
-            font_thickness = 1
+            font_scale = 1.0
+            font_thickness = 2
             (label_width, label_height), _ = cv2.getTextSize(
                 label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
             )

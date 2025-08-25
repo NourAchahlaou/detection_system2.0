@@ -35,9 +35,9 @@ class IdentificationDetectionSystem:
         self.model = self.get_my_model()
         
         # Identification-specific settings
-        self.identification_color = (0, 255, 255)  # Yellow color for all pieces
-        self.font_scale = 0.6
-        self.font_thickness = 1
+        self.identification_color = (224, 99, 1)   # Yellow color for all pieces
+        self.font_scale = 1.0
+        self.font_thickness = 2
         self.box_thickness = 2
 
     def get_device(self):
@@ -350,8 +350,8 @@ class IdentificationDetectionSystem:
             confidence_percent = confidence * 100
             label = f"{piece_label}: {confidence_percent:.1f}%"
 
-            font_scale = 0.5
-            font_thickness = 1
+            font_scale = 1.0
+            font_thickness = 2
             (label_width, label_height), _ = cv2.getTextSize(
                 label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
             )
@@ -448,8 +448,8 @@ class IdentificationDetectionSystem:
             confidence_percent = confidence * 100
             label = f"{piece_label}: {confidence_percent:.1f}%"
 
-            font_scale = 0.5
-            font_thickness = 1
+            font_scale = 1.0
+            font_thickness = 2
             (label_width, label_height), _ = cv2.getTextSize(
                 label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
             )
