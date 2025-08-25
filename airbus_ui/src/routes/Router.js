@@ -83,7 +83,7 @@ const router = createBrowserRouter([
         element: <PiecesGroupOverview />, 
       },
       {
-        path: 'piece-viewer',
+        path: 'pieceImageViewer',
         element: <PieceImageViewer />,  
       },
     ],

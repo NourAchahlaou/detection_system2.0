@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   Box, 
   Typography, 
@@ -9,8 +9,12 @@ import {
   Button,
   Collapse,
   IconButton,
-  Pagination
+  Pagination,
+  TextField,
+  InputAdornment
 } from "@mui/material";
+import OutlinedInput from '@mui/material/OutlinedInput';
+import FormControl from '@mui/material/FormControl';
 import { 
   CropFree, 
   PhotoLibrary, 
@@ -18,14 +22,14 @@ import {
   ExpandMore,
   ExpandLess,
   FolderOpen,
-  CheckCircle,
-  RadioButtonUnchecked,
-  Edit
+  Search,
+  Clear
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import api from "../../utils/UseAxios";
+import { datasetService } from "../dataset/datasetService";
 
-// STYLED COMPONENTS - Matching the second file exactly
+// STYLED COMPONENTS - Updated with transparent group sections
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
@@ -38,26 +42,51 @@ const HeaderBox = styled(Box)({
   textAlign: "center",
 });
 
+// Search Section
+const SearchSection = styled(Box)(({ theme }) => ({
+  marginBottom: "24px",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+}));
+
+const SearchField = styled(TextField)(({ theme }) => ({
+  maxWidth: "500px",
+  width: "100%",
+  "& .MuiOutlinedInput-root": {
+    borderRadius: "12px",
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    backdropFilter: "blur(10px)",
+    border: "1px solid rgba(102, 126, 234, 0.2)",
+    "&:hover": {
+      border: "1px solid rgba(102, 126, 234, 0.4)",
+    },
+    "&.Mui-focused": {
+      border: "1px solid #667eea",
+      boxShadow: "0 0 0 3px rgba(102, 126, 234, 0.1)",
+    },
+  },
+}));
+
+// Updated GroupSection with transparency
 const GroupSection = styled(Box)(({ theme }) => ({
   marginBottom: "32px",
   border: "1px solid rgba(102, 126, 234, 0.15)",
   borderRadius: "16px",
   overflow: "hidden",
-  backgroundColor: "#fff",
-  boxShadow: "0 4px 16px rgba(0, 0, 0, 0.08)",
+
 }));
 
 const GroupHeader = styled(Box)(({ theme }) => ({
   padding: "20px 24px",
-  backgroundColor: "rgba(102, 126, 234, 0.05)",
-  borderBottom: "1px solid rgba(102, 126, 234, 0.1)",
+  borderBottom: "1px solid rgba(102, 126, 234, 0.15)",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   cursor: "pointer",
   transition: "all 0.3s ease",
   "&:hover": {
-    backgroundColor: "rgba(102, 126, 234, 0.1)",
+    backgroundColor: "rgba(102, 126, 234, 0.15)",
   },
 }));
 
@@ -86,32 +115,30 @@ const GroupPagination = styled(Box)({
   justifyContent: "space-between",
   alignItems: "center",
   padding: "16px 24px",
-  backgroundColor: "rgba(102, 126, 234, 0.03)",
+  backgroundColor: "rgba(102, 126, 234, 0.05)",
   borderTop: "1px solid rgba(102, 126, 234, 0.1)",
 });
 
-// EXACT SAME GRID as the second file - FIXED: Simple CSS Grid with exactly 4 columns and auto rows
+// CSS Grid with exactly 4 columns and auto rows
 const CardsGridContainer = styled('div')(({ theme }) => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(4, 1fr)', // Always 4 columns
+  gridTemplateColumns: 'repeat(4, 1fr)',
   gap: '20px',
   width: '100%',
   
-  // Responsive adjustments only for smaller screens
   [theme.breakpoints.down('lg')]: {
-    gridTemplateColumns: 'repeat(3, 1fr)', // 3 columns for medium screens
+    gridTemplateColumns: 'repeat(3, 1fr)',
   },
   
   [theme.breakpoints.down('md')]: {
-    gridTemplateColumns: 'repeat(2, 1fr)', // 2 columns for small screens
+    gridTemplateColumns: 'repeat(2, 1fr)',
   },
   
   [theme.breakpoints.down('sm')]: {
-    gridTemplateColumns: '1fr', // 1 column for mobile
+    gridTemplateColumns: '1fr',
   },
 }));
 
-// EXACT SAME CARD STYLING as the second file
 const PieceCard = styled(Card)(({ theme }) => ({
   padding: "20px",
   cursor: "pointer",
@@ -124,16 +151,16 @@ const PieceCard = styled(Card)(({ theme }) => ({
   position: "relative",
   overflow: "hidden",
   boxShadow: "0 2px 12px rgba(0, 0, 0, 0.08)",
-  minWidth: "0", // Important for text truncation
+  minWidth: "0",
+  backgroundColor: "rgba(255, 255, 255, 0.9)",
   "&:hover": {
     transform: "translateY(-4px)",
     boxShadow: "0 12px 32px rgba(102, 126, 234, 0.2)",
     border: "2px solid #667eea",
-    backgroundColor: "rgba(78, 105, 221, 0.45)",
+    backgroundColor: "rgba(35, 46, 99, 0.81)",
   },
 }));
 
-// EXACT SAME STYLING as the second file
 const CardHeader = styled(Box)({
   display: "flex",
   alignItems: "flex-start",
@@ -188,41 +215,20 @@ const ImagePreview = styled("img")({
   border: "2px solid rgba(102, 126, 234, 0.2)",
 });
 
-// EXACT SAME STATUS CHIP as the second file
-const StatusChip = styled(Chip)(({ variant }) => ({
-  fontSize: "0.75rem",
-  fontWeight: "600",
-  height: "24px",
-  backgroundColor: variant === 'completed' 
-    ? "rgba(76, 175, 80, 0.15)" 
-    : variant === 'partial'
-    ? "rgba(255, 152, 0, 0.15)"
-    : "rgba(244, 67, 54, 0.15)",
-  color: variant === 'completed' 
-    ? "#4caf50" 
-    : variant === 'partial'
-    ? "#ff9800"
-    : "#f44336",
-  "& .MuiChip-icon": {
-    fontSize: "14px",
-  },
-}));
-
-// EXACT SAME ACTION BUTTON as the second file
-const ActionButton = styled(Button)(({ variant }) => ({
+const ActionButton = styled(Button)({
   textTransform: "none",
   fontWeight: "600",
   borderRadius: "6px",
   fontSize: "0.8rem",
   padding: "4px 12px",
   minWidth: "auto",
-  backgroundColor: variant === 'primary' ? "#667eea" : "transparent",
-  color: variant === 'primary' ? "white" : "#667eea",
-  border: variant === 'primary' ? "none" : "1px solid rgba(102, 126, 234, 0.3)",
+  backgroundColor: "#667eea",
+  color: "white",
+  border: "none",
   "&:hover": {
-    backgroundColor: variant === 'primary' ? "#5a67d8" : "rgba(102, 126, 234, 0.08)",
+    backgroundColor: "#5a67d8",
   },
-}));
+});
 
 const LoadingContainer = styled(Box)({
   display: "flex",
@@ -257,13 +263,11 @@ export default function PiecesGroupOverview() {
   const [groupPages, setGroupPages] = useState({});
   const [currentGroupPage, setCurrentGroupPage] = useState(1);
   const [totalGroups, setTotalGroups] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [stats, setStats] = useState({
     totalPieces: 0,
     totalGroups: 0,
     totalImages: 0,
-    annotated: 0,
-    partial: 0,
-    nonAnnotated: 0
   });
   
   const navigate = useNavigate();
@@ -300,19 +304,47 @@ export default function PiecesGroupOverview() {
           response: groupsError.response?.data,
           status: groupsError.response?.status
         });
-        // Continue without groups - will create fallback grouping
       }
       
-      // Fetch all pieces data
+      // Fetch all pieces data using the enhanced dataset service
       try {
-        console.log("Attempting to fetch pieces from:", "/api/annotation/annotations/get_all_pieces");
-        const piecesResponse = await api.get("/api/annotation/annotations/get_all_pieces");
-        piecesData = piecesResponse.data || [];
-        console.log("Fetched pieces data:", piecesData);
+        console.log("Attempting to fetch pieces using enhanced dataset service...");
+        const enhancedData = await datasetService.getAllDatasetsWithFilters({
+          search: "",
+          page: 1,
+          per_page: 1000,
+          sort_by: "piece_label",
+          sort_order: "asc"
+        });
         
-      } catch (piecesError) {
-        console.error("Error fetching pieces:", piecesError);
-        throw piecesError; // Re-throw to trigger fallback logic
+        console.log("Enhanced dataset service response:", enhancedData);
+        
+        if (enhancedData?.data?.pieces) {
+          piecesData = enhancedData.data.pieces.map(piece => ({
+            piece_label: piece.piece_label,
+            nbr_img: piece.total_images || 0,
+            url: piece.sample_image_url || piece.url,
+            group_label: piece.group_label
+          }));
+          console.log("Transformed pieces data:", piecesData);
+        } else {
+          throw new Error("No pieces data in enhanced response");
+        }
+        
+      } catch (enhancedError) {
+        console.warn("Enhanced dataset service failed, falling back to original API:", enhancedError);
+        
+        // Fallback to original API
+        try {
+          console.log("Attempting to fetch pieces from:", "/api/annotation/annotations/get_all_pieces");
+          const piecesResponse = await api.get("/api/annotation/annotations/get_all_pieces");
+          piecesData = piecesResponse.data || [];
+          console.log("Fetched pieces data (fallback):", piecesData);
+          
+        } catch (piecesError) {
+          console.error("Error fetching pieces:", piecesError);
+          throw piecesError;
+        }
       }
       
       setAllPieces(piecesData);
@@ -330,22 +362,14 @@ export default function PiecesGroupOverview() {
       });
       setGroupPages(initialPages);
       
-      // Calculate stats - EXACT SAME as second file
+      // Calculate stats
       const totalPieces = piecesData.length;
-      const fullyAnnotatedPieces = piecesData.filter(piece => piece.is_fully_annotated).length;
-      const partiallyAnnotatedPieces = piecesData.filter(piece => 
-        piece.annotated_count > 0 && !piece.is_fully_annotated
-      ).length;
-      const notStartedPieces = piecesData.filter(piece => piece.annotated_count === 0).length;
       const totalImages = piecesData.reduce((sum, piece) => sum + (piece.nbr_img || 0), 0);
       
       setStats({
         totalPieces: totalPieces,
         totalGroups: Object.keys(grouped).length,
         totalImages: totalImages,
-        annotated: fullyAnnotatedPieces,
-        partial: partiallyAnnotatedPieces,
-        nonAnnotated: notStartedPieces
       });
       
       setTotalGroups(Object.keys(grouped).length);
@@ -353,7 +377,7 @@ export default function PiecesGroupOverview() {
     } catch (error) {
       console.error("Error in fetchGroupsAndPieces:", error);
       
-      // Fallback logic - try to fetch pieces without groups
+      // Fallback logic
       try {
         console.log("Trying fallback pieces endpoint...");
         const fallbackResponse = await api.get("/api/annotation/annotations/get_Img_nonAnnotated");
@@ -362,54 +386,44 @@ export default function PiecesGroupOverview() {
         const convertedData = nonAnnotatedData.map(piece => ({
           piece_label: piece.piece_label,
           nbr_img: piece.nbr_img,
-          annotated_count: piece.annotated_count || 0,
           url: piece.url,
-          is_fully_annotated: false
         }));
         
         setAllPieces(convertedData);
         
-        // Create a simple "Other" group for fallback
         const grouped = { "Other": convertedData };
         setGroupedPieces(grouped);
         
-        const partiallyAnnotated = convertedData.filter(piece => piece.annotated_count > 0).length;
         const totalImages = convertedData.reduce((sum, piece) => sum + (piece.nbr_img || 0), 0);
         
         setStats({
           totalPieces: convertedData.length,
           totalGroups: 1,
           totalImages: totalImages,
-          annotated: 0,
-          partial: partiallyAnnotated,
-          nonAnnotated: convertedData.length - partiallyAnnotated
         });
         
       } catch (fallbackError) {
         console.error("Fallback fetch also failed:", fallbackError);
         setAllPieces([]);
         setGroupedPieces({});
-        setStats({ totalPieces: 0, totalGroups: 0, totalImages: 0, annotated: 0, partial: 0, nonAnnotated: 0 });
+        setStats({ totalPieces: 0, totalGroups: 0, totalImages: 0 });
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // New function to group pieces based on backend-provided groups
   const groupPiecesByBackendGroups = (pieces, groups) => {
     console.log("groupPiecesByBackendGroups called with:", { pieces: pieces.length, groups });
     
     const grouped = {};
     
-    // If no groups from backend, create groups based on piece patterns as fallback
     if (!groups || groups.length === 0) {
       console.log("No backend groups available, creating fallback groups based on piece patterns");
       
       pieces.forEach((piece) => {
         const pieceLabel = piece.piece_label || "";
-        // Extract first part before first dot as group name (G053, E539, H123, etc.)
-        const groupName = pieceLabel.split('.')[0] || 'Other';
+        const groupName = piece.group_label || pieceLabel.split('.')[0] || 'Other';
         
         if (!grouped[groupName]) {
           grouped[groupName] = [];
@@ -421,39 +435,39 @@ export default function PiecesGroupOverview() {
       return grouped;
     }
     
-    // Initialize groups from backend
     groups.forEach(groupName => {
       grouped[groupName] = [];
     });
     
-    // Add an "Other" group for pieces that don't match any backend group
     grouped["Other"] = [];
     
-    // Assign pieces to groups
     pieces.forEach((piece) => {
       const pieceLabel = piece.piece_label || "";
+      const groupLabel = piece.group_label || "";
       let assigned = false;
       
-      // Check if piece belongs to any of the backend groups
-      for (const groupName of groups) {
-        // Check if piece label starts with the group name or contains it
-        if (pieceLabel.toUpperCase().startsWith(groupName.toUpperCase()) || 
-            pieceLabel.toUpperCase().includes(groupName.toUpperCase())) {
-          grouped[groupName].push(piece);
-          assigned = true;
-          console.log(`Assigned piece ${pieceLabel} to group ${groupName}`);
-          break;
+      if (groupLabel && groups.includes(groupLabel)) {
+        grouped[groupLabel].push(piece);
+        assigned = true;
+        console.log(`Assigned piece ${pieceLabel} to group ${groupLabel} (by group_label)`);
+      } else {
+        for (const groupName of groups) {
+          if (pieceLabel.toUpperCase().startsWith(groupName.toUpperCase()) || 
+              pieceLabel.toUpperCase().includes(groupName.toUpperCase())) {
+            grouped[groupName].push(piece);
+            assigned = true;
+            console.log(`Assigned piece ${pieceLabel} to group ${groupName} (by pattern)`);
+            break;
+          }
         }
       }
       
-      // If not assigned to any group, add to "Other"
       if (!assigned) {
         grouped["Other"].push(piece);
         console.log(`Assigned piece ${pieceLabel} to Other group`);
       }
     });
     
-    // Remove empty groups (including "Other" if empty)
     Object.keys(grouped).forEach(groupName => {
       if (grouped[groupName].length === 0) {
         console.log(`Removing empty group: ${groupName}`);
@@ -465,31 +479,27 @@ export default function PiecesGroupOverview() {
     return grouped;
   };
 
-  // EXACT SAME STATUS FUNCTION as second file
-  const getStatusInfo = (piece) => {
-    if (piece.annotated_count === 0) {
-      return {
-        variant: 'not-started',
-        label: 'Not Started',
-        icon: <RadioButtonUnchecked />,
-        progress: 0
-      };
-    } else if (piece.annotated_count < piece.nbr_img) {
-      return {
-        variant: 'partial',
-        label: `${piece.annotated_count}/${piece.nbr_img} Done`,
-        icon: <Edit />,
-        progress: (piece.annotated_count / piece.nbr_img) * 100
-      };
-    } else {
-      return {
-        variant: 'completed',
-        label: 'Completed',
-        icon: <CheckCircle />,
-        progress: 100
-      };
+  // Filter pieces based on search query
+  const filteredGroupedPieces = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return groupedPieces;
     }
-  };
+
+    const filtered = {};
+    const query = searchQuery.toLowerCase();
+
+    Object.entries(groupedPieces).forEach(([groupName, pieces]) => {
+      const filteredPieces = pieces.filter(piece => 
+        piece.piece_label.toLowerCase().includes(query)
+      );
+      
+      if (filteredPieces.length > 0) {
+        filtered[groupName] = filteredPieces;
+      }
+    });
+
+    return filtered;
+  }, [groupedPieces, searchQuery]);
 
   const handleGroupToggle = (groupName) => {
     setExpandedGroups(prev => ({
@@ -499,7 +509,7 @@ export default function PiecesGroupOverview() {
   };
 
   const handlePieceClick = (pieceLabel) => {
-    navigate(`/annotation?piece=${encodeURIComponent(pieceLabel)}`);
+    navigate(`/pieceImageViewer?piece=${encodeURIComponent(pieceLabel)}`);
   };
 
   const handleGroupPageChange = (groupName, page) => {
@@ -509,10 +519,21 @@ export default function PiecesGroupOverview() {
     }));
   };
 
-  // EXACT SAME RENDER FUNCTION as second file but with piece data
+  const handleSearchChange = (event) => {
+    setSearchQuery(event.target.value);
+    const resetPages = {};
+    Object.keys(groupedPieces).forEach(groupName => {
+      resetPages[groupName] = 1;
+    });
+    setGroupPages(resetPages);
+    setCurrentGroupPage(1);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+  };
+
   const renderPieceCard = (piece) => {
-    const statusInfo = getStatusInfo(piece);
-    
     return (
       <PieceCard key={piece.piece_label} elevation={0} onClick={() => handlePieceClick(piece.piece_label)}>
         <CardHeader>
@@ -548,19 +569,21 @@ export default function PiecesGroupOverview() {
         
         <StatsContainer>
           <StatsRow>
-            <StatusChip
-              variant={statusInfo.variant}
-              icon={statusInfo.icon}
-              label={statusInfo.label}
+            <Chip
+              label={`${piece.nbr_img} images`}
               size="small"
+              sx={{ 
+                backgroundColor: "rgba(102, 126, 234, 0.15)", 
+                color: "#667eea",
+                fontWeight: "600"
+              }}
             />
             
             <ActionButton
-              variant={statusInfo.variant === 'completed' ? 'secondary' : 'primary'}
               size="small"
-              startIcon={statusInfo.variant === 'completed' ? <Visibility /> : <Edit />}
+              startIcon={<Visibility />}
             >
-              {statusInfo.variant === 'completed' ? 'View' : 'Annotate'}
+              View
             </ActionButton>
           </StatsRow>
         </StatsContainer>
@@ -575,17 +598,10 @@ export default function PiecesGroupOverview() {
     const startIndex = (currentPage - 1) * PIECES_PER_PAGE;
     const paginatedPieces = pieces.slice(startIndex, startIndex + PIECES_PER_PAGE);
     const totalImages = pieces.reduce((sum, piece) => sum + (piece.nbr_img || 0), 0);
-    
-    // Calculate group stats
-    const fullyAnnotated = pieces.filter(piece => piece.is_fully_annotated).length;
-    const partiallyAnnotated = pieces.filter(piece => 
-      piece.annotated_count > 0 && !piece.is_fully_annotated
-    ).length;
-    const notStarted = pieces.filter(piece => piece.annotated_count === 0).length;
 
     return (
-      <GroupSection key={groupName}>
-        <GroupHeader onClick={() => handleGroupToggle(groupName)}>
+      <GroupSection key={groupName} variant="outlined">
+        <GroupHeader onClick={() => handleGroupToggle(groupName)} variant="outlined">
           <GroupTitle>
             <FolderOpen />
             {groupName}
@@ -596,7 +612,7 @@ export default function PiecesGroupOverview() {
               label={`${pieces.length} pieces`}
               size="small"
               sx={{ 
-                backgroundColor: "rgba(102, 126, 234, 0.15)", 
+                backgroundColor: "rgba(102, 126, 234, 0.2)", 
                 color: "#667eea",
                 fontWeight: "600"
               }}
@@ -605,17 +621,8 @@ export default function PiecesGroupOverview() {
               label={`${totalImages} images`}
               size="small"
               sx={{ 
-                backgroundColor: "rgba(102, 126, 234, 0.15)", 
+                backgroundColor: "rgba(102, 126, 234, 0.2)", 
                 color: "#667eea",
-                fontWeight: "600"
-              }}
-            />
-            <Chip
-              label={`${fullyAnnotated} completed`}
-              size="small"
-              sx={{ 
-                backgroundColor: "rgba(76, 175, 80, 0.15)", 
-                color: "#4caf50",
                 fontWeight: "600"
               }}
             />
@@ -665,14 +672,14 @@ export default function PiecesGroupOverview() {
   }
 
   // Paginate groups
-  const groupNames = Object.keys(groupedPieces);
+  const groupNames = Object.keys(filteredGroupedPieces);
   const totalGroupPages = Math.ceil(groupNames.length / GROUPS_PER_PAGE);
   const startGroupIndex = (currentGroupPage - 1) * GROUPS_PER_PAGE;
   const currentGroups = groupNames.slice(startGroupIndex, startGroupIndex + GROUPS_PER_PAGE);
 
   return (
     <Container>
-      {/* EXACT SAME HEADER as second file but with group stats */}
+      {/* Header with simplified stats */}
       <HeaderBox>       
         <Box sx={{ 
           display: 'flex', 
@@ -686,39 +693,15 @@ export default function PiecesGroupOverview() {
               {stats.totalGroups}
             </Typography>
             <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Groups
-            </Typography>
-          </Box>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" sx={{ color: '#667eea', fontWeight: '700' }}>
-              {stats.totalPieces}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Total Pieces
+              Total Groups
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'center' }}>
             <Typography variant="h4" sx={{ color: '#4caf50', fontWeight: '700' }}>
-              {stats.annotated}
+              {stats.totalPieces}
             </Typography>
             <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Completed
-            </Typography>
-          </Box>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" sx={{ color: '#ff9800', fontWeight: '700' }}>
-              {stats.partial}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              In Progress
-            </Typography>
-          </Box>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" sx={{ color: '#f44336', fontWeight: '700' }}>
-              {stats.nonAnnotated}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Not Started
+              Total Pieces
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'center' }}>
@@ -732,11 +715,58 @@ export default function PiecesGroupOverview() {
         </Box>
       </HeaderBox>
 
+      {/* Search Section */}
+    <SearchSection >
+      <OutlinedInput
+          placeholder="Search pieces by name..."
+          value={searchQuery}
+          onChange={handleSearchChange}
+          variant="outlined"
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search sx={{ color: "#667eea" }} />
+              </InputAdornment>
+            ),
+            endAdornment: searchQuery && (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  onClick={handleClearSearch}
+                  sx={{ color: "#667eea" }}
+                >
+                  <Clear />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+      />
+    </SearchSection>
+
+      {/* Search Results Info */}
+      {searchQuery && (
+        <Box sx={{ 
+          textAlign: 'center', 
+          mb: 3,
+          p: 2,
+          backgroundColor: 'rgba(102, 126, 234, 0.08)',
+          borderRadius: '12px',
+          border: '1px solid rgba(102, 126, 234, 0.2)'
+        }}>
+          <Typography variant="body2" sx={{ color: '#667eea', fontWeight: '600' }}>
+            {groupNames.length === 0 
+              ? `No pieces found matching "${searchQuery}"`
+              : `Found ${Object.values(filteredGroupedPieces).flat().length} pieces matching "${searchQuery}" in ${groupNames.length} groups`
+            }
+          </Typography>
+        </Box>
+      )}
+
       {/* Groups Display */}
       {currentGroups.length > 0 ? (
         <>
           {currentGroups.map(groupName => 
-            renderGroup(groupName, groupedPieces[groupName])
+            renderGroup(groupName, filteredGroupedPieces[groupName])
           )}
           
           {/* Main Groups Pagination */}
@@ -746,7 +776,7 @@ export default function PiecesGroupOverview() {
               justifyContent: 'center', 
               mt: 4,
               p: 2,
-              backgroundColor: 'rgba(102, 126, 234, 0.05)',
+              backgroundColor: 'rgba(102, 126, 234, 0.08)',
               borderRadius: '12px'
             }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
@@ -767,11 +797,23 @@ export default function PiecesGroupOverview() {
         <EmptyState>
           <FolderOpen sx={{ fontSize: 64, opacity: 0.4, mb: 2 }} />
           <Typography variant="h6" sx={{ opacity: 0.9, mb: 1 }}>
-            No Groups Found
+            {searchQuery ? 'No Results Found' : 'No Groups Found'}
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.7 }}>
-            No groups are available in the system
+            {searchQuery 
+              ? `No pieces match your search "${searchQuery}"`
+              : 'No groups are available in the system'
+            }
           </Typography>
+          {searchQuery && (
+            <Button 
+              variant="outlined" 
+              onClick={handleClearSearch}
+              sx={{ mt: 2, color: '#667eea', borderColor: '#667eea' }}
+            >
+              Clear Search
+            </Button>
+          )}
         </EmptyState>
       )}
     </Container>
