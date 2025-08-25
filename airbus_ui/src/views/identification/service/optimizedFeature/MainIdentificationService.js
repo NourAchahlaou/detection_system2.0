@@ -1,5 +1,5 @@
 // ===================
-// MainIdentificationService.js - Updated for Group-Based Identification
+// MainIdentificationService.js
 // ===================
 
 import { IdentificationStreamManager } from './IdentificationStreamManager';
@@ -96,76 +96,20 @@ class IdentificationService {
   }
 
   // ===================
-  // GROUP-BASED IDENTIFICATION METHODS (Updated)
+  // IDENTIFICATION METHODS
   // ===================
 
-  async performPieceIdentification(cameraId, groupName, options = {}) {
-    return this.streamManager.performPieceIdentification(cameraId, groupName, options);
+  async performPieceIdentification(cameraId, options = {}) {
+    return this.streamManager.performPieceIdentification(cameraId, options);
   }
 
-  async switchGroupAndIdentify(cameraId, newGroupName, options = {}) {
-    return this.streamManager.switchGroupAndIdentify(cameraId, newGroupName, options);
+  async performQuickAnalysis(cameraId, options = {}) {
+    return this.streamManager.performQuickAnalysis(cameraId, options);
   }
 
-  async performQuickAnalysis(cameraId, groupName, options = {}) {
-    return this.streamManager.performQuickAnalysis(cameraId, groupName, options);
+  async getAvailablePieceTypes() {
+    return this.streamManager.getAvailablePieceTypes();
   }
-
-  async performBatchIdentification(cameraId, groupName, options = {}) {
-    return this.streamManager.performBatchIdentification(cameraId, groupName, options);
-  }
-
-  async performLegacyIdentification(cameraId, groupName, options = {}) {
-    return this.streamManager.performLegacyIdentification(cameraId, groupName, options);
-  }
-
-  // ===================
-  // GROUP MANAGEMENT METHODS (New)
-  // ===================
-
-  async getAvailableGroups() {
-    return this.streamManager.getAvailableGroups();
-  }
-
-  async getPieceTypesForGroup(groupName) {
-    return this.streamManager.getPieceTypesForGroup(groupName);
-  }
-
-  async getGroupSpecificStats(groupName) {
-    return this.streamManager.getGroupSpecificStats(groupName);
-  }
-
-  async switchGroup(newGroupName) {
-    return this.stateManager.switchGroup(newGroupName);
-  }
-
-  async loadAvailableGroups() {
-    return this.stateManager.loadAvailableGroups();
-  }
-
-  async refreshAvailableGroups() {
-    return this.stateManager.refreshAvailableGroups();
-  }
-
-  getCurrentGroup() {
-    return this.stateManager.getCurrentGroup();
-  }
-
-  getAvailableGroupsList() {
-    return this.stateManager.getAvailableGroups();
-  }
-
-  isGroupAvailable(groupName) {
-    return this.stateManager.isGroupAvailable(groupName);
-  }
-
-  async initializeProcessorWithGroup(groupName) {
-    return this.streamManager.initializeProcessorWithGroup(groupName);
-  }
-
-  // ===================
-  // SETTINGS AND CONFIGURATION METHODS (Updated)
-  // ===================
 
   async updateConfidenceThreshold(threshold) {
     return this.streamManager.updateConfidenceThreshold(threshold);
@@ -181,10 +125,6 @@ class IdentificationService {
 
   async getIdentificationStats() {
     return this.streamManager.getIdentificationStats();
-  }
-
-  async getHealthStatus() {
-    return this.streamManager.getHealthStatus();
   }
 
   // ===================
@@ -284,24 +224,14 @@ class IdentificationService {
   getIdentificationStatsForCamera = (cameraId) => {
     const stream = this.currentStreams.get(cameraId);
     if (stream?.streamKey) {
-      const stats = this.identificationStats.get(stream.streamKey);
-      if (stats) {
-        return {
-          ...stats,
-          isFrozen: this.isStreamFrozen(cameraId),
-          mode: 'identification',
-          currentGroup: this.stateManager.getCurrentGroup()
-        };
-      }
-      return {
+      return this.identificationStats.get(stream.streamKey) || {
         piecesIdentified: 0,
         uniqueLabels: 0,
         labelCounts: {},
         lastIdentificationTime: null,
         avgProcessingTime: 0,
         isFrozen: this.isStreamFrozen(cameraId),
-        mode: 'identification',
-        currentGroup: this.stateManager.getCurrentGroup()
+        mode: 'identification'
       };
     }
     return null;
@@ -316,7 +246,7 @@ class IdentificationService {
   };
 
   // ===================
-  // STATE MANAGEMENT METHODS (Updated for Groups)
+  // STATE MANAGEMENT METHODS
   // ===================
 
   // Initialization and health check methods
@@ -324,12 +254,12 @@ class IdentificationService {
     return this.stateManager.loadModel(isInitialCheck);
   }
 
-  async initializeProcessor(groupName = null) {
-    return this.stateManager.initializeProcessor(groupName);
+  async initializeProcessor() {
+    return this.stateManager.initializeProcessor();
   }
 
-  async ensureInitialized(groupName = null) {
-    return this.stateManager.ensureInitialized(groupName);
+  async ensureInitialized() {
+    return this.stateManager.ensureInitialized();
   }
 
   async checkIdentificationHealth(isInitialCheck = false, isPostShutdownCheck = false) {
@@ -411,9 +341,7 @@ class IdentificationService {
       healthCheckInProgress: this.healthCheckInProgress,
       hasPerformedInitialHealthCheck: this.hasPerformedInitialHealthCheck,
       hasPerformedPostShutdownCheck: this.hasPerformedPostShutdownCheck,
-      mode: 'identification',
-      currentGroup: this.stateManager.getCurrentGroup(),
-      availableGroups: this.stateManager.getAvailableGroups()
+      mode: 'identification'
     };
   }
 
@@ -536,7 +464,7 @@ class IdentificationService {
   }
 
   // ===================
-  // UTILITY METHODS (Updated for Groups)
+  // UTILITY METHODS
   // ===================
 
   /**
@@ -558,8 +486,6 @@ class IdentificationService {
       identificationStreams: streams.filter(s => s.type === 'identification_stream').length,
       frozenStreams: this.frozenStreams.size,
       currentState: this.state,
-      currentGroup: this.stateManager.getCurrentGroup(),
-      availableGroups: this.stateManager.getAvailableGroups(),
       streams: streams
     };
   }
@@ -606,30 +532,10 @@ class IdentificationService {
         type: stream.type,
         purpose: stream.purpose,
         isFrozen: this.isStreamFrozen(String(cameraId)),
-        stats: this.getIdentificationStatsForCamera(String(cameraId)),
-        currentGroup: this.stateManager.getCurrentGroup()
+        stats: this.getIdentificationStatsForCamera(String(cameraId))
       };
     }
     return null;
-  }
-
-  /**
-   * Get comprehensive service information including group details
-   * @returns {Object}
-   */
-  getServiceInfo() {
-    return {
-      state: this.state,
-      isModelLoaded: this.isModelLoaded,
-      currentGroup: this.stateManager.getCurrentGroup(),
-      availableGroups: this.stateManager.getAvailableGroups(),
-      activeStreams: this.currentStreams.size,
-      frozenStreams: this.frozenStreams.size,
-      lastHealthCheck: this.lastHealthCheck,
-      healthCheckInProgress: this.healthCheckInProgress,
-      mode: 'identification',
-      version: '2.0.0-group-based'
-    };
   }
 }
 

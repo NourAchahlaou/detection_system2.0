@@ -1,4 +1,4 @@
-// utils/AppIdentificationUtils.js - Simplified identification utilities
+// utils/AppIdentificationUtils.js - Updated identification utilities with group support
 import { identificationService } from "../service/MainIdentificationService";
 
 // Identification states from service
@@ -10,39 +10,76 @@ export const IdentificationStates = {
 };
 
 // System initialization functions
+// FIXED: System initialization with proper health check flow and safer error handling
 export const initializeIdentificationSystem = async (
   initializationAttempted,
   setInitializationError,
   performInitialHealthCheck,
-  loadAvailablePieceTypes
+  loadAvailableGroups
 ) => {
-  if (initializationAttempted.current) return;
+  if (initializationAttempted.current) {
+    console.log("🔄 Initialization already attempted, skipping");
+    return;
+  }
+  
   initializationAttempted.current = true;
 
   try {
     console.log("🚀 Starting identification system initialization...");
     
-    // Initialize identification processor
-    const initResult = await identificationService.ensureInitialized();
+    // Step 1: Basic processor initialization (without group)
+    const response = await fetch('/api/detection/identification/initialize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const initResult = await response.json();
     
     if (initResult.success) {
-      console.log("✅ Identification system initialized:", initResult.message);
+      console.log("✅ Basic identification processor initialized:", initResult.message);
       setInitializationError(null);
       
-      // Perform initial health check right after initialization
-      await performInitialHealthCheck();
+      // Step 2: Perform initial health check (non-blocking)
+      try {
+        console.log("🩺 Performing initial health check...");
+        await performInitialHealthCheck();
+        console.log("✅ Initial health check completed successfully");
+      } catch (healthError) {
+        console.warn("⚠️ Health check had issues but continuing:", healthError.message);
+        // Health check failure is not fatal for initialization
+      }
       
-      // Load available piece types
-      await loadAvailablePieceTypes();
+      // Step 3: Load available groups (non-blocking)
+      try {
+        console.log("📋 Loading available groups...");
+        await loadAvailableGroups();
+        console.log("✅ Available groups loaded successfully");
+      } catch (groupError) {
+        console.warn("⚠️ Group loading had issues but continuing:", groupError.message);
+        // Group loading failure is not fatal for basic initialization
+      }
       
       console.log("✅ System initialization completed successfully");
+      return { success: true };
     } else {
-      throw new Error(initResult.message || 'Failed to initialize identification system');
+      throw new Error(initResult.message || initResult.detail || 'Failed to initialize identification processor');
     }
     
   } catch (error) {
     console.error("❌ Error initializing identification system:", error);
-    setInitializationError(error.message);
+    const errorMessage = error.message || 'Unknown initialization error';
+    setInitializationError(errorMessage);
+    
+    // Reset the flag so retry can work
+    initializationAttempted.current = false;
+    
+    throw new Error(errorMessage);
   }
 };
 
@@ -75,12 +112,196 @@ export const createRetryInitialization = (
   };
 };
 
-// Identification control functions
+// ===================
+// GROUP MANAGEMENT HANDLERS (NEW)
+// ===================
+
+export const createGroupManagementHandlers = (
+  targetGroupName,
+  currentGroup,
+  availableGroups,
+  showSnackbar,
+  setTargetGroupName,
+  setAvailableGroups,
+  setCurrentGroup,
+  setIsGroupLoaded,
+  setAvailablePieceTypes
+) => {
+  // Load available groups - FIXED API ENDPOINT
+  const handleLoadAvailableGroups = async () => {
+    try {
+      console.log('📋 Loading available groups...');
+      
+      // Use the correct API endpoint from the router
+      const response = await fetch('/api/detection/identification/groups/available');
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableGroups(result.available_groups || []);
+        setCurrentGroup(result.current_group);
+        console.log(`✅ Loaded ${result.available_groups?.length || 0} available groups, current: '${result.current_group}'`);
+        return { success: true, groups: result.available_groups };
+      } else {
+        console.warn('📋 Failed to load groups:', result.message);
+        setAvailableGroups([]);
+        return { success: false, error: result.message };
+      }
+    } catch (error) {
+      console.error('❌ Error loading groups:', error);
+      showSnackbar(`Failed to load groups: ${error.message}`, 'error');
+      setAvailableGroups([]);
+      return { success: false, error: error.message };
+    }
+  };
+
+
+  // Select a group
+  const handleSelectGroup = async (groupName) => {
+    if (!groupName?.trim()) {
+      showSnackbar('Please enter a group name', 'warning');
+      return { success: false, error: 'No group name provided' };
+    }
+
+    try {
+      console.log(`🔄 Selecting group: ${groupName}`);
+      
+      // Use the correct API endpoint from the router
+      const response = await fetch(`/api/detection/identification/groups/select/${encodeURIComponent(groupName.trim())}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setCurrentGroup(result.current_group);
+        setIsGroupLoaded(result.is_group_loaded);
+        setTargetGroupName(groupName.trim());
+        
+        // Load piece types for this group
+        await handleGetPieceTypesForGroup(groupName.trim());
+        
+        showSnackbar(`Group "${result.current_group}" loaded successfully`, 'success');
+        return { success: true, group: result.current_group };
+      } else {
+        throw new Error(result.detail || result.message || 'Failed to select group');
+      }
+    } catch (error) {
+      console.error('❌ Error selecting group:', error);
+      showSnackbar(`Failed to select group "${groupName}": ${error.message}`, 'error');
+      setIsGroupLoaded(false);
+      setCurrentGroup(null);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Handle target group name change
+  const handleTargetGroupNameChange = (event) => {
+    const groupName = event.target.value;
+    setTargetGroupName(groupName);
+    console.log(`📝 Group name changed to: ${groupName}`);
+  };
+
+  const handleGetPieceTypesForGroup = async (groupName) => {
+    if (!groupName?.trim()) {
+      return { success: false, error: 'No group name provided' };
+    }
+
+    try {
+      console.log(`📋 Loading piece types for group: ${groupName}`);
+      
+      // Use the correct API endpoint from the router
+      const response = await fetch(`/api/detection/identification/groups/${encodeURIComponent(groupName)}/piece-types`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailablePieceTypes(result.available_piece_types || []);
+        console.log(`✅ Loaded ${result.available_piece_types?.length || 0} piece types for group ${groupName}`);
+        return { 
+          success: true, 
+          pieceTypes: result.available_piece_types,
+          totalClasses: result.total_classes
+        };
+      } else {
+        console.warn('📋 Failed to load piece types:', result.message);
+        setAvailablePieceTypes([]);
+        return { success: false, error: result.message };
+      }
+    } catch (error) {
+      console.error('❌ Error loading piece types:', error);
+      setAvailablePieceTypes([]);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Switch group and perform identification - FIXED API ENDPOINT
+  const handleSwitchGroupAndIdentify = async (cameraId, newGroupName, options = {}) => {
+    if (!cameraId) {
+      showSnackbar("Camera ID is required for identification", "error");
+      return { success: false, error: "No camera ID provided" };
+    }
+
+    if (!newGroupName?.trim()) {
+      showSnackbar("Group name is required for identification", "error");
+      return { success: false, error: "No group name provided" };
+    }
+
+    try {
+      console.log(`🔄 Switching to group '${newGroupName}' and identifying for camera ${cameraId}`);
+      
+      // Use the correct API endpoint from the router
+      const response = await fetch(`/api/detection/identification/identify/${cameraId}/switch-group`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          new_group_name: newGroupName.trim(),
+          freeze_stream: options.freezeStream !== false,
+          quality: options.quality || 85
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setCurrentGroup(result.current_group);
+        setTargetGroupName(newGroupName.trim());
+        setIsGroupLoaded(true);
+        
+        showSnackbar(`Switched to group "${result.current_group}" and identified ${result.summary.total_pieces} pieces`, 'success');
+        return { success: true, result: result };
+      } else {
+        throw new Error(result.detail || result.message || 'Group switch and identification failed');
+      }
+    } catch (error) {
+      console.error('❌ Error in group switch and identification:', error);
+      showSnackbar(`Group switch and identification failed: ${error.message}`, 'error');
+      return { success: false, error: error.message };
+    }
+  };
+
+  return {
+    handleLoadAvailableGroups,
+    handleSelectGroup,
+    handleTargetGroupNameChange,
+    handleGetPieceTypesForGroup,
+    handleSwitchGroupAndIdentify
+  };
+};
+
+// ===================
+// IDENTIFICATION CONTROL HANDLERS (Updated for Groups)
+// ===================
+
 export const createIdentificationControlHandlers = (
   cameraId,
   identificationState,
   systemHealth,
   cameras,
+  targetGroupName,
   showSnackbar,
   performSingleHealthCheck,
   lastHealthCheck,
@@ -89,17 +310,24 @@ export const createIdentificationControlHandlers = (
   setIdentificationInProgress,
   performPostShutdownHealthCheck
 ) => {
-  // Enhanced identification start with validation
+  // Enhanced identification start with group validation
   const handleStartIdentification = async () => {
     console.log("🚀 Identification start requested with context:", {
       cameraId,
-      identificationState
+      identificationState,
+      targetGroupName
     });
 
     // Basic validation
     if (!cameraId || cameraId === '') {
       showSnackbar("Please select a camera first.", "error");
       return { success: false, error: "No camera selected" };
+    }
+
+    // Group validation
+    if (!targetGroupName || targetGroupName.trim() === '') {
+      showSnackbar("Please enter a target group name first.", "error");
+      return { success: false, error: "No group selected" };
     }
     
     // Perform health check before starting identification if not done recently
@@ -125,8 +353,8 @@ export const createIdentificationControlHandlers = (
       return { success: false, error: "Camera not available" };
     }
     
-    console.log(`✅ Starting identification for camera ${cameraId}`);
-    return { success: true };
+    console.log(`✅ Starting identification for camera ${cameraId} with group ${targetGroupName}`);
+    return { success: true, cameraId, groupName: targetGroupName.trim() };
   };
 
   // Enhanced identification stop
@@ -153,21 +381,32 @@ export const createIdentificationControlHandlers = (
   };
 };
 
-// Identification stream handlers
+// ===================
+// IDENTIFICATION STREAM HANDLERS (Updated for Groups)
+// ===================
+
 export const createIdentificationStreamHandlers = (
   cameraId,
   identificationInProgress,
   confidenceThreshold,
+  targetGroupName,
   showSnackbar,
   setIdentificationInProgress,
   setLastIdentificationResult,
   setIsStreamFrozen
 ) => {
-  // Handle piece identification
+  // Handle piece identification with group support
   const handlePieceIdentification = async (options = {}) => {
     if (!cameraId) {
       showSnackbar("Camera ID is required for identification", "error");
-      return { success: false };
+      return { success: false, error: "No camera ID provided" };
+    }
+
+    // Use provided group name or fall back to targetGroupName
+    const groupName = options.groupName || targetGroupName;
+    if (!groupName || groupName.trim() === '') {
+      showSnackbar("Group name is required for identification", "error");
+      return { success: false, error: "No group name provided" };
     }
 
     if (identificationInProgress) {
@@ -178,31 +417,40 @@ export const createIdentificationStreamHandlers = (
     setIdentificationInProgress(true);
 
     try {
-      console.log(`🔍 Performing piece identification for camera ${cameraId}`);
+      console.log(`🔍 Performing piece identification for camera ${cameraId}, group ${groupName}`);
       
-      const result = await identificationService.performPieceIdentification(cameraId, {
-        freezeStream: options.freezeStream !== false, // Default to true
-        quality: options.quality || 85,
-        ...options
+      const response = await fetch(`/api/detection/identification/identify/${cameraId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          group_name: groupName.trim(),
+          freeze_stream: options.freezeStream !== false,
+          quality: options.quality || 85
+        })
       });
+
+      const result = await response.json();
 
       if (result.success) {
         setLastIdentificationResult({
           summary: result.summary,
-          pieces: result.pieces,
-          processingTime: result.processingTime,
-          frameWithOverlay: result.frameWithOverlay,
-          streamFrozen: result.streamFrozen,
+          pieces: result.identification_result?.pieces || result.pieces,
+          processingTime: result.processing_time_ms,
+          frameWithOverlay: result.frame_with_overlay,
+          streamFrozen: result.stream_frozen,
           timestamp: result.timestamp,
-          message: result.message
+          message: result.message,
+          groupName: result.group_name
         });
         
         // Update stream frozen state
-        setIsStreamFrozen(result.streamFrozen);
+        setIsStreamFrozen(result.stream_frozen);
 
         const message = result.summary.total_pieces > 0 
-          ? `🎯 Identified ${result.summary.total_pieces} pieces (${result.summary.unique_labels} unique types)!`
-          : `No pieces identified. Try adjusting the camera angle or lighting.`;
+          ? `🎯 Identified ${result.summary.total_pieces} pieces from group "${groupName}" (${result.summary.unique_labels} unique types)!`
+          : `No pieces identified for group "${groupName}". Try adjusting the camera angle or lighting.`;
 
         showSnackbar(message, result.summary.total_pieces > 0 ? 'success' : 'info');
         
@@ -211,7 +459,7 @@ export const createIdentificationStreamHandlers = (
           identificationResult: result
         };
       } else {
-        throw new Error(result.message || 'Identification failed');
+        throw new Error(result.detail || result.message || 'Identification failed');
       }
     } catch (error) {
       console.error('❌ Error in piece identification:', error);
@@ -222,11 +470,18 @@ export const createIdentificationStreamHandlers = (
     }
   };
 
-  // Handle quick analysis
+  // Handle quick analysis with group support
   const handleQuickAnalysis = async (options = {}) => {
     if (!cameraId) {
       showSnackbar("Camera ID is required for analysis", "error");
-      return { success: false };
+      return { success: false, error: "No camera ID provided" };
+    }
+
+    // Use provided group name or fall back to targetGroupName
+    const groupName = options.groupName || targetGroupName;
+    if (!groupName || groupName.trim() === '') {
+      showSnackbar("Group name is required for analysis", "error");
+      return { success: false, error: "No group name provided" };
     }
 
     if (identificationInProgress) {
@@ -237,37 +492,45 @@ export const createIdentificationStreamHandlers = (
     setIdentificationInProgress(true);
 
     try {
-      console.log(`🔍 Performing quick analysis for camera ${cameraId}`);
+      console.log(`🔍 Performing quick analysis for camera ${cameraId}, group ${groupName}`);
       
-      const result = await identificationService.performQuickAnalysis(cameraId, {
-        analyzeFrameOnly: options.analyzeFrameOnly !== false, // Default to true
-        quality: options.quality || 85,
-        ...options
+      const response = await fetch(`/api/identification/analyze/${cameraId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          group_name: groupName.trim(),
+          quality: options.quality || 85
+        })
       });
+
+      const result = await response.json();
 
       if (result.success) {
         setLastIdentificationResult({
-          piecesFound: result.piecesFound,
+          piecesFound: result.pieces_found,
           pieces: result.pieces,
           summary: result.summary,
-          processingTime: result.processingTime,
+          processingTime: result.processing_time_ms,
           timestamp: result.timestamp,
           message: result.message,
-          isQuickAnalysis: true
+          isQuickAnalysis: true,
+          groupName: result.group_name
         });
 
-        const message = result.piecesFound > 0 
-          ? `🔍 Quick analysis found ${result.piecesFound} pieces!`
-          : `No pieces found in quick analysis.`;
+        const message = result.pieces_found > 0 
+          ? `🔍 Quick analysis found ${result.pieces_found} pieces from group "${groupName}"!`
+          : `No pieces found in quick analysis for group "${groupName}".`;
 
-        showSnackbar(message, result.piecesFound > 0 ? 'success' : 'info');
+        showSnackbar(message, result.pieces_found > 0 ? 'success' : 'info');
         
         return {
           success: true,
           analysisResult: result
         };
       } else {
-        throw new Error(result.message || 'Quick analysis failed');
+        throw new Error(result.detail || result.message || 'Quick analysis failed');
       }
     } catch (error) {
       console.error('❌ Error in quick analysis:', error);
@@ -278,7 +541,81 @@ export const createIdentificationStreamHandlers = (
     }
   };
 
-  // Freeze stream
+  // Handle batch identification with group support
+  const handleBatchIdentification = async (options = {}) => {
+    if (!cameraId) {
+      showSnackbar("Camera ID is required for batch identification", "error");
+      return { success: false, error: "No camera ID provided" };
+    }
+
+    // Use provided group name or fall back to targetGroupName
+    const groupName = options.groupName || targetGroupName;
+    if (!groupName || groupName.trim() === '') {
+      showSnackbar("Group name is required for batch identification", "error");
+      return { success: false, error: "No group name provided" };
+    }
+
+    if (identificationInProgress) {
+      console.log("🚫 Batch identification already in progress, skipping...");
+      return { success: false, error: "Batch identification in progress" };
+    }
+
+    setIdentificationInProgress(true);
+
+    try {
+      console.log(`📦 Performing batch identification for camera ${cameraId}, group ${groupName}`);
+      
+      const response = await fetch(`/api/identification/batch/${cameraId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          group_name: groupName.trim(),
+          num_frames: options.numFrames || 5,
+          interval_seconds: options.intervalSeconds || 1.0
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setLastIdentificationResult({
+          batchResult: result.batch_identification_result,
+          framesProcessed: result.frames_processed,
+          totalPiecesFound: result.total_pieces_found,
+          uniqueLabels: result.unique_labels,
+          averagePiecesPerFrame: result.average_pieces_per_frame,
+          averageConfidence: result.average_confidence,
+          timestamp: result.timestamp,
+          message: result.message,
+          isBatchIdentification: true,
+          groupName: result.group_name
+        });
+
+        const message = result.total_pieces_found > 0 
+          ? `📦 Batch identification completed for group "${groupName}": ${result.total_pieces_found} total pieces across ${result.frames_processed} frames!`
+          : `No pieces found in batch identification for group "${groupName}".`;
+
+        showSnackbar(message, result.total_pieces_found > 0 ? 'success' : 'info');
+        
+        return {
+          success: true,
+          batchResult: result
+        };
+      } else {
+        throw new Error(result.detail || result.message || 'Batch identification failed');
+      }
+    } catch (error) {
+      console.error('❌ Error in batch identification:', error);
+      showSnackbar(`Batch identification failed: ${error.message}`, 'error');
+      return { success: false, error: error.message };
+    } finally {
+      setIdentificationInProgress(false);
+    }
+  };
+
+  // Freeze stream (unchanged)
   const handleFreezeStream = async () => {
     if (!cameraId) return;
 
@@ -292,7 +629,7 @@ export const createIdentificationStreamHandlers = (
     }
   };
 
-  // Unfreeze stream
+  // Unfreeze stream (unchanged)
   const handleUnfreezeStream = async () => {
     if (!cameraId) return;
 
@@ -309,12 +646,13 @@ export const createIdentificationStreamHandlers = (
   return {
     handlePieceIdentification,
     handleQuickAnalysis,
+    handleBatchIdentification,
     handleFreezeStream,
     handleUnfreezeStream
   };
 };
 
-// Input validation and change handlers
+// Input validation and change handlers (unchanged)
 export const createInputHandlers = (
   cameras,
   showSnackbar,
@@ -348,6 +686,112 @@ export const createInputHandlers = (
   };
 };
 
+// ===================
+// VALIDATION UTILITIES (Updated for Groups)
+// ===================
+
+export const createValidationUtils = () => {
+  // Validate camera ID
+  const validateCameraId = (cameraId, cameras) => {
+    if (!cameraId || cameraId === '') {
+      return { valid: false, error: 'Camera ID is required' };
+    }
+
+    const cameraExists = cameras.some(cam => cam.id.toString() === cameraId.toString());
+    if (!cameraExists) {
+      return { valid: false, error: 'Selected camera is not available' };
+    }
+
+    return { valid: true };
+  };
+
+  // Validate group name
+  const validateGroupName = (groupName, availableGroups = []) => {
+    if (!groupName || groupName.trim() === '') {
+      return { valid: false, error: 'Group name is required' };
+    }
+
+    if (availableGroups.length > 0 && !availableGroups.includes(groupName.trim())) {
+      return { 
+        valid: false, 
+        error: `Group "${groupName}" not found. Available: ${availableGroups.join(', ')}` 
+      };
+    }
+
+    return { valid: true, value: groupName.trim() };
+  };
+
+  // Validate identification options with group
+  const validateIdentificationOptions = (options = {}) => {
+    const validOptions = {};
+    
+    if (options.groupName !== undefined) {
+      const groupValidation = validateGroupName(options.groupName);
+      if (!groupValidation.valid) {
+        return { valid: false, error: groupValidation.error };
+      }
+      validOptions.groupName = groupValidation.value;
+    }
+
+    if (options.quality !== undefined) {
+      const quality = parseInt(options.quality);
+      if (isNaN(quality) || quality < 1 || quality > 100) {
+        return { valid: false, error: 'Quality must be between 1 and 100' };
+      }
+      validOptions.quality = quality;
+    }
+
+    if (options.freezeStream !== undefined) {
+      validOptions.freezeStream = Boolean(options.freezeStream);
+    }
+
+    if (options.analyzeFrameOnly !== undefined) {
+      validOptions.analyzeFrameOnly = Boolean(options.analyzeFrameOnly);
+    }
+
+    if (options.numFrames !== undefined) {
+      const numFrames = parseInt(options.numFrames);
+      if (isNaN(numFrames) || numFrames < 1 || numFrames > 20) {
+        return { valid: false, error: 'Number of frames must be between 1 and 20' };
+      }
+      validOptions.numFrames = numFrames;
+    }
+
+    if (options.intervalSeconds !== undefined) {
+      const interval = parseFloat(options.intervalSeconds);
+      if (isNaN(interval) || interval < 0.1 || interval > 10.0) {
+        return { valid: false, error: 'Interval must be between 0.1 and 10.0 seconds' };
+      }
+      validOptions.intervalSeconds = interval;
+    }
+
+    return { valid: true, options: validOptions };
+  };
+
+  // Validate confidence threshold
+  const validateConfidenceThreshold = (threshold) => {
+    const numThreshold = parseFloat(threshold);
+    
+    if (isNaN(numThreshold)) {
+      return { valid: false, error: 'Confidence threshold must be a number' };
+    }
+    
+    if (numThreshold < 0 || numThreshold > 1) {
+      return { valid: false, error: 'Confidence threshold must be between 0 and 1' };
+    }
+
+    return { valid: true, value: numThreshold };
+  };
+
+  return {
+    validateCameraId,
+    validateGroupName,
+    validateConfidenceThreshold,
+    validateIdentificationOptions
+  };
+};
+
+// Stats handlers (unchanged but with group context)
 export const createStatsHandlers = (
   cameraId,
   showSnackbar
@@ -398,10 +842,7 @@ export const createStatsHandlers = (
   };
 };
 
-// ===================
-// STREAM MANAGEMENT UTILITIES
-// ===================
-
+// Stream management handlers (unchanged)
 export const createStreamManagementHandlers = (
   cameraId,
   showSnackbar,
@@ -505,10 +946,7 @@ export const createStreamManagementHandlers = (
   };
 };
 
-// ===================
-// STATUS AND INFO UTILITIES
-// ===================
-
+// Status and info utilities (updated with group context)
 export const createStatusHandlers = (
   showSnackbar
 ) => {
@@ -567,10 +1005,7 @@ export const createStatusHandlers = (
   };
 };
 
-// ===================
-// SETTINGS AND CONFIGURATION UTILITIES
-// ===================
-
+// Settings and configuration utilities (updated for groups)
 export const createSettingsHandlers = (
   showSnackbar,
   setConfidenceThreshold,
@@ -580,14 +1015,23 @@ export const createSettingsHandlers = (
   const handleUpdateConfidenceThreshold = async (threshold) => {
     try {
       console.log(`🎯 Updating confidence threshold to ${threshold}...`);
-      const result = await identificationService.updateConfidenceThreshold(threshold);
+      
+      const response = await fetch('/api/identification/settings/confidence-threshold', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ threshold: parseFloat(threshold) })
+      });
+
+      const result = await response.json();
       
       if (result.success) {
-        setConfidenceThreshold(result.newThreshold);
-        showSnackbar(`Confidence threshold updated to ${result.newThreshold}`, 'success');
-        return { success: true, threshold: result.newThreshold };
+        setConfidenceThreshold(result.new_threshold);
+        showSnackbar(`Confidence threshold updated to ${result.new_threshold}`, 'success');
+        return { success: true, threshold: result.new_threshold };
       } else {
-        throw new Error(result.message || 'Failed to update threshold');
+        throw new Error(result.detail || result.message || 'Failed to update threshold');
       }
     } catch (error) {
       console.error('Error updating confidence threshold:', error);
@@ -599,12 +1043,13 @@ export const createSettingsHandlers = (
   // Get identification settings
   const handleGetIdentificationSettings = async () => {
     try {
-      const result = await identificationService.getIdentificationSettings();
+      const response = await fetch('/api/identification/settings');
+      const result = await response.json();
       
       if (result.success) {
-        return { success: true, settings: result.settings };
+        return { success: true, settings: result.current_settings };
       } else {
-        throw new Error(result.message || 'Failed to get settings');
+        throw new Error(result.detail || result.message || 'Failed to get settings');
       }
     } catch (error) {
       console.error('Error getting identification settings:', error);
@@ -613,20 +1058,42 @@ export const createSettingsHandlers = (
     }
   };
 
-  // Load available piece types
-  const handleLoadAvailablePieceTypes = async () => {
+  // Load available piece types for current group
+  const handleLoadAvailablePieceTypes = async (groupName = null) => {
     try {
-      const result = await identificationService.getAvailablePieceTypes();
+      let response;
+      if (groupName) {
+        response = await fetch(`/api/identification/groups/${encodeURIComponent(groupName)}/piece-types`);
+      } else {
+        // Get general piece types - this might not be applicable with group-based system
+        response = await fetch('/api/identification/settings');
+        const settingsResult = await response.json();
+        if (settingsResult.success && settingsResult.model_info) {
+          setAvailablePieceTypes(Object.values(settingsResult.model_info.class_names || {}));
+          return { 
+            success: true, 
+            pieceTypes: Object.values(settingsResult.model_info.class_names || {}) 
+          };
+        }
+        return { success: false, error: 'No group specified and no general piece types available' };
+      }
+      
+      const result = await response.json();
       
       if (result.success) {
-        setAvailablePieceTypes(result.availablePieceTypes || []);
-        return { success: true, pieceTypes: result.availablePieceTypes };
+        setAvailablePieceTypes(result.available_piece_types || []);
+        return { 
+          success: true, 
+          pieceTypes: result.available_piece_types,
+          totalClasses: result.total_classes
+        };
       } else {
-        throw new Error(result.message || 'Failed to load piece types');
+        throw new Error(result.detail || result.message || 'Failed to load piece types');
       }
     } catch (error) {
       console.error('Error loading piece types:', error);
       showSnackbar(`Failed to load piece types: ${error.message}`, 'error');
+      setAvailablePieceTypes([]);
       return { success: false, error: error.message };
     }
   };
@@ -638,10 +1105,7 @@ export const createSettingsHandlers = (
   };
 };
 
-// ===================
-// CLEANUP AND MAINTENANCE UTILITIES
-// ===================
-
+// Cleanup and maintenance utilities (unchanged)
 export const createMaintenanceHandlers = (
   showSnackbar
 ) => {
@@ -679,72 +1143,7 @@ export const createMaintenanceHandlers = (
   };
 };
 
-// ===================
-// VALIDATION UTILITIES
-// ===================
-
-export const createValidationUtils = () => {
-  // Validate camera ID
-  const validateCameraId = (cameraId, cameras) => {
-    if (!cameraId || cameraId === '') {
-      return { valid: false, error: 'Camera ID is required' };
-    }
-
-    const cameraExists = cameras.some(cam => cam.id.toString() === cameraId.toString());
-    if (!cameraExists) {
-      return { valid: false, error: 'Selected camera is not available' };
-    }
-
-    return { valid: true };
-  };
-
-  // Validate confidence threshold
-  const validateConfidenceThreshold = (threshold) => {
-    const numThreshold = parseFloat(threshold);
-    
-    if (isNaN(numThreshold)) {
-      return { valid: false, error: 'Confidence threshold must be a number' };
-    }
-    
-    if (numThreshold < 0 || numThreshold > 1) {
-      return { valid: false, error: 'Confidence threshold must be between 0 and 1' };
-    }
-
-    return { valid: true, value: numThreshold };
-  };
-
-  // Validate identification options
-  const validateIdentificationOptions = (options = {}) => {
-    const validOptions = {};
-    
-    if (options.quality !== undefined) {
-      const quality = parseInt(options.quality);
-      if (isNaN(quality) || quality < 1 || quality > 100) {
-        return { valid: false, error: 'Quality must be between 1 and 100' };
-      }
-      validOptions.quality = quality;
-    }
-
-    if (options.freezeStream !== undefined) {
-      validOptions.freezeStream = Boolean(options.freezeStream);
-    }
-
-    if (options.analyzeFrameOnly !== undefined) {
-      validOptions.analyzeFrameOnly = Boolean(options.analyzeFrameOnly);
-    }
-
-    return { valid: true, options: validOptions };
-  };
-
-  return {
-    validateCameraId,
-    validateConfidenceThreshold,
-    validateIdentificationOptions
-  };
-  
-};
-
-// Cleanup function
+// Cleanup function (updated)
 export const createCleanupFunction = (
   cleanupRef,
   identificationState,
@@ -757,7 +1156,7 @@ export const createCleanupFunction = (
     try {
       console.log("Performing cleanup...");
       
-      // Stop all detection services
+      // Stop all identification services
       if (identificationState === IdentificationStates.RUNNING) {
         await identificationService.stopAllStreams();
       }
@@ -773,8 +1172,10 @@ export const createCleanupFunction = (
   };
 };
 
-// System state and info helpers - FIXED VERSION
-export const getStateInfo = (identificationState, currentStreamingType = 'identification') => {
+// System state and info helpers with group context
+export const getStateInfo = (identificationState, currentGroup = null) => {
+  const groupInfo = currentGroup ? ` for group "${currentGroup}"` : '';
+  
   switch (identificationState) {
     case IdentificationStates.INITIALIZING:
       return {
@@ -785,13 +1186,13 @@ export const getStateInfo = (identificationState, currentStreamingType = 'identi
     case IdentificationStates.READY:
       return {
         color: 'success',
-        message: `System ready for ${currentStreamingType}`,
+        message: `System ready for identification${groupInfo}`,
         canOperate: true
       };
     case IdentificationStates.RUNNING:
       return {
         color: 'warning',
-        message: `${currentStreamingType.toUpperCase()} active`,
+        message: `IDENTIFICATION active${groupInfo}`,
         canOperate: true
       };
     case IdentificationStates.SHUTTING_DOWN:
@@ -807,4 +1208,88 @@ export const getStateInfo = (identificationState, currentStreamingType = 'identi
         canOperate: false
       };
   }
+};
+
+// Helper function to validate group-based identification readiness
+export const validateIdentificationReadiness = (
+  identificationState,
+  cameraId,
+  targetGroupName,
+  availableGroups = []
+) => {
+  const issues = [];
+  
+  // Check system state
+  if (identificationState !== IdentificationStates.READY) {
+    issues.push(`System not ready (current state: ${identificationState})`);
+  }
+  
+  // Check camera selection
+  if (!cameraId || cameraId === '') {
+    issues.push('No camera selected');
+  }
+  
+  // Check group selection
+  if (!targetGroupName || targetGroupName.trim() === '') {
+    issues.push('No group selected');
+  } else if (availableGroups.length > 0 && !availableGroups.includes(targetGroupName.trim())) {
+    issues.push(`Selected group "${targetGroupName}" is not available`);
+  }
+  
+  return {
+    isReady: issues.length === 0,
+    issues: issues,
+    canProceed: issues.length === 0
+  };
+};
+
+// Helper function to get group status info
+export const getGroupStatusInfo = (
+  currentGroup,
+  targetGroupName,
+  availableGroups = [],
+  isGroupLoaded = false
+) => {
+  if (!currentGroup && !targetGroupName) {
+    return {
+      status: 'no_group',
+      message: 'No group selected',
+      color: 'warning',
+      canIdentify: false
+    };
+  }
+  
+  if (targetGroupName && !isGroupLoaded) {
+    return {
+      status: 'loading',
+      message: `Loading group "${targetGroupName}"...`,
+      color: 'info',
+      canIdentify: false
+    };
+  }
+  
+  if (currentGroup && isGroupLoaded) {
+    return {
+      status: 'ready',
+      message: `Group "${currentGroup}" loaded and ready`,
+      color: 'success',
+      canIdentify: true
+    };
+  }
+  
+  if (targetGroupName && availableGroups.length > 0 && !availableGroups.includes(targetGroupName)) {
+    return {
+      status: 'invalid',
+      message: `Group "${targetGroupName}" not found`,
+      color: 'error',
+      canIdentify: false
+    };
+  }
+  
+  return {
+    status: 'unknown',
+    message: 'Group status unknown',
+    color: 'default',
+    canIdentify: false
+  };
 };

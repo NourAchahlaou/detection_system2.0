@@ -1,4 +1,4 @@
-// AppIdentification.jsx - Updated layout with always visible basic controls
+// AppIdentification.jsx - Fixed Group Management State Passing
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Box, 
@@ -41,6 +41,14 @@ import {
 export default function AppIdentification() {  
   // UI State
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  
+  // Group Management State - FIXED: Use consistent naming
+  const [targetGroupName, setTargetGroupName] = useState("");
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [currentGroup, setCurrentGroup] = useState(null);
+  const [isGroupLoaded, setIsGroupLoaded] = useState(false);
+  const [isGroupLoading, setIsGroupLoading] = useState(false);
+
   // Identification Options
   const [identificationOptions, setIdentificationOptions] = useState({
     streamQuality: 85,
@@ -70,37 +78,158 @@ export default function AppIdentification() {
   const identificationSystem = useIdentificationSystem();
   const cameraManagement = useCameraManagement();
 
-  // Load available piece types - prevent multiple calls
-  const loadAvailablePieceTypes = useCallback(async () => {
-    // Prevent multiple simultaneous calls
-    if (pieceTypesLoaded.current) {
-      console.log('📋 Piece types already loaded, skipping...');
+  // Group Management Functions
+  const loadAvailableGroups = useCallback(async () => {
+    try {
+      console.log('📋 Loading available groups...');
+      const result = await identificationService.getAvailableGroups();
+      
+      if (result.success) {
+        setAvailableGroups(result.available_groups || []);
+        setCurrentGroup(result.current_group);
+        console.log(`✅ Loaded ${result.available_groups?.length || 0} groups`);
+      } else {
+        console.warn('📋 Failed to load groups:', result.message);
+        setAvailableGroups([]);
+      }
+    } catch (error) {
+      console.error('❌ Error loading groups:', error);
+      identificationManagement.showSnackbar(`Failed to load groups: ${error.message}`, 'error');
+      setAvailableGroups([]);
+    }
+  }, [identificationManagement]);
+
+  const handleGroupNameChange = useCallback((groupName) => {
+    setTargetGroupName(groupName);
+  }, []);
+
+  const handleSelectGroup = useCallback(async (groupName) => {
+    if (!groupName?.trim()) {
+      identificationManagement.showSnackbar('Please enter a group name', 'warning');
       return;
     }
 
+    setIsGroupLoading(true);
     try {
-      console.log('📋 Loading available piece types...');
-      pieceTypesLoaded.current = true;
+      console.log(`🔄 Selecting group: ${groupName}`);
       
-      const result = await identificationService.getAvailablePieceTypes();
+      // Use the new group selection endpoint
+      const response = await fetch(`/api/detection/identification/groups/select/${groupName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
       
       if (result.success) {
-        setAvailablePieceTypes(result.availablePieceTypes || []);
-        console.log(`✅ Loaded ${result.availablePieceTypes?.length || 0} piece types`);
+        setCurrentGroup(result.current_group);
+        setIsGroupLoaded(result.is_group_loaded);
+        setTargetGroupName(result.current_group); // FIXED: Update targetGroupName too
+        identificationManagement.showSnackbar(
+          `Group "${result.current_group}" loaded successfully`, 
+          'success'
+        );
+        
+        // Load piece types for this group
+        await loadAvailablePieceTypesForGroup(groupName);
+      } else {
+        throw new Error(result.detail || result.message || 'Failed to select group');
+      }
+    } catch (error) {
+      console.error('❌ Error selecting group:', error);
+      identificationManagement.showSnackbar(
+        `Failed to select group "${groupName}": ${error.message}`, 
+        'error'
+      );
+      setIsGroupLoaded(false);
+      setCurrentGroup(null);
+    } finally {
+      setIsGroupLoading(false);
+    }
+  }, [identificationManagement]);
+
+  // Load available piece types for a specific group
+  const loadAvailablePieceTypesForGroup = useCallback(async (groupName) => {
+    try {
+      console.log(`📋 Loading piece types for group: ${groupName}`);
+      
+      const response = await fetch(`/api/detection/identification/groups/${groupName}/piece-types`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailablePieceTypes(result.available_piece_types || []);
+        console.log(`✅ Loaded ${result.available_piece_types?.length || 0} piece types for group ${groupName}`);
       } else {
         console.warn('📋 Failed to load piece types:', result.message);
         setAvailablePieceTypes([]);
-        // Reset flag on failure to allow retry
-        pieceTypesLoaded.current = false;
       }
     } catch (error) {
       console.error('❌ Error loading piece types:', error);
-      identificationManagement.showSnackbar(`Failed to load piece types: ${error.message}`, 'error');
       setAvailablePieceTypes([]);
-      // Reset flag on error to allow retry
-      pieceTypesLoaded.current = false;
     }
-  }, [identificationManagement]);
+  }, []);
+
+  // Updated piece identification handler to include group
+  const handlePieceIdentificationWithGroup = useCallback(async (options = {}) => {
+    if (!currentGroup && !targetGroupName) {
+      identificationManagement.showSnackbar('Please select a group first', 'warning');
+      return;
+    }
+
+    if (!cameraManagement.cameraId) {
+      identificationManagement.showSnackbar('Please select a camera first', 'warning');
+      return;
+    }
+
+    // FIXED: Use either currentGroup or targetGroupName
+    const groupToUse = currentGroup || targetGroupName;
+
+    try {
+      identificationSystem.setIdentificationInProgress(true);
+      console.log(`🔍 Starting piece identification for group: ${groupToUse}, camera: ${cameraManagement.cameraId}`);
+      
+      const response = await fetch(`/api/detection/identification/identify/${cameraManagement.cameraId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          group_name: groupToUse,
+          freeze_stream: options.freezeStream ?? true,
+          quality: identificationOptions.quality || 85
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        identificationSystem.setLastIdentificationResult(result);
+        identificationSystem.setIsStreamFrozen(result.stream_frozen);
+        identificationManagement.showSnackbar(result.message, 'success');
+        
+        // Update history
+        setIdentificationHistory(prev => [{
+          timestamp: result.timestamp,
+          group_name: result.group_name,
+          camera_id: result.camera_id,
+          pieces_found: result.summary.total_pieces,
+          result: result
+        }, ...prev.slice(0, 9)]);
+        
+        return result;
+      } else {
+        throw new Error(result.detail || result.message || 'Identification failed');
+      }
+    } catch (error) {
+      console.error('❌ Error in piece identification:', error);
+      identificationManagement.showSnackbar(`Identification failed: ${error.message}`, 'error');
+      throw error;
+    } finally {
+      identificationSystem.setIdentificationInProgress(false);
+    }
+  }, [currentGroup, targetGroupName, cameraManagement.cameraId, identificationOptions, identificationSystem, identificationManagement]);
 
   // Trigger stats refresh on successful identification
   const triggerStatsRefreshOnSuccess = useCallback(() => {
@@ -108,7 +237,7 @@ export default function AppIdentification() {
     setLastSuccessfulIdentification(Date.now());
   }, []);
 
-  // Enhanced identification handlers with proper context
+  // Enhanced identification handlers with group context - FIXED: Pass correct state
   const identificationHandlers = useIdentificationHandlers({
     cameraId: cameraManagement.cameraId,
     confidenceThreshold,
@@ -119,6 +248,12 @@ export default function AppIdentification() {
     cameras: cameraManagement.cameras,
     lastHealthCheck: identificationSystem.lastHealthCheck,
     identificationHistory,
+    
+    // FIXED: Pass group state correctly
+    targetGroupName, // Use targetGroupName instead of currentGroup
+    availableGroups,
+    currentGroup,
+    
     setIsProfileRefreshing: identificationSystem.setIsProfileRefreshing,
     setIdentificationInProgress: identificationSystem.setIdentificationInProgress,
     setLastIdentificationResult: identificationSystem.setLastIdentificationResult,
@@ -128,11 +263,22 @@ export default function AppIdentification() {
     setConfidenceThreshold,
     setIdentificationOptions,
     setIdentificationHistory,
+    
+    // FIXED: Add missing group state setters
+    setTargetGroupName,
+    setAvailableGroups,
+    setCurrentGroup,
+    setIsGroupLoaded,
+    setAvailablePieceTypes,
+    
     showSnackbar: identificationManagement.showSnackbar,
     performSingleHealthCheck: identificationSystem.performSingleHealthCheck,
     performPostShutdownHealthCheck: identificationSystem.performPostShutdownHealthCheck,
-    loadAvailablePieceTypes,
-    triggerStatsRefreshOnSuccess
+    loadAvailablePieceTypes: () => loadAvailablePieceTypesForGroup(currentGroup || targetGroupName),
+    triggerStatsRefreshOnSuccess,
+    
+    // Override piece identification with group-aware version
+    handlePieceIdentification: handlePieceIdentificationWithGroup
   });
 
   // Enhanced camera detection
@@ -167,7 +313,7 @@ export default function AppIdentification() {
             identificationSystem.initializationAttempted,
             identificationSystem.setInitializationError,
             identificationSystem.performInitialHealthCheck,
-            loadAvailablePieceTypes
+            loadAvailableGroups // Load groups instead of piece types
           );
           
           setIsInitialized(true);
@@ -259,136 +405,126 @@ export default function AppIdentification() {
   const stateInfo = getStateInfo(identificationSystem.identificationState);
   const isBasicMode = true; // Identification is always in basic mode
 
-  // Debug logging - reduce frequency
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      console.log('🔍 Identification component state debug:', {
-        identificationState: identificationSystem.identificationState,
-        isInitialized,
-        initializationInProgress: initializationInProgress.current,
-        pieceTypesLoaded: pieceTypesLoaded.current,
-        confidenceThreshold,
-        isSystemLoading,
-        availablePieceTypesCount: availablePieceTypes.length,
-        isStreamFrozen: identificationSystem.isStreamFrozen,
-        lastIdentificationResult: identificationSystem.lastIdentificationResult
-      });
-    }, 500); // Debounce debug logs
+  // FIXED: Check readiness with proper group validation
+  const isReadyForIdentification = stateInfo.canOperate && 
+                                  identificationSystem.identificationState === IdentificationStates.READY &&
+                                  (isGroupLoaded || targetGroupName) && 
+                                  (currentGroup || targetGroupName) && 
+                                  cameraManagement.cameraId;
 
-    return () => clearTimeout(timeoutId);
-  }, [
-    identificationSystem.identificationState, 
-    isInitialized,
-    confidenceThreshold, 
-    isSystemLoading, 
-    availablePieceTypes.length,
-    identificationSystem.isStreamFrozen,
-    identificationSystem.lastIdentificationResult
-  ]);
-
-return (
-  <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-    {/* Info Panel */}
-    <IdentificationInfoPanel
-      isBasicMode={isBasicMode}
-      identificationState={identificationSystem.identificationState}
-      systemProfile={identificationSystem.systemProfile}
-      isProfileRefreshing={identificationSystem.isProfileRefreshing}
-      availablePieceTypes={availablePieceTypes}
-      confidenceThreshold={confidenceThreshold}
-      onRefreshSystemProfile={identificationHandlers.handleRefreshSystemProfile}
-      onRunPerformanceTest={identificationHandlers.handleRunPerformanceTest}
-      onUpdateConfidenceThreshold={identificationHandlers.handleUpdateConfidenceThreshold}
-      IdentificationStates={IdentificationStates}
-    />
-
-    {/* System Status Alerts for initialization/shutdown */}
-    {identificationSystem.identificationState === IdentificationStates.INITIALIZING && (
-      <Alert 
-        severity="info" 
-        sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
-        icon={<CircularProgress size={20} />}
-      >
-        {initializationInProgress.current ? 
-          'Initializing identification system... Please wait.' : 
-          'Preparing identification system...'
-        }
-      </Alert>
-    )}
-
-    {identificationSystem.identificationState === IdentificationStates.SHUTTING_DOWN && (
-      <Alert 
-        severity="warning" 
-        sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
-        icon={<CircularProgress size={20} />}
-      >
-        System is shutting down... Please wait.
-      </Alert>
-    )}
-
-    {/* Error and Health Alerts */}
-    {identificationSystem.initializationError && (
-      <Alert severity="error" sx={{ mb: 2 }}>
-        Identification system initialization failed: {identificationSystem.initializationError}
-        <Box sx={{ mt: 1 }}>
-          <Button 
-            variant="outlined" 
-            size="small" 
-            onClick={retryInitialization}
-            disabled={identificationSystem.identificationState === IdentificationStates.INITIALIZING || 
-                     identificationSystem.identificationState === IdentificationStates.SHUTTING_DOWN ||
-                     initializationInProgress.current}
-          >
-            {(identificationSystem.identificationState === IdentificationStates.INITIALIZING || 
-              initializationInProgress.current) ? 'Initializing...' : 'Retry Initialization'}
-          </Button>
-        </Box>
-        <br />
-        <small>If the issue persists, try refreshing the page or contact support.</small>
-      </Alert>
-    )}
-    
-    {!identificationSystem.systemHealth.overall && 
-     identificationSystem.identificationState === IdentificationStates.READY && 
-     !identificationSystem.initializationError && (
-      <Alert severity="warning" sx={{ mb: 2 }}>
-        System health check indicates issues. Identification may not work optimally.
-        <br />
-        <small>
-          Streaming: {identificationSystem.systemHealth.streaming?.status || 'Unknown'} | 
-          Identification: {identificationSystem.systemHealth.identification?.status || 'Unknown'} | 
-          Last checked: {identificationSystem.getHealthCheckAge()}
-        </small>
-        <Box sx={{ mt: 1 }}>
-          <Button 
-            variant="outlined" 
-            size="small" 
-            onClick={identificationHandlers.handleManualHealthCheck}
-            disabled={identificationSystem.identificationState !== IdentificationStates.READY}
-          >
-            Check Health Now
-          </Button>
-        </Box>
-      </Alert>
-    )}
-
-    {/* Camera Controls - Always visible at top */}
-    <Box sx={{ mb: 2 }}>
-      <IdentificationControls
-        selectedCameraId={cameraManagement.selectedCameraId}
-        onCameraChange={identificationHandlers.handleCameraChange}
-        cameras={cameraManagement.cameras}
-        onDetectCameras={handleDetectCameras}
-        isDetecting={cameraManagement.isDetecting}
-        isSystemReady={stateInfo.canOperate && identificationSystem.identificationState === IdentificationStates.READY}
-        systemHealth={identificationSystem.systemHealth}
-        identificationOptions={identificationOptions}
-        onIdentificationOptionsChange={identificationHandlers.handleIdentificationOptionsChange}
+  return (
+    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
+      {/* Info Panel */}
+      <IdentificationInfoPanel
+        isBasicMode={isBasicMode}
         identificationState={identificationSystem.identificationState}
+        systemProfile={identificationSystem.systemProfile}
+        isProfileRefreshing={identificationSystem.isProfileRefreshing}
+        availablePieceTypes={availablePieceTypes}
         confidenceThreshold={confidenceThreshold}
-        onConfidenceThresholdChange={identificationHandlers.handleUpdateConfidenceThreshold}
+        currentGroup={currentGroup || targetGroupName}
+        onRefreshSystemProfile={identificationHandlers.handleRefreshSystemProfile}
+        onRunPerformanceTest={identificationHandlers.handleRunPerformanceTest}
+        onUpdateConfidenceThreshold={identificationHandlers.handleUpdateConfidenceThreshold}
+        IdentificationStates={IdentificationStates}
       />
-    </Box>
+
+      {/* System Status Alerts for initialization/shutdown */}
+      {identificationSystem.identificationState === IdentificationStates.INITIALIZING && (
+        <Alert 
+          severity="info" 
+          sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
+          icon={<CircularProgress size={20} />}
+        >
+          {initializationInProgress.current ? 
+            'Initializing identification system... Please wait.' : 
+            'Preparing identification system...'
+          }
+        </Alert>
+      )}
+
+      {identificationSystem.identificationState === IdentificationStates.SHUTTING_DOWN && (
+        <Alert 
+          severity="warning" 
+          sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
+          icon={<CircularProgress size={20} />}
+        >
+          System is shutting down... Please wait.
+        </Alert>
+      )}
+
+      {/* Error and Health Alerts */}
+      {identificationSystem.initializationError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Identification system initialization failed: {identificationSystem.initializationError}
+          <Box sx={{ mt: 1 }}>
+            <Button 
+              variant="outlined" 
+              size="small" 
+              onClick={retryInitialization}
+              disabled={identificationSystem.identificationState === IdentificationStates.INITIALIZING || 
+                       identificationSystem.identificationState === IdentificationStates.SHUTTING_DOWN ||
+                       initializationInProgress.current}
+            >
+              {(identificationSystem.identificationState === IdentificationStates.INITIALIZING || 
+                initializationInProgress.current) ? 'Initializing...' : 'Retry Initialization'}
+            </Button>
+          </Box>
+          <br />
+          <small>If the issue persists, try refreshing the page or contact support.</small>
+        </Alert>
+      )}
+      
+      {!identificationSystem.systemHealth.overall && 
+       identificationSystem.identificationState === IdentificationStates.READY && 
+       !identificationSystem.initializationError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          System health check indicates issues. Identification may not work optimally.
+          <br />
+          <small>
+            Streaming: {identificationSystem.systemHealth.streaming?.status || 'Unknown'} | 
+            Identification: {identificationSystem.systemHealth.identification?.status || 'Unknown'} | 
+            Last checked: {identificationSystem.getHealthCheckAge()}
+          </small>
+          <Box sx={{ mt: 1 }}>
+            <Button 
+              variant="outlined" 
+              size="small" 
+              onClick={identificationHandlers.handleManualHealthCheck}
+              disabled={identificationSystem.identificationState !== IdentificationStates.READY}
+            >
+              Check Health Now
+            </Button>
+          </Box>
+        </Alert>
+      )}
+
+      {/* Camera Controls - Always visible at top with Group Selection */}
+      <Box sx={{ mb: 2 }}>
+        <IdentificationControls
+          selectedCameraId={cameraManagement.selectedCameraId}
+          onCameraChange={identificationHandlers.handleCameraChange}
+          cameras={cameraManagement.cameras}
+          onDetectCameras={handleDetectCameras}
+          isDetecting={cameraManagement.isDetecting}
+          isSystemReady={stateInfo.canOperate && identificationSystem.identificationState === IdentificationStates.READY}
+          systemHealth={identificationSystem.systemHealth}
+          identificationOptions={identificationOptions}
+          onIdentificationOptionsChange={identificationHandlers.handleIdentificationOptionsChange}
+          identificationState={identificationSystem.identificationState}
+          confidenceThreshold={confidenceThreshold}
+          onConfidenceThresholdChange={identificationHandlers.handleUpdateConfidenceThreshold}
+          // FIXED: Pass correct group props
+          selectedGroupName={targetGroupName}
+          onGroupNameChange={handleGroupNameChange}
+          availableGroups={availableGroups}
+          onLoadAvailableGroups={loadAvailableGroups}
+          isGroupLoaded={isGroupLoaded}
+          currentGroup={currentGroup}
+          onSelectGroup={handleSelectGroup}
+          isGroupLoading={isGroupLoading}
+        />
+      </Box>
 
     {/* Main Content Grid - Video Feed and Controls side by side */}
     <Grid container spacing={3} columns={12}>

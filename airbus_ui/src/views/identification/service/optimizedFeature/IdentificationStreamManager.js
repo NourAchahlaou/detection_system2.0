@@ -1,4 +1,5 @@
-import api from "../../../utils/UseAxios";
+
+import api from "../../../../utils/UseAxios";
 
 // Define the 4 states clearly
 const IdentificationStates = {
@@ -103,25 +104,20 @@ export class IdentificationStreamManager {
   }
 
   // ===================
-  // GROUP-BASED IDENTIFICATION METHODS
+  // IDENTIFICATION METHODS
   // ===================
 
-  async performPieceIdentification(cameraId, groupName, options = {}) {
+  async performPieceIdentification(cameraId, options = {}) {
     try {
       const { freezeStream = true, quality = 85 } = options;
       
-      console.log(`🔍 Performing piece identification for camera ${cameraId}, group: ${groupName}`);
+      console.log(`🔍 Performing piece identification for camera ${cameraId}`);
       
       if (!this.identificationService.isOperational()) {
         throw new Error(`Cannot perform identification in state: ${this.identificationService.state}. Service must be ready.`);
       }
 
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required for identification');
-      }
-
       const requestBody = {
-        group_name: groupName.trim(),
         freeze_stream: freezeStream,
         quality: quality
       };
@@ -138,8 +134,7 @@ export class IdentificationStreamManager {
             frozenAt: Date.now(),
             status: 'frozen',
             identificationPerformed: true,
-            purpose: 'identification',
-            groupName: groupName
+            purpose: 'identification'
           });
           this.identificationService.notifyFreezeListeners(cameraId, 'frozen');
         }
@@ -153,21 +148,16 @@ export class IdentificationStreamManager {
           lastIdentificationTime: Date.now(),
           avgProcessingTime: identificationData.processing_time_ms,
           mode: 'piece_identification',
-          streamFrozen: identificationData.stream_frozen,
-          groupName: groupName,
-          highestConfidencePiece: identificationData.summary.highest_confidence_piece,
-          lowestConfidencePiece: identificationData.summary.lowest_confidence_piece,
-          confidenceStats: identificationData.summary.confidence_stats
+          streamFrozen: identificationData.stream_frozen
         };
 
         this.identificationService.identificationStats.set(streamKey, updatedStats);
         this.notifyStatsListeners(cameraId, updatedStats);
 
-        console.log(`✅ Piece identification completed for camera ${cameraId}, group ${groupName} - Found ${identificationData.summary.total_pieces} pieces`);
+        console.log(`✅ Piece identification completed for camera ${cameraId} - Found ${identificationData.summary.total_pieces} pieces`);
         
         return {
           success: true,
-          groupName: groupName,
           summary: identificationData.summary,
           pieces: identificationData.identification_result.pieces,
           processingTime: identificationData.processing_time_ms,
@@ -186,105 +176,18 @@ export class IdentificationStreamManager {
     }
   }
 
-  async switchGroupAndIdentify(cameraId, newGroupName, options = {}) {
+  async performQuickAnalysis(cameraId, options = {}) {
     try {
-      const { freezeStream = true, quality = 85 } = options;
+      const { analyzeFrameOnly = false, quality = 85 } = options;
       
-      console.log(`🔄 Switching to group '${newGroupName}' and identifying for camera ${cameraId}`);
-      
-      if (!this.identificationService.isOperational()) {
-        throw new Error(`Cannot switch group in state: ${this.identificationService.state}. Service must be ready.`);
-      }
-
-      if (!newGroupName || newGroupName.trim() === '') {
-        throw new Error('New group name is required for group switch');
-      }
-
-      const requestBody = {
-        new_group_name: newGroupName.trim(),
-        freeze_stream: freezeStream,
-        quality: quality
-      };
-
-      const response = await api.post(`/api/detection/identification/identify/${cameraId}/switch-group`, requestBody);
-
-      if (response.data.success) {
-        const identificationData = response.data;
-        
-        // Update freeze status
-        if (identificationData.stream_frozen) {
-          this.identificationService.frozenStreams.set(cameraId, {
-            cameraId: parseInt(cameraId),
-            frozenAt: Date.now(),
-            status: 'frozen',
-            identificationPerformed: true,
-            purpose: 'identification',
-            groupName: newGroupName,
-            previousGroup: identificationData.previous_group
-          });
-          this.identificationService.notifyFreezeListeners(cameraId, 'frozen');
-        }
-
-        // Update identification stats
-        const streamKey = `identification_${cameraId}`;
-        const updatedStats = {
-          piecesIdentified: identificationData.summary.total_pieces,
-          uniqueLabels: identificationData.summary.unique_labels,
-          labelCounts: identificationData.summary.label_counts,
-          lastIdentificationTime: Date.now(),
-          avgProcessingTime: identificationData.processing_time_ms,
-          mode: 'group_switch_identification',
-          streamFrozen: identificationData.stream_frozen,
-          groupName: newGroupName,
-          previousGroup: identificationData.previous_group,
-          highestConfidencePiece: identificationData.summary.highest_confidence_piece,
-          lowestConfidencePiece: identificationData.summary.lowest_confidence_piece,
-          confidenceStats: identificationData.summary.confidence_stats
-        };
-
-        this.identificationService.identificationStats.set(streamKey, updatedStats);
-        this.notifyStatsListeners(cameraId, updatedStats);
-
-        console.log(`✅ Group switched to '${newGroupName}' and identification completed for camera ${cameraId}`);
-        
-        return {
-          success: true,
-          previousGroup: identificationData.previous_group,
-          currentGroup: newGroupName,
-          summary: identificationData.summary,
-          pieces: identificationData.identification_result.pieces,
-          processingTime: identificationData.processing_time_ms,
-          frameWithOverlay: identificationData.frame_with_overlay,
-          streamFrozen: identificationData.stream_frozen,
-          timestamp: identificationData.timestamp,
-          message: identificationData.message
-        };
-      } else {
-        throw new Error('Group switch and identification request failed');
-      }
-
-    } catch (error) {
-      console.error("❌ Error switching group and identifying:", error);
-      throw new Error(`Failed to switch group and identify: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async performQuickAnalysis(cameraId, groupName, options = {}) {
-    try {
-      const { quality = 85 } = options;
-      
-      console.log(`🔍 Performing quick analysis for camera ${cameraId}, group: ${groupName}`);
+      console.log(`🔍 Performing quick analysis for camera ${cameraId}`);
       
       if (!this.identificationService.isOperational()) {
         throw new Error(`Cannot perform analysis in state: ${this.identificationService.state}. Service must be ready.`);
       }
 
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required for quick analysis');
-      }
-
       const requestBody = {
-        group_name: groupName.trim(),
+        analyze_frame_only: analyzeFrameOnly,
         quality: quality
       };
 
@@ -300,25 +203,22 @@ export class IdentificationStreamManager {
           summary: analysisData.summary,
           lastAnalysisTime: Date.now(),
           avgProcessingTime: analysisData.processing_time_ms,
-          mode: 'quick_analysis',
-          groupName: groupName
+          mode: 'quick_analysis'
         };
 
         this.identificationService.identificationStats.set(streamKey, updatedStats);
         this.notifyStatsListeners(cameraId, updatedStats);
 
-        console.log(`✅ Quick analysis completed for camera ${cameraId}, group ${groupName} - ${analysisData.pieces_found} pieces found`);
+        console.log(`✅ Quick analysis completed for camera ${cameraId} - ${analysisData.pieces_found} pieces found`);
         
         return {
           success: true,
-          groupName: groupName,
           piecesFound: analysisData.pieces_found,
           pieces: analysisData.pieces,
           summary: analysisData.summary,
           processingTime: analysisData.processing_time_ms,
           timestamp: analysisData.timestamp,
-          message: analysisData.message,
-          analysisType: analysisData.analysis_type
+          message: analysisData.message
         };
       } else {
         throw new Error('Quick analysis request failed');
@@ -330,117 +230,17 @@ export class IdentificationStreamManager {
     }
   }
 
-  async performBatchIdentification(cameraId, groupName, options = {}) {
+  async getAvailablePieceTypes() {
     try {
-      const { numFrames = 5, intervalSeconds = 1.0 } = options;
+      console.log('📋 Getting available piece types...');
       
-      console.log(`📦 Performing batch identification for camera ${cameraId}, group: ${groupName}`);
-      
-      if (!this.identificationService.isOperational()) {
-        throw new Error(`Cannot perform batch identification in state: ${this.identificationService.state}. Service must be ready.`);
-      }
-
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required for batch identification');
-      }
-
-      const requestBody = {
-        group_name: groupName.trim(),
-        num_frames: numFrames,
-        interval_seconds: intervalSeconds
-      };
-
-      const response = await api.post(`/api/detection/identification/batch/${cameraId}`, requestBody);
+      const response = await api.get('/api/detection/identification/piece-types');
 
       if (response.data.success) {
-        const batchData = response.data;
-        
-        // Update identification stats
-        const streamKey = `identification_${cameraId}_batch`;
-        const updatedStats = {
-          framesProcessed: batchData.frames_processed,
-          totalPiecesFound: batchData.total_pieces_found,
-          uniqueLabels: batchData.unique_labels,
-          averagePiecesPerFrame: batchData.average_pieces_per_frame,
-          averageConfidence: batchData.average_confidence,
-          lastBatchTime: Date.now(),
-          mode: 'batch_identification',
-          groupName: groupName
-        };
-
-        this.identificationService.identificationStats.set(streamKey, updatedStats);
-        this.notifyStatsListeners(cameraId, updatedStats);
-
-        console.log(`✅ Batch identification completed for camera ${cameraId}, group ${groupName} - ${batchData.total_pieces_found} total pieces across ${batchData.frames_processed} frames`);
+        console.log(`✅ Retrieved ${response.data.total_classes} available piece types`);
         
         return {
           success: true,
-          groupName: groupName,
-          batchResult: batchData.batch_identification_result,
-          framesProcessed: batchData.frames_processed,
-          totalPiecesFound: batchData.total_pieces_found,
-          uniqueLabels: batchData.unique_labels,
-          averagePiecesPerFrame: batchData.average_pieces_per_frame,
-          averageConfidence: batchData.average_confidence,
-          timestamp: batchData.timestamp,
-          message: batchData.message
-        };
-      } else {
-        throw new Error('Batch identification request failed');
-      }
-
-    } catch (error) {
-      console.error("❌ Error performing batch identification:", error);
-      throw new Error(`Failed to perform batch identification: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  // ===================
-  // GROUP MANAGEMENT METHODS
-  // ===================
-
-  async getAvailableGroups() {
-    try {
-      console.log('📋 Getting available groups...');
-      
-      const response = await api.get('/api/detection/identification/groups/available');
-
-      if (response.data.success) {
-        console.log(`✅ Retrieved ${response.data.total_groups} available groups`);
-        
-        return {
-          success: true,
-          availableGroups: response.data.available_groups,
-          currentGroup: response.data.current_group,
-          totalGroups: response.data.total_groups,
-          message: response.data.message
-        };
-      } else {
-        throw new Error('Failed to get available groups');
-      }
-
-    } catch (error) {
-      console.error("❌ Error getting available groups:", error);
-      throw new Error(`Failed to get available groups: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async getPieceTypesForGroup(groupName) {
-    try {
-      console.log(`📋 Getting piece types for group '${groupName}'...`);
-      
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required to get piece types');
-      }
-
-      const response = await api.get(`/api/detection/identification/groups/${encodeURIComponent(groupName.trim())}/piece-types`);
-
-      if (response.data.success) {
-        console.log(`✅ Retrieved ${response.data.total_classes} piece types for group '${groupName}'`);
-        
-        return {
-          success: true,
-          groupName: groupName,
           availablePieceTypes: response.data.available_piece_types,
           totalClasses: response.data.total_classes,
           recentlyIdentified: response.data.recently_identified_pieces,
@@ -449,70 +249,29 @@ export class IdentificationStreamManager {
           message: response.data.message
         };
       } else {
-        throw new Error(`Failed to get piece types for group '${groupName}'`);
+        throw new Error('Failed to get available piece types');
       }
 
     } catch (error) {
-      console.error(`❌ Error getting piece types for group '${groupName}':`, error);
-      throw new Error(`Failed to get piece types for group '${groupName}': ${error.response?.data?.detail || error.message}`);
+      console.error("❌ Error getting available piece types:", error);
+      throw new Error(`Failed to get piece types: ${error.response?.data?.detail || error.message}`);
     }
   }
-
-  async getGroupSpecificStats(groupName) {
-    try {
-      console.log(`📊 Getting statistics for group '${groupName}'...`);
-      
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required to get group stats');
-      }
-
-      const response = await api.get(`/api/detection/identification/groups/${encodeURIComponent(groupName.trim())}/stats`);
-
-      if (response.data.success) {
-        console.log(`✅ Retrieved statistics for group '${groupName}'`);
-        
-        return {
-          success: true,
-          groupName: groupName,
-          isCurrentGroup: response.data.is_current_group,
-          groupSpecificIdentifications: response.data.group_specific_identifications,
-          totalGroupIdentifications: response.data.total_group_identifications,
-          overallStats: response.data.overall_stats,
-          message: response.data.message
-        };
-      } else {
-        throw new Error(`Failed to get statistics for group '${groupName}'`);
-      }
-
-    } catch (error) {
-      console.error(`❌ Error getting group statistics for '${groupName}':`, error);
-      throw new Error(`Failed to get group stats: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  // ===================
-  // SETTINGS AND CONFIGURATION METHODS
-  // ===================
 
   async updateConfidenceThreshold(threshold) {
     try {
       console.log(`🎯 Updating confidence threshold to ${threshold}...`);
-      
-      if (typeof threshold !== 'number' || threshold < 0.1 || threshold > 1.0) {
-        throw new Error('Confidence threshold must be a number between 0.1 and 1.0');
-      }
       
       const response = await api.put('/api/detection/identification/settings/confidence-threshold', {
         threshold: threshold
       });
 
       if (response.data.success) {
-        console.log(`✅ Confidence threshold updated to ${threshold} for all groups`);
+        console.log(`✅ Confidence threshold updated to ${threshold}`);
         
         return {
           success: true,
           newThreshold: response.data.new_threshold,
-          appliesTo: response.data.applies_to,
           message: response.data.message,
           effect: response.data.effect
         };
@@ -535,8 +294,7 @@ export class IdentificationStreamManager {
       if (response.data.success) {
         return {
           success: true,
-          currentSettings: response.data.current_settings,
-          modelInfo: response.data.model_info,
+          settings: response.data.settings,
           capabilities: response.data.capabilities,
           performance: response.data.performance
         };
@@ -550,43 +308,6 @@ export class IdentificationStreamManager {
     }
   }
 
-  async initializeProcessorWithGroup(groupName) {
-    try {
-      console.log(`🚀 Initializing processor with group '${groupName}'...`);
-      
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required for processor initialization');
-      }
-
-      const response = await api.post('/api/detection/identification/initialize', {
-        group_name: groupName.trim()
-      });
-
-      if (response.data.success) {
-        console.log(`✅ Processor initialized successfully with group '${groupName}'`);
-        
-        return {
-          success: true,
-          groupName: response.data.group_name,
-          device: response.data.device,
-          isInitialized: response.data.is_initialized,
-          modelInfo: response.data.model_info,
-          message: response.data.message
-        };
-      } else {
-        throw new Error(`Failed to initialize processor with group '${groupName}'`);
-      }
-
-    } catch (error) {
-      console.error(`❌ Error initializing processor with group '${groupName}':`, error);
-      throw new Error(`Failed to initialize processor: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  // ===================
-  // HISTORY AND STATISTICS METHODS
-  // ===================
-
   async getIdentificationHistory() {
     try {
       console.log('📚 Getting identification history...');
@@ -599,7 +320,6 @@ export class IdentificationStreamManager {
           recentIdentifications: response.data.recent_identifications,
           totalIdentifications: response.data.total_identifications,
           uniquePiecesIdentified: response.data.unique_pieces_identified,
-          currentGroup: response.data.current_group,
           message: response.data.message
         };
       } else {
@@ -622,7 +342,6 @@ export class IdentificationStreamManager {
         return {
           success: true,
           stats: response.data.stats,
-          modelInfo: response.data.model_info,
           timestamp: response.data.timestamp,
           serviceType: response.data.service_type,
           message: response.data.message
@@ -634,91 +353,6 @@ export class IdentificationStreamManager {
     } catch (error) {
       console.error("❌ Error getting identification statistics:", error);
       throw new Error(`Failed to get stats: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async getHealthStatus() {
-    try {
-      console.log('🏥 Checking identification service health...');
-      
-      const response = await api.get('/api/detection/identification/health');
-
-      const isHealthy = response.status === 200 && response.data.status === 'healthy';
-      
-      return {
-        success: true,
-        status: response.data.status,
-        isHealthy: isHealthy,
-        isInitialized: response.data.is_initialized,
-        currentGroup: response.data.current_group,
-        device: response.data.device,
-        modelLoaded: response.data.model_loaded,
-        statistics: response.data.statistics,
-        message: response.data.message
-      };
-
-    } catch (error) {
-      console.error("❌ Error checking identification service health:", error);
-      return {
-        success: false,
-        status: 'unhealthy',
-        isHealthy: false,
-        error: error.response?.data?.error || error.message,
-        message: 'Failed to check service health'
-      };
-    }
-  }
-
-  // ===================
-  // LEGACY SUPPORT METHODS
-  // ===================
-
-  async performLegacyIdentification(cameraId, groupName, options = {}) {
-    try {
-      const { freezeStream = true, quality = 85 } = options;
-      
-      console.log(`🔍 Performing legacy identification for camera ${cameraId}, group: ${groupName}`);
-      
-      if (!this.identificationService.isOperational()) {
-        throw new Error(`Cannot perform legacy identification in state: ${this.identificationService.state}. Service must be ready.`);
-      }
-
-      if (!groupName || groupName.trim() === '') {
-        throw new Error('Group name is required for legacy identification');
-      }
-
-      const requestBody = {
-        group_name: groupName.trim(),
-        freeze_stream: freezeStream,
-        quality: quality
-      };
-
-      const response = await api.post(`/api/detection/identification/identify/${cameraId}/legacy`, requestBody);
-
-      if (response.data.success) {
-        const identificationData = response.data;
-        
-        console.log(`✅ Legacy identification completed for camera ${cameraId}, group ${groupName}`);
-        
-        return {
-          success: true,
-          groupName: groupName,
-          summary: identificationData.summary,
-          pieces: identificationData.identification_result.pieces,
-          processingTime: identificationData.processing_time_ms,
-          frameWithOverlay: identificationData.frame_with_overlay,
-          streamFrozen: identificationData.stream_frozen,
-          timestamp: identificationData.timestamp,
-          message: identificationData.message,
-          isLegacy: true
-        };
-      } else {
-        throw new Error('Legacy identification request failed');
-      }
-
-    } catch (error) {
-      console.error("❌ Error performing legacy identification:", error);
-      throw new Error(`Failed to perform legacy identification: ${error.response?.data?.detail || error.message}`);
     }
   }
 
@@ -814,7 +448,7 @@ export class IdentificationStreamManager {
       
       await Promise.allSettled(stopPromises);
       
-// Unfreeze all frozen streams
+      // Unfreeze all frozen streams
       const frozenStreams = this.identificationService.getFrozenStreams();
       for (const frozenStream of frozenStreams) {
         try {

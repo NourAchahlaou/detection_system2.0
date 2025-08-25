@@ -1,4 +1,4 @@
-// hooks/AppIdentificationHooks.js - Simplified identification hooks without workflows
+// hooks/AppIdentificationHooks.js - Updated identification hooks with group support
 import { useState, useEffect, useCallback, useRef } from "react";
 import { cameraService } from "../../captureImage/CameraService";
 import { identificationService } from "../service/MainIdentificationService";
@@ -17,15 +17,89 @@ export const useIdentificationManagement = () => {
   const showSnackbar = useCallback((message, severity = 'info') => {
     setSnackbar({ open: true, message, severity });
   }, []);
-  return {
 
+  return {
     snackbar,
     setSnackbar,
     showSnackbar,
-
   };
 };
-// Custom hook for identification system management
+
+// Custom hook for group management
+export const useGroupManagement = () => {
+  const [targetGroupName, setTargetGroupName] = useState('');
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [currentGroup, setCurrentGroup] = useState(null);
+  const [isGroupLoaded, setIsGroupLoaded] = useState(false);
+  const [groupLoadingError, setGroupLoadingError] = useState(null);
+
+  // Load available groups on mount
+  useEffect(() => {
+    const loadGroups = async () => {
+      try {
+        console.log('📋 Loading available groups...');
+        const result = await identificationService.getAvailableGroups();
+        
+        if (result.success) {
+          setAvailableGroups(result.available_groups || []);
+          setCurrentGroup(result.current_group || null);
+          console.log(`✅ Loaded ${result.available_groups?.length || 0} available groups`);
+        } else {
+          console.warn('📋 Failed to load available groups:', result.message);
+          setAvailableGroups([]);
+        }
+      } catch (error) {
+        console.error('❌ Error loading available groups:', error);
+        setAvailableGroups([]);
+        setGroupLoadingError(error.message);
+      }
+    };
+
+    loadGroups();
+  }, []);
+
+  // Validate if group is available
+  const isGroupAvailable = useCallback((groupName) => {
+    if (!groupName || groupName.trim() === '') return false;
+    return availableGroups.includes(groupName.trim());
+  }, [availableGroups]);
+
+  // Get group validation status
+  const getGroupValidationStatus = useCallback(() => {
+    if (!targetGroupName || targetGroupName.trim() === '') {
+      return { valid: false, message: 'Please enter a group name' };
+    }
+
+    if (!isGroupAvailable(targetGroupName)) {
+      return { 
+        valid: false, 
+        message: `Group "${targetGroupName}" not found. Available: ${availableGroups.join(', ')}` 
+      };
+    }
+
+    return { valid: true, message: `Group "${targetGroupName}" is available` };
+  }, [targetGroupName, isGroupAvailable, availableGroups]);
+
+  return {
+    // State
+    targetGroupName,
+    setTargetGroupName,
+    availableGroups,
+    setAvailableGroups,
+    currentGroup,
+    setCurrentGroup,
+    isGroupLoaded,
+    setIsGroupLoaded,
+    groupLoadingError,
+    setGroupLoadingError,
+    
+    // Functions
+    isGroupAvailable,
+    getGroupValidationStatus
+  };
+};
+
+// Enhanced identification system hook with group support
 export const useIdentificationSystem = () => {
   const [identificationState, setIdentificationState] = useState(IdentificationStates.INITIALIZING);
   const [initializationError, setInitializationError] = useState(null);
@@ -34,6 +108,8 @@ export const useIdentificationSystem = () => {
     identification: { status: 'unknown' },
     overall: false
   });
+  const [systemProfile, setSystemProfile] = useState(null);
+  const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
 
   // Identification specific state
   const [isStreamFrozen, setIsStreamFrozen] = useState(false);
@@ -180,18 +256,64 @@ export const useIdentificationSystem = () => {
     }
   }, [identificationState]);
 
-  // Load available piece types
-  const loadAvailablePieceTypes = useCallback(async () => {
+  // Load system profile
+  const loadSystemProfile = useCallback(async () => {
+    if (isProfileRefreshing) return;
+    
+    setIsProfileRefreshing(true);
     try {
-      const result = await identificationService.getAvailablePieceTypes();
+      console.log("📊 Loading system profile...");
+      const serviceInfo = identificationService.getServiceInfo();
+      const detailedStatus = identificationService.getDetailedStatus();
+      
+      setSystemProfile({
+        ...serviceInfo,
+        ...detailedStatus,
+        timestamp: Date.now()
+      });
+      
+      console.log("✅ System profile loaded successfully");
+    } catch (error) {
+      console.error("❌ Error loading system profile:", error);
+      setSystemProfile(null);
+    } finally {
+      setIsProfileRefreshing(false);
+    }
+  }, [isProfileRefreshing]);
+
+  // Load available piece types with group support
+  const loadAvailablePieceTypes = useCallback(async (groupName = null) => {
+    try {
+      let result;
+      
+      if (groupName) {
+        console.log(`📋 Loading piece types for group: ${groupName}`);
+        result = await identificationService.getPieceTypesForGroup(groupName);
+      } else {
+        console.log('📋 Loading general piece types...');
+        result = await identificationService.getAvailablePieceTypes();
+      }
+      
       if (result.success) {
-        setAvailablePieceTypes(result.availablePieceTypes || []);
-        setConfidenceThreshold(result.confidenceThreshold || 0.5);
+        setAvailablePieceTypes(result.availablePieceTypes || result.available_piece_types || []);
+        if (result.confidenceThreshold) {
+          setConfidenceThreshold(result.confidenceThreshold);
+        }
+        console.log(`✅ Loaded ${(result.availablePieceTypes || result.available_piece_types || []).length} piece types`);
+      } else {
+        console.warn('Failed to load piece types:', result.message);
       }
     } catch (error) {
       console.error("Error loading available piece types:", error);
+      setAvailablePieceTypes([]);
     }
   }, []);
+
+  // Enhanced system refresh
+  const refreshSystemProfile = useCallback(async () => {
+    await loadSystemProfile();
+    await performSingleHealthCheck();
+  }, [loadSystemProfile, performSingleHealthCheck]);
 
   // Helper functions
   const getHealthCheckAge = () => {
@@ -209,6 +331,10 @@ export const useIdentificationSystem = () => {
     initializationError,
     setInitializationError,
     systemHealth,
+    systemProfile,
+    setSystemProfile,
+    isProfileRefreshing,
+    setIsProfileRefreshing,
     isStreamFrozen,
     setIsStreamFrozen,
     identificationInProgress,
@@ -231,6 +357,8 @@ export const useIdentificationSystem = () => {
     performPostShutdownHealthCheck,
     performSingleHealthCheck,
     loadAvailablePieceTypes,
+    loadSystemProfile,
+    refreshSystemProfile,
     getHealthCheckAge,
     
     // Constants

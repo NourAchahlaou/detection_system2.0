@@ -1,12 +1,14 @@
-// handlers/AppIdentificationHandlers.js - Simplified identification handlers
+// handlers/AppIdentificationHandlers.js - Updated for group-based identification
 import { useCallback } from "react";
 import {
   createIdentificationControlHandlers,
   createIdentificationStreamHandlers,
-  createInputHandlers
+  createInputHandlers,
+  createGroupManagementHandlers
 } from "../utils/AppIdentificationUtils";
 import { identificationService } from "../service/MainIdentificationService";
-// Custom hook for all identification-related handlers
+
+// Custom hook for all identification-related handlers with group support
 export const useIdentificationHandlers = ({
   // State values
   cameraId,
@@ -16,6 +18,9 @@ export const useIdentificationHandlers = ({
   cameras,
   lastHealthCheck,
   confidenceThreshold,
+  targetGroupName,
+  availableGroups,
+  currentGroup,
   
   // State setters
   setIdentificationInProgress,
@@ -25,6 +30,10 @@ export const useIdentificationHandlers = ({
   setCameraId,
   setConfidenceThreshold,
   setAvailablePieceTypes,
+  setTargetGroupName,
+  setAvailableGroups,
+  setCurrentGroup,
+  setIsGroupLoaded,
   
   // Functions
   showSnackbar,
@@ -36,6 +45,21 @@ export const useIdentificationHandlers = ({
   lastHealthCheck: lastHealthCheckRef
 }) => {
 
+  // ===== GROUP MANAGEMENT HANDLERS =====
+
+  // Create group management handlers
+  const groupManagementHandlers = createGroupManagementHandlers(
+    targetGroupName,
+    currentGroup,
+    availableGroups,
+    showSnackbar,
+    setTargetGroupName,
+    setAvailableGroups,
+    setCurrentGroup,
+    setIsGroupLoaded,
+    setAvailablePieceTypes
+  );
+
   // ===== IDENTIFICATION HANDLERS =====
 
   // Create identification control handlers
@@ -44,6 +68,7 @@ export const useIdentificationHandlers = ({
     identificationState,
     systemHealth,
     cameras,
+    targetGroupName,
     showSnackbar,
     performSingleHealthCheck,
     lastHealthCheckRef,
@@ -53,11 +78,12 @@ export const useIdentificationHandlers = ({
     performPostShutdownHealthCheck
   );
 
-  // Create identification stream handlers
+  // Create identification stream handlers with group support
   const identificationStreamHandlers = createIdentificationStreamHandlers(
     cameraId,
     identificationInProgress,
     confidenceThreshold,
+    targetGroupName,
     showSnackbar,
     setIdentificationInProgress,
     setLastIdentificationResult,
@@ -75,7 +101,30 @@ export const useIdentificationHandlers = ({
     identificationState
   );
 
-  // Wrapped identification control handlers
+  // ===== GROUP HANDLERS =====
+
+  const handleLoadAvailableGroups = useCallback(async () => {
+    return await groupManagementHandlers.handleLoadAvailableGroups();
+  }, [groupManagementHandlers]);
+
+  const handleSelectGroup = useCallback(async (groupName) => {
+    return await groupManagementHandlers.handleSelectGroup(groupName);
+  }, [groupManagementHandlers]);
+
+  const handleTargetGroupNameChange = useCallback((event) => {
+    groupManagementHandlers.handleTargetGroupNameChange(event);
+  }, [groupManagementHandlers]);
+
+  const handleGetPieceTypesForGroup = useCallback(async (groupName) => {
+    return await groupManagementHandlers.handleGetPieceTypesForGroup(groupName);
+  }, [groupManagementHandlers]);
+
+  const handleSwitchGroupAndIdentify = useCallback(async (newGroupName, options = {}) => {
+    return await groupManagementHandlers.handleSwitchGroupAndIdentify(cameraId, newGroupName, options);
+  }, [groupManagementHandlers, cameraId]);
+
+  // ===== IDENTIFICATION CONTROL HANDLERS =====
+
   const handleStartIdentification = useCallback(async () => {
     const result = await identificationControlHandlers.handleStartIdentification();
     console.log("🚀 Identification start result:", result);
@@ -88,16 +137,49 @@ export const useIdentificationHandlers = ({
     return result;
   }, [identificationControlHandlers]);
 
-  // Wrapped identification stream handlers
+  // ===== IDENTIFICATION STREAM HANDLERS =====
+
   const handlePieceIdentification = useCallback(async (options = {}) => {
-    const result = await identificationStreamHandlers.handlePieceIdentification(options);
+    // Validate group selection first
+    if (!targetGroupName || targetGroupName.trim() === '') {
+      showSnackbar("Please enter a target group name first.", "error");
+      return { success: false, error: "No group name provided" };
+    }
+
+    const result = await identificationStreamHandlers.handlePieceIdentification({
+      groupName: targetGroupName.trim(),
+      ...options
+    });
     return result;
-  }, [identificationStreamHandlers]);
+  }, [identificationStreamHandlers, targetGroupName, showSnackbar]);
 
   const handleQuickAnalysis = useCallback(async (options = {}) => {
-    const result = await identificationStreamHandlers.handleQuickAnalysis(options);
+    // Validate group selection first
+    if (!targetGroupName || targetGroupName.trim() === '') {
+      showSnackbar("Please enter a target group name first.", "error");
+      return { success: false, error: "No group name provided" };
+    }
+
+    const result = await identificationStreamHandlers.handleQuickAnalysis({
+      groupName: targetGroupName.trim(),
+      ...options
+    });
     return result;
-  }, [identificationStreamHandlers]);
+  }, [identificationStreamHandlers, targetGroupName, showSnackbar]);
+
+  const handleBatchIdentification = useCallback(async (options = {}) => {
+    // Validate group selection first
+    if (!targetGroupName || targetGroupName.trim() === '') {
+      showSnackbar("Please enter a target group name first.", "error");
+      return { success: false, error: "No group name provided" };
+    }
+
+    const result = await identificationStreamHandlers.handleBatchIdentification({
+      groupName: targetGroupName.trim(),
+      ...options
+    });
+    return result;
+  }, [identificationStreamHandlers, targetGroupName, showSnackbar]);
 
   const handleFreezeStream = useCallback(async () => {
     await identificationStreamHandlers.handleFreezeStream();
@@ -107,10 +189,13 @@ export const useIdentificationHandlers = ({
     await identificationStreamHandlers.handleUnfreezeStream();
   }, [identificationStreamHandlers]);
 
-  // Wrapped input handlers
+  // ===== INPUT HANDLERS =====
+
   const handleCameraChange = useCallback((event) => {
     inputHandlers.handleCameraChange(event);
   }, [inputHandlers]);
+
+  // ===== SETTINGS HANDLERS =====
 
   // Manual health check button handler
   const handleManualHealthCheck = useCallback(async () => {
@@ -137,6 +222,11 @@ export const useIdentificationHandlers = ({
       return { success: false, error: error.message };
     }
   }, [setConfidenceThreshold, showSnackbar]);
+
+  // Update confidence threshold handler (legacy support)
+  const handleUpdateConfidenceThreshold = useCallback(async (newThreshold) => {
+    return await handleConfidenceThresholdChange(newThreshold);
+  }, [handleConfidenceThresholdChange]);
 
   // Load piece types handler
   const handleLoadPieceTypes = useCallback(async () => {
@@ -176,7 +266,59 @@ export const useIdentificationHandlers = ({
     }
   }, [showSnackbar]);
 
+  // Enhanced identification options handler
+  const handleIdentificationOptionsChange = useCallback((newOptions) => {
+    console.log('🔧 Identification options changed:', newOptions);
+    // This would be handled by the parent component
+    // Just log for now since options are passed down
+  }, []);
+
+  // System profile refresh handler
+  const handleRefreshSystemProfile = useCallback(async () => {
+    try {
+      console.log('🔄 Refreshing system profile...');
+      showSnackbar('Refreshing system profile...', 'info');
+      
+      // Trigger health check which will update system profile
+      await performSingleHealthCheck();
+      
+      // Load available groups
+      await handleLoadAvailableGroups();
+      
+      showSnackbar('System profile refreshed successfully', 'success');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error refreshing system profile:', error);
+      showSnackbar(`Failed to refresh system profile: ${error.message}`, 'error');
+      return { success: false, error: error.message };
+    }
+  }, [performSingleHealthCheck, handleLoadAvailableGroups, showSnackbar]);
+
+  // Performance test handler
+  const handleRunPerformanceTest = useCallback(async () => {
+    try {
+      console.log('🚀 Running performance test...');
+      showSnackbar('Running performance test...', 'info');
+      
+      // This would need to be implemented based on your performance test requirements
+      // For now, just show a placeholder message
+      showSnackbar('Performance test completed (placeholder)', 'success');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error running performance test:', error);
+      showSnackbar(`Performance test failed: ${error.message}`, 'error');
+      return { success: false, error: error.message };
+    }
+  }, [showSnackbar]);
+
   return {
+    // ===== GROUP MANAGEMENT HANDLERS =====
+    handleLoadAvailableGroups,
+    handleSelectGroup,
+    handleTargetGroupNameChange,
+    handleGetPieceTypesForGroup,
+    handleSwitchGroupAndIdentify,
+    
     // ===== IDENTIFICATION CONTROL HANDLERS =====
     handleStartIdentification,
     handleStopIdentification,
@@ -184,18 +326,26 @@ export const useIdentificationHandlers = ({
     // ===== IDENTIFICATION STREAM HANDLERS =====
     handlePieceIdentification,
     handleQuickAnalysis,
+    handleBatchIdentification,
     handleFreezeStream,
     handleUnfreezeStream,
     
     // ===== INPUT HANDLERS =====
     handleCameraChange,
+    handleTargetGroupNameChange,
     
     // ===== SETTINGS HANDLERS =====
     handleConfidenceThresholdChange,
+    handleUpdateConfidenceThreshold,
     handleLoadPieceTypes,
     handleGetIdentificationSettings,
+    handleIdentificationOptionsChange,
     
     // ===== HEALTH CHECK HANDLERS =====
-    handleManualHealthCheck
+    handleManualHealthCheck,
+    
+    // ===== SYSTEM HANDLERS =====
+    handleRefreshSystemProfile,
+    handleRunPerformanceTest
   };
 };

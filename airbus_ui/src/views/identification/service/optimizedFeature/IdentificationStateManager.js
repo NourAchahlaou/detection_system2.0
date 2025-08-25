@@ -1,5 +1,4 @@
 import api from "../../../utils/UseAxios";
-
 const IdentificationStates = {
   INITIALIZING: 'INITIALIZING',
   READY: 'READY', 
@@ -8,100 +7,65 @@ const IdentificationStates = {
 };
 
 // ===================
-// IdentificationStateManager.js - Updated for Group-Based Identification
+// IdentificationStateManager.js
 // ===================
 
 export class IdentificationStateManager {
   constructor(identificationService) {
     this.identificationService = identificationService;
-    this.currentGroup = null;
-    this.availableGroups = [];
   }
 
-  async initializeProcessor(groupName = null) {
+  async initializeProcessor() {
     if (!this.identificationService.canInitialize()) {
       throw new Error(`Cannot initialize from state: ${this.identificationService.state}`);
     }
 
-    console.log(`🚀 Starting identification processor initialization${groupName ? ` with group '${groupName}'` : ''}...`);
+    console.log('🚀 Starting identification processor initialization...');
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.identificationService.INITIALIZATION_TIMEOUT);
 
-      let response;
-      
-      if (groupName) {
-        // Initialize with specific group
-        response = await api.post('/api/detection/identification/initialize', {
-          group_name: groupName
-        }, {
-          signal: controller.signal,
-          timeout: this.identificationService.INITIALIZATION_TIMEOUT
-        });
-      } else {
-        // Get available groups and initialize with first one
-        const groupsResponse = await api.get('/api/detection/identification/groups/available', {
-          signal: controller.signal,
-          timeout: this.identificationService.INITIALIZATION_TIMEOUT
-        });
-        
-        if (groupsResponse.data.success && groupsResponse.data.available_groups.length > 0) {
-          const firstGroup = groupsResponse.data.available_groups[0];
-          console.log(`🔄 No group specified, initializing with first available group: '${firstGroup}'`);
-          
-          response = await api.post('/api/detection/identification/initialize', {
-            group_name: firstGroup
-          }, {
-            signal: controller.signal,
-            timeout: this.identificationService.INITIALIZATION_TIMEOUT
-          });
-          
-          this.currentGroup = firstGroup;
-        } else {
-          throw new Error('No available groups found for identification');
-        }
-      }
+      // Since identification uses the same processor as basic detection, 
+      // we initialize the basic detection processor
+      const response = await api.post('/api/detection/basic/initialize', {}, {
+        signal: controller.signal,
+        timeout: this.identificationService.INITIALIZATION_TIMEOUT
+      });
       
       clearTimeout(timeoutId);
       
-      if (response.data.success) {
+      if (response.data.status === 'initialized' || response.data.status === 'already_running' || response.data.success) {
         console.log('✅ Identification processor initialized:', response.data.message);
-        this.currentGroup = response.data.group_name || groupName;
         
         // Wait for processor to fully start up
         console.log('⏳ Waiting for identification processor to fully initialize...');
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Load available groups
-        await this.loadAvailableGroups();
-        
         // Perform health check
-        const healthResult = await this.checkIdentificationHealth(true);
+        const modelResult = await this.loadModel(true);
         
-        if (healthResult.overall) {
+        if (modelResult.success) {
           this.identificationService.isModelLoaded = true;
-          this.setState(IdentificationStates.READY, `Identification initialization completed with group '${this.currentGroup}'`);
+          this.setState(IdentificationStates.READY, 'Identification initialization completed');
           
           return {
             success: true,
-            message: `Identification system initialized and ready with group '${this.currentGroup}'`,
-            state: this.identificationService.state,
-            currentGroup: this.currentGroup,
-            availableGroups: this.availableGroups
+            message: 'Identification system initialized and ready',
+            state: this.identificationService.state
           };
         } else {
-          throw new Error('Health check failed after initialization');
+          throw new Error('Model loading failed');
         }
       } else {
-        throw new Error(`Initialization failed: ${response.data.error || 'Unknown error'}`);
+        throw new Error(`Unexpected initialization status: ${response.data.status}`);
       }
     } catch (error) {
       console.error('❌ Error initializing identification processor:', error);
       this.resetToInitializing('Identification initialization failed');
       
       if (error.name === 'AbortError') {
-        throw new Error('Identification initialization timed out. Please check if the identification service is running.');
+        throw new Error('Identification initialization timed out. Please check if the detection service is running.');
       } else if (error.code === 'ECONNREFUSED') {
         throw new Error('Cannot connect to identification service. Please ensure the backend is running.');
       } else {
@@ -109,66 +73,6 @@ export class IdentificationStateManager {
       }
     } finally {
       this.identificationService.initializationPromise = null;
-    }
-  }
-
-  async loadAvailableGroups() {
-    try {
-      console.log('📋 Loading available groups...');
-      
-      const response = await api.get('/api/detection/identification/groups/available');
-      
-      if (response.data.success) {
-        this.availableGroups = response.data.available_groups;
-        this.currentGroup = response.data.current_group || this.currentGroup;
-        
-        console.log(`✅ Loaded ${this.availableGroups.length} available groups, current: '${this.currentGroup}'`);
-        
-        return {
-          success: true,
-          availableGroups: this.availableGroups,
-          currentGroup: this.currentGroup
-        };
-      } else {
-        throw new Error('Failed to load available groups');
-      }
-    } catch (error) {
-      console.error('❌ Error loading available groups:', error);
-      throw new Error(`Failed to load groups: ${error.response?.data?.detail || error.message}`);
-    }
-  }
-
-  async switchGroup(newGroupName) {
-    try {
-      if (!this.identificationService.isOperational()) {
-        throw new Error(`Cannot switch group in state: ${this.identificationService.state}`);
-      }
-
-      console.log(`🔄 Switching from group '${this.currentGroup}' to '${newGroupName}'...`);
-      
-      // Initialize with new group
-      const response = await api.post('/api/detection/identification/initialize', {
-        group_name: newGroupName
-      });
-
-      if (response.data.success) {
-        const previousGroup = this.currentGroup;
-        this.currentGroup = newGroupName;
-        
-        console.log(`✅ Successfully switched to group '${newGroupName}'`);
-        
-        return {
-          success: true,
-          previousGroup: previousGroup,
-          currentGroup: this.currentGroup,
-          message: `Switched to group '${newGroupName}'`
-        };
-      } else {
-        throw new Error(`Failed to switch to group '${newGroupName}'`);
-      }
-    } catch (error) {
-      console.error(`❌ Error switching to group '${newGroupName}':`, error);
-      throw new Error(`Failed to switch group: ${error.response?.data?.detail || error.message}`);
     }
   }
 
@@ -185,8 +89,8 @@ export class IdentificationStateManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.identificationService.HEALTH_CHECK_TIMEOUT);
 
-      // Use identification health endpoint
-      const healthEndpoint = '/api/detection/identification/health';
+      // Use basic detection health endpoint since identification shares the same processor
+      const healthEndpoint = '/api/detection/basic/health';
 
       const response = await fetch(healthEndpoint, {
         signal: controller.signal
@@ -202,7 +106,7 @@ export class IdentificationStateManager {
       
       if (!response.ok) {
         if (response.status === 503) {
-          console.log('🔄 Identification health check failed, service not ready...');
+          console.log('🔄 Identification health check failed, model needs reloading...');
           throw new Error('Identification service not ready');
         } else {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -210,16 +114,11 @@ export class IdentificationStateManager {
       }
 
       const result = await response.json();
-      const modelLoaded = result.status === 'healthy' && result.model_loaded;
-      
-      if (modelLoaded && result.current_group) {
-        this.currentGroup = result.current_group;
-      }
+      const modelLoaded = result.status === 'healthy';
       
       return {
         success: modelLoaded,
-        message: modelLoaded ? `Identification model loaded successfully with group '${this.currentGroup}'` : 'Identification model not ready',
-        currentGroup: this.currentGroup
+        message: modelLoaded ? 'Identification model loaded successfully' : 'Identification model not ready'
       };
       
     } catch (error) {
@@ -249,11 +148,11 @@ export class IdentificationStateManager {
         };
       }
       
-      // Stop all identification streams
-      console.log('🛑 Stopping all identification streams...');
+      // For identification mode, just stop streams and unfreeze
+      console.log('ℹ️ Identification mode shutdown - stopping all streams and unfreezing');
       await this.identificationService.stopAllStreams(false);
       
-      // Unfreeze all frozen streams
+// Unfreeze all frozen streams
       const frozenStreams = this.identificationService.getFrozenStreams();
       for (const frozenStream of frozenStreams) {
         try {
@@ -263,11 +162,7 @@ export class IdentificationStateManager {
         }
       }
       
-      // Clean up identification-specific state
-      this.currentGroup = null;
-      this.availableGroups = [];
       this.identificationService.isModelLoaded = false;
-      
       this.setState(IdentificationStates.READY, 'Identification shutdown completed');
       
       return {
@@ -289,15 +184,12 @@ export class IdentificationStateManager {
 
   async getShutdownStatus() {
     try {
-      // Return detailed status for identification mode
+      // For identification mode, return simple status based on current state
       return {
         status: this.identificationService.state === IdentificationStates.SHUTTING_DOWN ? 'shutting_down' : 'ready',
         mode: 'identification',
-        current_group: this.currentGroup,
-        available_groups: this.availableGroups.length,
         frozen_streams: this.identificationService.getFrozenStreams().length,
-        active_streams: this.identificationService.currentStreams.size,
-        model_loaded: this.identificationService.isModelLoaded
+        active_streams: this.identificationService.currentStreams.size
       };
     } catch (error) {
       console.error('Error getting identification shutdown status:', error);
@@ -305,23 +197,9 @@ export class IdentificationStateManager {
     }
   }
 
-  async ensureInitialized(groupName = null) {
+  async ensureInitialized() {
     if (this.identificationService.isOperational() && this.identificationService.isModelLoaded) {
-      // If group specified and different from current, switch group
-      if (groupName && groupName !== this.currentGroup) {
-        try {
-          await this.switchGroup(groupName);
-        } catch (error) {
-          console.warn(`⚠️ Failed to switch to group '${groupName}', continuing with current group '${this.currentGroup}'`);
-        }
-      }
-      
-      return { 
-        success: true, 
-        message: `Identification already initialized with group '${this.currentGroup}'`, 
-        state: this.identificationService.state,
-        currentGroup: this.currentGroup
-      };
+      return { success: true, message: 'Identification already initialized', state: this.identificationService.state };
     }
 
     if (this.identificationService.state === IdentificationStates.SHUTTING_DOWN) {
@@ -350,7 +228,7 @@ export class IdentificationStateManager {
       }
     }
 
-    this.identificationService.initializationPromise = this.initializeProcessor(groupName);
+    this.identificationService.initializationPromise = this.initializeProcessor();
     return await this.identificationService.initializationPromise;
   }
 
@@ -371,7 +249,7 @@ export class IdentificationStateManager {
     // Notify all listeners
     this.identificationService.stateChangeListeners.forEach(listener => {
       try {
-        listener(newState, oldState, this.currentGroup);
+        listener(newState, oldState);
       } catch (error) {
         console.error('Error in identification state change listener:', error);
       }
@@ -386,8 +264,6 @@ export class IdentificationStateManager {
     this.identificationService.healthCheckInProgress = false;
     this.identificationService.hasPerformedInitialHealthCheck = false;
     this.identificationService.hasPerformedPostShutdownCheck = false;
-    this.currentGroup = null;
-    this.availableGroups = [];
     console.log('🔄 Identification service reset to initializing state');
   }
 
@@ -436,9 +312,9 @@ export class IdentificationStateManager {
         throw new Error(`Cannot perform identification health check in state: ${this.identificationService.state}`);
       }
 
-      // Use identification-specific endpoints
+      // Use basic endpoints for identification
       const streamingHealthUrl = '/api/video_streaming/video/basic/health';
-      const identificationHealthUrl = '/api/detection/identification/health';
+      const identificationHealthUrl = '/api/detection/basic/health';
 
       const healthCheckPromises = [
         // Streaming health check
@@ -458,7 +334,7 @@ export class IdentificationStateManager {
           };
         }),
         
-        // Identification health check
+        // Identification health check (using basic detection health)
         Promise.race([
           api.get(identificationHealthUrl),
           new Promise((_, reject) => 
@@ -488,67 +364,25 @@ export class IdentificationStateManager {
       const identificationHealthy = identificationHealth.data.status === 'healthy';
       const overall = streamingHealthy && identificationHealthy;
 
-      // Update current group from health response
-      if (identificationHealthy && identificationHealth.data.current_group) {
-        this.currentGroup = identificationHealth.data.current_group;
-      }
-
-      console.log(`🩺 Identification health check completed - Streaming: ${streamingHealthy ? 'Healthy' : 'Unhealthy'}, Identification: ${identificationHealthy ? 'Healthy' : 'Unhealthy'}, Group: '${this.currentGroup || 'none'}'`);
+      console.log(`🩺 Identification health check completed - Streaming: ${streamingHealthy ? 'Healthy' : 'Unhealthy'}, Identification: ${identificationHealthy ? 'Healthy' : 'Unhealthy'}`);
 
       return {
         streaming: streamingHealth.data,
-        identification: {
-          ...identificationHealth.data,
-          current_group: this.currentGroup,
-          available_groups: this.availableGroups.length
-        },
+        identification: identificationHealth.data,
         overall: overall,
-        mode: 'identification',
-        current_group: this.currentGroup
+        mode: 'identification'
       };
     } catch (error) {
       console.error("Error checking identification service health:", error);
       this.identificationService.lastHealthCheck = Date.now();
       return {
         streaming: { status: 'unhealthy', error: error.message },
-        identification: { 
-          status: 'unhealthy', 
-          error: error.message,
-          current_group: this.currentGroup
-        },
+        identification: { status: 'unhealthy', error: error.message },
         overall: false,
-        mode: 'identification',
-        current_group: this.currentGroup
+        mode: 'identification'
       };
     } finally {
       this.identificationService.healthCheckInProgress = false;
-    }
-  }
-
-  // Group management helper methods
-  getCurrentGroup() {
-    return this.currentGroup;
-  }
-
-  getAvailableGroups() {
-    return [...this.availableGroups];
-  }
-
-  isGroupAvailable(groupName) {
-    return this.availableGroups.includes(groupName);
-  }
-
-  async refreshAvailableGroups() {
-    try {
-      await this.loadAvailableGroups();
-      return {
-        success: true,
-        availableGroups: this.availableGroups,
-        currentGroup: this.currentGroup
-      };
-    } catch (error) {
-      console.error('❌ Error refreshing available groups:', error);
-      throw error;
     }
   }
 }
