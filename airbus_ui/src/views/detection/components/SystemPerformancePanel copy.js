@@ -318,7 +318,56 @@ const SystemPerformancePanel = ({
                     Post-Shutdown: {healthCheckPerformed.current.postShutdown ? '✅ Done' : '⏳ Pending'}
                   </Typography>
                 </Stack>
-              </CollapsibleSection>                              
+              </CollapsibleSection>
+
+              {/* Manual Mode Controls - Only show when applicable */}
+              {detectionState === DetectionStates.READY && autoModeEnabled && (
+                <>
+                  <Divider />
+                  <CollapsibleSection
+                    title="Manual Mode Controls"
+                    defaultExpanded={false}
+                    icon={<Tune sx={{ fontSize: 16 }} />}
+                    badge="Manual"
+                    badgeColor="warning"
+                  >
+                    <Stack spacing={1}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleSwitchToBasicMode}
+                        disabled={isBasicMode}
+                        color="warning"
+                        fullWidth
+                        sx={{ fontSize: '0.75rem', py: 0.5 }}
+                      >
+                        Switch to Basic
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleSwitchToOptimizedMode}
+                        disabled={!isBasicMode}
+                        color="success"
+                        fullWidth
+                        sx={{ fontSize: '0.75rem', py: 0.5 }}
+                      >
+                        Switch to Optimized
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleEnableAutoMode}
+                        color="primary"
+                        fullWidth
+                        sx={{ fontSize: '0.75rem', py: 0.5 }}
+                      >
+                        Enable Auto Mode
+                      </Button>
+                    </Stack>
+                  </CollapsibleSection>
+                </>
+              )}
             </Stack>
           </CardContent>
         </Card>

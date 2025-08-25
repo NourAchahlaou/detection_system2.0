@@ -17,23 +17,12 @@ const StreamingTypes = {
 export class SystemProfiler {
   constructor(detectionService) {
     this.detectionService = detectionService;
-    
-    // FORCE BASIC MODE: Always disable optimized mode
-    this.FORCE_BASIC_MODE = true;
   }
 
   async initializeSystemProfiling() {
     try {
       console.log('🖥️ Initializing system profiling...');
       await this.updateSystemProfile();
-      
-      // FORCE BASIC MODE: Override any automatic mode selection
-      if (this.FORCE_BASIC_MODE) {
-        this.detectionService.currentPerformanceMode = PerformanceModes.BASIC;
-        this.detectionService.currentStreamingType = StreamingTypes.BASIC;
-        console.log('🔒 FORCED: System locked to basic mode regardless of capabilities');
-      }
-      
       console.log(`✅ System profiling initialized - Mode: ${this.detectionService.currentPerformanceMode}, Streaming: ${this.detectionService.currentStreamingType}`);
     } catch (error) {
       console.error('⚠️ Failed to initialize system profiling:', error);
@@ -50,13 +39,6 @@ export class SystemProfiler {
           this.detectionService.systemProfile.timestamp && 
           (Date.now() - new Date(this.detectionService.systemProfile.timestamp).getTime()) < this.detectionService.SYSTEM_PROFILE_CACHE_DURATION) {
         console.log('📊 Using cached system profile');
-        
-        // FORCE BASIC MODE: Even with cached profile, enforce basic mode
-        if (this.FORCE_BASIC_MODE) {
-          this.detectionService.currentPerformanceMode = PerformanceModes.BASIC;
-          this.detectionService.currentStreamingType = StreamingTypes.BASIC;
-        }
-        
         return this.detectionService.systemProfile;
       }
 
@@ -69,7 +51,7 @@ export class SystemProfiler {
       
       this.detectionService.systemProfile = profileResponse.data;
       
-      // Get performance recommendation (but we'll ignore it if forcing basic mode)
+      // Get performance recommendation
       const recommendationResponse = await api.get('/api/artifact_keeper/system/performance/recommendation');
       const recommendation = recommendationResponse.data;
       
@@ -107,22 +89,6 @@ export class SystemProfiler {
 
   determineOptimalSettings(profile, recommendation, capabilities) {
     try {
-      // FORCE BASIC MODE: Skip all analysis and force basic mode
-      if (this.FORCE_BASIC_MODE) {
-        this.detectionService.currentPerformanceMode = PerformanceModes.BASIC;
-        this.detectionService.currentStreamingType = StreamingTypes.BASIC;
-        
-        console.log(`🔒 FORCED: Basic mode enforced regardless of system capabilities`);
-        console.log(`   System Score: ${profile.performance_score || 0}/100 (ignored)`);
-        console.log(`   GPU Available: ${profile.gpu_available || false} (ignored)`);
-        console.log(`   CUDA Available: ${profile.cuda_available || false} (ignored)`);
-        console.log(`   Recommended Mode: ${recommendation.final_recommendation || 'basic'} (overridden)`);
-        console.log(`   Final Mode: BASIC (forced)`);
-        
-        return;
-      }
-
-      // ORIGINAL LOGIC (will not be executed due to FORCE_BASIC_MODE = true)
       const score = profile.performance_score || 0;
       const recommendedMode = recommendation.final_recommendation || 'basic';
       const meetsMinimum = profile.meets_minimum_requirements || false;
@@ -180,8 +146,7 @@ export class SystemProfiler {
         success: true,
         profile: this.detectionService.systemProfile,
         performanceMode: this.detectionService.currentPerformanceMode,
-        streamingType: this.detectionService.currentStreamingType,
-        forcedBasic: this.FORCE_BASIC_MODE
+        streamingType: this.detectionService.currentStreamingType
       };
     } catch (error) {
       console.error('❌ Error force refreshing system profile:', error);
@@ -197,12 +162,8 @@ export class SystemProfiler {
         params: { duration_seconds: durationSeconds }
       });
       
-      // Update profile after test (but basic mode will still be enforced)
+      // Update profile after test
       await this.updateSystemProfile(true);
-      
-      if (this.FORCE_BASIC_MODE) {
-        console.log('🔒 Performance test completed but basic mode remains enforced');
-      }
       
       return response.data;
     } catch (error) {
@@ -226,7 +187,7 @@ export class SystemProfiler {
     }
   }
 
-  // Manual mode switching - MODIFIED to respect FORCE_BASIC_MODE
+  // Manual mode switching
   async switchToBasicMode() {
     try {
       console.log('🔄 Manually switching to basic mode...');
@@ -249,12 +210,6 @@ export class SystemProfiler {
   }
 
   async switchToOptimizedMode() {
-    // FORCE BASIC MODE: Block switching to optimized mode
-    if (this.FORCE_BASIC_MODE) {
-      console.log('🔒 BLOCKED: Optimized mode is disabled - staying in basic mode');
-      throw new Error('Optimized mode is currently disabled. System will remain in basic mode.');
-    }
-
     try {
       console.log('🔄 Manually switching to optimized mode...');
       
@@ -285,21 +240,6 @@ export class SystemProfiler {
   async enableAutoMode() {
     try {
       console.log('🤖 Enabling automatic mode selection...');
-      
-      // FORCE BASIC MODE: Even in auto mode, enforce basic mode
-      if (this.FORCE_BASIC_MODE) {
-        console.log('🔒 Auto mode enabled but basic mode enforced');
-        this.detectionService.autoModeEnabled = true;
-        this.detectionService.currentPerformanceMode = PerformanceModes.BASIC;
-        this.detectionService.currentStreamingType = StreamingTypes.BASIC;
-        
-        this.detectionService.notifyProfileUpdateListeners();
-        
-        console.log(`✅ Auto mode enabled - Forced to: basic`);
-        return { success: true, mode: 'basic', forced: true };
-      }
-      
-      // ORIGINAL AUTO MODE LOGIC (will not be executed)
       this.detectionService.autoModeEnabled = true;
       
       // Re-evaluate optimal settings
