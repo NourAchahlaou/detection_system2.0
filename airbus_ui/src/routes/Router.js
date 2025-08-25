@@ -24,6 +24,8 @@ const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
 const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
 const DetectionLotsOverview = Loadable(lazy(() => import("../views/detection/DetectionLotsOverview")));
 const Identification = Loadable(lazy(() => import("../views/identification/AppIdentification")));
+const PiecesGroupOverview = Loadable(lazy(() => import("../views/pieces/PiecesGroupOverview")));
+const PieceImageViewer = Loadable(lazy(() => import("../views/pieces/PieceImageViewer")));
 const router = createBrowserRouter([
   // Root redirect to dashboard
   {
@@ -75,7 +77,15 @@ const router = createBrowserRouter([
       {
         path: 'identification',
         element: <Identification />,
-      }
+      },
+      {
+        path: 'piecesGroupOverview',
+        element: <PiecesGroupOverview />, 
+      },
+      {
+        path: 'piece-viewer',
+        element: <PieceImageViewer />,  
+      },
     ],
 
   },

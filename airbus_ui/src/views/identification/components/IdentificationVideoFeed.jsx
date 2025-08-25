@@ -1,4 +1,4 @@
-// IdentificationVideoFeed.jsx - FIXED: Endless initialization loop
+// IdentificationVideoFeed.jsx - FIXED: Endless initialization loop + Window Reload on Shutdown
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
@@ -31,7 +31,8 @@ const IdentificationVideoFeed = ({
   confidenceThreshold = 0.5,
   identificationOptions = {},
   navigateOnStop = false,
-  enableShutdown = true
+  enableShutdown = true,
+  reloadOnShutdown = true // NEW: Option to control window reload
 }) => {
   const navigate = useNavigate();
   
@@ -648,7 +649,15 @@ const IdentificationVideoFeed = ({
     }
   };
 
-  // FIXED: Enhanced shutdown with proper state management
+  // NEW: Window reload function
+  const reloadWindow = useCallback((delay = 2000) => {
+    console.log(`🔄 Reloading window in ${delay}ms...`);
+    setTimeout(() => {
+      window.location.reload();
+    }, delay);
+  }, []);
+
+  // FIXED: Enhanced shutdown with proper state management + Window Reload
   const performShutdownWithProgress = useCallback(async () => {
     if (shutdownInProgress) {
       console.log("🚫 Shutdown already in progress");
@@ -674,7 +683,7 @@ const IdentificationVideoFeed = ({
       
       if (identificationService.canShutdownSafely()) {
         console.log("🛑 Executing complete shutdown with monitoring...");
-        shutdownResult = await identificationService.executeShutdown('graceful_complete', true);
+        shutdownResult = await identificationService.performIdentificationOnlyShutdown();
         
         if (mountedRef.current) {
           setShutdownProgress({ 
@@ -743,6 +752,14 @@ const IdentificationVideoFeed = ({
         
         onStopIdentification();
 
+        // NEW: Reload window after shutdown if enabled
+        if (reloadOnShutdown) {
+          setShutdownProgress({ message: "Reloading page...", step: 4, total: 4 });
+          console.log("🔄 Shutdown complete, reloading window...");
+          reloadWindow(1500); // Reload after 1.5 seconds
+          return; // Exit early since we're reloading
+        }
+
         if (navigateOnStop) {
           navigate('/identification');
         }
@@ -772,7 +789,9 @@ const IdentificationVideoFeed = ({
     onStopIdentification, 
     navigateOnStop, 
     navigate, 
-    resetIdentificationStats
+    resetIdentificationStats,
+    reloadOnShutdown,
+    reloadWindow
   ]);
 
   // Enhanced handle stopping identification
@@ -812,6 +831,13 @@ const IdentificationVideoFeed = ({
 
         console.log(`✅ IdentificationVideoFeed: Stopped identification for camera ${cameraId}`);
 
+        // NEW: Option to reload after stopping (even without full shutdown)
+        if (reloadOnShutdown) {
+          console.log("🔄 Stream stopped, reloading window...");
+          reloadWindow(1000);
+          return;
+        }
+
         if (navigateOnStop) {
           navigate('/identification');
         }
@@ -826,6 +852,7 @@ const IdentificationVideoFeed = ({
       }
     }
   };
+
 
   // Piece identification handler
   const handlePieceIdentification = async () => {

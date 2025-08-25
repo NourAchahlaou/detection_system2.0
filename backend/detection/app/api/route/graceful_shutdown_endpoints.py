@@ -347,15 +347,21 @@ async def shutdown_identification_only():
             # Get stats before shutdown
             stats = piece_identification_processor.get_stats()
             identifications_performed = stats.get('identifications_performed', 0)
+            current_group = stats.get('current_group_name')
             
             # Cleanup identification resources
             await piece_identification_processor.cleanup()
             
-            # Reset state
+            # Reset state - INCLUDING group-specific state
             piece_identification_processor.is_initialized = False
+            piece_identification_processor.is_group_loaded = False  # NEW: Reset group loading state
+            piece_identification_processor.current_group_name = None  # NEW: Clear current group
             piece_identification_processor.detection_system = None
             piece_identification_processor._label_cache.clear()
             piece_identification_processor._frame_cache.clear()
+            
+            # Clear group from stats
+            piece_identification_processor.stats['current_group'] = None  # NEW: Clear group in stats
             
             return JSONResponse(
                 status_code=200,
@@ -363,6 +369,7 @@ async def shutdown_identification_only():
                     "status": "identification_shutdown_complete",
                     "message": "Identification service shutdown completed",
                     "identifications_performed": identifications_performed,
+                    "previous_group": current_group,  # NEW: Show which group was cleared
                     "detection_service": "still_running",
                     "timestamp": datetime.now().isoformat()
                 }
@@ -380,6 +387,16 @@ async def shutdown_identification_only():
             
     except Exception as e:
         logger.error(f"❌ Error shutting down identification service: {e}")
+        # Force reset including group state
+        try:
+            piece_identification_processor.is_initialized = False
+            piece_identification_processor.is_group_loaded = False  # NEW: Force reset
+            piece_identification_processor.current_group_name = None  # NEW: Force clear
+            piece_identification_processor.detection_system = None
+            piece_identification_processor.stats['current_group'] = None  # NEW: Clear stats
+        except:
+            pass
+        
         raise HTTPException(
             status_code=500,
             detail=f"Identification shutdown failed: {str(e)}"
