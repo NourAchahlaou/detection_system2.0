@@ -1,5 +1,5 @@
 import { Box, styled, Typography, CircularProgress, Snackbar, Alert } from "@mui/material";
-import DataTable from "./datasetTable/Dataset";
+import DatasetComponenet from "./datasetTable/Dataset";
 import NoData from "../sessions/NoData";
 import TrainingProgressSidebar from "./TrainingProgressSidebar";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -245,138 +245,134 @@ export default function AppDatabasesetup() {
     }
   }, [showNotification, startTrainingPolling]);
 
-  // 🔥 COMPLETELY REWRITTEN handleBatchTrain with extensive debugging
-// In your AppDatabasesetup.js, replace the handleBatchTrain function with this corrected version:
-
-// CORRECTED handleBatchTrain function - ensures it always returns a result
-// FIXED: handleBatchTrain function in AppDatabasesetup.js
-const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => {
-  console.log('=== DEBUG handleBatchTrain START ===');
-  console.log('Input pieceLabels:', pieceLabels);
-  console.log('Input sequential:', sequential);
-  
-  try {
-    console.log('Step 1: Function entered successfully');
+  // CORRECTED handleBatchTrain function - ensures it always returns a result
+  const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => {
+    console.log('=== DEBUG handleBatchTrain START ===');
+    console.log('Input pieceLabels:', pieceLabels);
+    console.log('Input sequential:', sequential);
     
-    // Basic validation - ALWAYS return a result object
-    if (!pieceLabels) {
-      console.log('Step 2: No pieceLabels provided - returning error');
-      const result = { success: false, error: 'No pieces provided' };
-      console.log('Returning result:', result);
-      showNotification('No pieces provided for training', 'error');
-      return result;
-    }
-
-    if (!Array.isArray(pieceLabels)) {
-      console.log('Step 2: pieceLabels not an array - returning error');
-      const result = { success: false, error: 'Invalid format' };
-      console.log('Returning result:', result);
-      showNotification('Invalid piece format', 'error');
-      return result;
-    }
-
-    if (pieceLabels.length === 0) {
-      console.log('Step 2: Empty pieceLabels array - returning error');
-      const result = { success: false, error: 'Empty selection' };
-      console.log('Returning result:', result);
-      showNotification('No pieces selected for training', 'error');
-      return result;
-    }
-
-    console.log('Step 3: Basic validation passed');
-
-    // Check training in progress
-    if (trainingInProgress) {
-      console.log('Step 4: Training already in progress - returning error');
-      const result = { success: false, error: 'Training in progress' };
-      console.log('Returning result:', result);
-      showNotification('Training is already in progress', 'warning');
-      return result;
-    }
-
-    console.log('Step 5: No training in progress, continuing');
-
-    // Check datasetService
-    if (!datasetService) {
-      console.log('Step 6: datasetService not available - returning error');
-      const result = { success: false, error: 'Service unavailable' };
-      console.log('Returning result:', result);
-      showNotification('Training service unavailable', 'error');
-      return result;
-    }
-
-    console.log('Step 7: datasetService available');
-
-    if (typeof datasetService.trainMultiplePieces !== 'function') {
-      console.log('Step 8: trainMultiplePieces method not found - returning error');
-      console.log('Available methods:', Object.keys(datasetService));
-      const result = { success: false, error: 'Method unavailable' };
-      console.log('Returning result:', result);
-      showNotification('Training method not available', 'error');
-      return result;
-    }
-
-    console.log('Step 9: trainMultiplePieces method available');
-    console.log('About to call API with:', pieceLabels);
-
-    // Show notification BEFORE API call
-    showNotification(`Starting training for ${pieceLabels.length} pieces...`, 'info');
-
-    // Make API call with proper error handling
-    console.log('Step 10: Making API call...');
-    const apiResult = await datasetService.trainMultiplePieces(pieceLabels);
-    console.log('Step 11: API call completed, result:', apiResult);
-
-    // Handle API response
-    if (!apiResult) {
-      console.log('Step 12: API returned null/undefined');
-      const result = { success: false, error: 'No response from training service' };
-      console.log('Returning result:', result);
-      showNotification('No response from training service', 'error');
-      return result;
-    }
-
-    if (apiResult.data) {
-      console.log('Step 12: API returned valid data');
+    try {
+      console.log('Step 1: Function entered successfully');
       
-      // Update UI state if session ID is provided
-      if (apiResult.data.session_id) {
-        console.log('Step 13: Setting up training session');
-        setCurrentSessionId(apiResult.data.session_id);
-        setTrainingInProgress(true);
-        setSidebarOpen(true);
-        startTrainingPolling();
+      // Basic validation - ALWAYS return a result object
+      if (!pieceLabels) {
+        console.log('Step 2: No pieceLabels provided - returning error');
+        const result = { success: false, error: 'No pieces provided' };
+        console.log('Returning result:', result);
+        showNotification('No pieces provided for training', 'error');
+        return result;
       }
-      
-      showNotification(`Training started successfully!`, 'success');
-      const result = { success: true, data: apiResult.data };
-      console.log('Step 14: Returning success result:', result);
-      return result;
-    } else {
-      console.log('Step 12: API returned invalid data format');
-      console.log('API Result structure:', apiResult);
-      const result = { success: false, error: 'Invalid API response format' };
-      console.log('Returning result:', result);
-      showNotification('Invalid response from training service', 'error');
-      return result;
-    }
 
-  } catch (error) {
-    console.log('Step ERROR: Exception caught:', error);
-    console.log('Error name:', error.name);
-    console.log('Error message:', error.message);
-    console.log('Error stack:', error.stack);
-    
-    const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred';
-    showNotification(`Training failed: ${errorMessage}`, 'error');
-    
-    const result = { success: false, error: errorMessage };
-    console.log('Returning error result:', result);
-    return result;
-  } finally {
-    console.log('=== DEBUG handleBatchTrain END ===');
-  }
-}, [showNotification, startTrainingPolling, trainingInProgress, datasetService]);
+      if (!Array.isArray(pieceLabels)) {
+        console.log('Step 2: pieceLabels not an array - returning error');
+        const result = { success: false, error: 'Invalid format' };
+        console.log('Returning result:', result);
+        showNotification('Invalid piece format', 'error');
+        return result;
+      }
+
+      if (pieceLabels.length === 0) {
+        console.log('Step 2: Empty pieceLabels array - returning error');
+        const result = { success: false, error: 'Empty selection' };
+        console.log('Returning result:', result);
+        showNotification('No pieces selected for training', 'error');
+        return result;
+      }
+
+      console.log('Step 3: Basic validation passed');
+
+      // Check training in progress
+      if (trainingInProgress) {
+        console.log('Step 4: Training already in progress - returning error');
+        const result = { success: false, error: 'Training in progress' };
+        console.log('Returning result:', result);
+        showNotification('Training is already in progress', 'warning');
+        return result;
+      }
+
+      console.log('Step 5: No training in progress, continuing');
+
+      // Check datasetService
+      if (!datasetService) {
+        console.log('Step 6: datasetService not available - returning error');
+        const result = { success: false, error: 'Service unavailable' };
+        console.log('Returning result:', result);
+        showNotification('Training service unavailable', 'error');
+        return result;
+      }
+
+      console.log('Step 7: datasetService available');
+
+      if (typeof datasetService.trainMultiplePieces !== 'function') {
+        console.log('Step 8: trainMultiplePieces method not found - returning error');
+        console.log('Available methods:', Object.keys(datasetService));
+        const result = { success: false, error: 'Method unavailable' };
+        console.log('Returning result:', result);
+        showNotification('Training method not available', 'error');
+        return result;
+      }
+
+      console.log('Step 9: trainMultiplePieces method available');
+      console.log('About to call API with:', pieceLabels);
+
+      // Show notification BEFORE API call
+      showNotification(`Starting training for ${pieceLabels.length} pieces...`, 'info');
+
+      // Make API call with proper error handling
+      console.log('Step 10: Making API call...');
+      const apiResult = await datasetService.trainMultiplePieces(pieceLabels);
+      console.log('Step 11: API call completed, result:', apiResult);
+
+      // Handle API response
+      if (!apiResult) {
+        console.log('Step 12: API returned null/undefined');
+        const result = { success: false, error: 'No response from training service' };
+        console.log('Returning result:', result);
+        showNotification('No response from training service', 'error');
+        return result;
+      }
+
+      if (apiResult.data) {
+        console.log('Step 12: API returned valid data');
+        
+        // Update UI state if session ID is provided
+        if (apiResult.data.session_id) {
+          console.log('Step 13: Setting up training session');
+          setCurrentSessionId(apiResult.data.session_id);
+          setTrainingInProgress(true);
+          setSidebarOpen(true);
+          startTrainingPolling();
+        }
+        
+        showNotification(`Training started successfully!`, 'success');
+        const result = { success: true, data: apiResult.data };
+        console.log('Step 14: Returning success result:', result);
+        return result;
+      } else {
+        console.log('Step 12: API returned invalid data format');
+        console.log('API Result structure:', apiResult);
+        const result = { success: false, error: 'Invalid API response format' };
+        console.log('Returning result:', result);
+        showNotification('Invalid response from training service', 'error');
+        return result;
+      }
+
+    } catch (error) {
+      console.log('Step ERROR: Exception caught:', error);
+      console.log('Error name:', error.name);
+      console.log('Error message:', error.message);
+      console.log('Error stack:', error.stack);
+      
+      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred';
+      showNotification(`Training failed: ${errorMessage}`, 'error');
+      
+      const result = { success: false, error: errorMessage };
+      console.log('Returning error result:', result);
+      return result;
+    } finally {
+      console.log('=== DEBUG handleBatchTrain END ===');
+    }
+  }, [showNotification, startTrainingPolling, trainingInProgress, datasetService]);
 
   const handleTrainingStop = useCallback(async () => {
     try {
@@ -542,15 +538,16 @@ const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => 
     <Container>
       {data && Array.isArray(data) && data.length > 0 ? (
         <>
-          <DataTable 
-            datasets={data}
+          {/* ✅ FIXED: Pass ALL required props with correct names */}
+          <DatasetComponenet 
+            datasets={data} // ✅ FIXED: Pass data as datasets prop
             selectedDatasets={selectedDatasets}
             selectAll={selectAll}
             onSelectAll={handleSelectAll}
             onSelect={handleSelect}
             onView={handleView}
             onDelete={handleDelete}
-            onTrain={handleTrainingStart}
+            onTrain={handleTrainingStart} // ✅ FIXED: Single piece training
             trainingInProgress={trainingInProgress}
             trainingData={trainingData}
             page={page}
@@ -559,10 +556,16 @@ const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => 
             onPageChange={handlePageChange}
             onRowsPerPageChange={handleRowsPerPageChange}
             formatDate={formatDate}
-            onBatchTrain={handleBatchTrain} // 🔥 ENHANCED CALLBACK WITH FULL DEBUGGING
-            onStopTraining={handleTrainingStop}
-            onPauseTraining={handleTrainingPause}
-            onResumeTraining={handleTrainingResume}
+            onBatchTrain={handleBatchTrain} // ✅ FIXED: Batch training handler
+            onStopTraining={handleTrainingStop} // ✅ FIXED: Stop training handler
+            onPauseTraining={handleTrainingPause} // ✅ FIXED: Pause training handler
+            onResumeTraining={handleTrainingResume} // ✅ FIXED: Resume training handler
+            // Legacy props for compatibility
+            data={data}
+            onTrainingStart={handleTrainingStart}
+            sidebarOpen={sidebarOpen}
+            setSidebarOpen={setSidebarOpen}
+            onTrainingCheck={checkTrainingStatus}
           />
           <TrainingProgressSidebar
             isOpen={sidebarOpen}

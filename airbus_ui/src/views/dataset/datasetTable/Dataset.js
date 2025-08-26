@@ -16,18 +16,44 @@ import FiltersPanel from './FiltersPanel';
 import DataTable from './DataTable';
 import ConfirmationDialog from './ConfirmationDialog';
 
-export default function EnhancedDataTable({ 
+export default function DatasetComponenet({ 
+  // Props from AppDatabasesetup
+  datasets: propDatasets = [], // ✅ FIXED: Receive datasets from parent
+  selectedDatasets = [],
+  selectAll = false,
+  onSelectAll = () => {},
+  onSelect = () => {},
+  onView = () => {},
+  onDelete = () => {},
+  onTrain = () => {}, // ✅ FIXED: Single piece training from parent
+  trainingInProgress = false,
+  trainingData = null,
+  page = 0,
+  pageSize = 10,
+  totalCount = 0,
+  onPageChange = () => {},
+  onRowsPerPageChange = () => {},
+  formatDate = (date) => date,
+  onBatchTrain = () => {}, // ✅ FIXED: Batch training from parent
+  onStopTraining = () => {},
+  onPauseTraining = () => {},
+  onResumeTraining = () => {},
+  // Legacy props for compatibility
   data, 
   onTrainingStart, 
-  trainingInProgress, 
   sidebarOpen, 
   setSidebarOpen,
-  trainingData,
-  onTrainingCheck // New prop to check training status
+  onTrainingCheck
 }) {
   
-  // State management
-  const [datasets, setDatasets] = useState([]);
+  // DEBUG: Log the received onBatchTrain function
+  console.log('=== DatasetComponenet DEBUG ===');
+  console.log('onBatchTrain received:', onBatchTrain);
+  console.log('onBatchTrain type:', typeof onBatchTrain);
+  console.log('onBatchTrain toString:', onBatchTrain.toString().substring(0, 100));
+  
+  // State management - Use parent datasets if available, otherwise local
+  const [datasets, setDatasets] = useState(propDatasets || data || []);
   const [statistics, setStatistics] = useState(null);
   const [availableGroups, setAvailableGroups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -37,11 +63,6 @@ export default function EnhancedDataTable({
   // Training state - removed local training state since it's now passed from parent
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [trainingPieces, setTrainingPieces] = useState([]);
-  
-  // Pagination state
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
-  const [totalCount, setTotalCount] = useState(0);
   
   // Filter state
   const [filters, setFilters] = useState({
@@ -56,11 +77,7 @@ export default function EnhancedDataTable({
     min_images: '',
     max_images: ''
   });
-  
-  // Selection state
-  const [selectedDatasets, setSelectedDatasets] = useState([]);
-  const [selectAll, setSelectAll] = useState(false);
-  
+
   // Dialog state
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [actionType, setActionType] = useState("");
@@ -73,6 +90,13 @@ export default function EnhancedDataTable({
     severity: 'success'
   });
 
+  // ✅ FIXED: Update local datasets when prop changes
+  useEffect(() => {
+    if (propDatasets && propDatasets.length > 0) {
+      setDatasets(propDatasets);
+    }
+  }, [propDatasets]);
+
   // Sync training pieces with training data from parent
   useEffect(() => {
     if (trainingData && trainingData.piece_labels) {
@@ -84,13 +108,30 @@ export default function EnhancedDataTable({
     }
   }, [trainingData]);
 
-  // Fetch data
-  const fetchData = useCallback(async () => {
+  // Fetch additional data (statistics, groups) - only if not using parent datasets
+  const fetchAdditionalData = useCallback(async () => {
+    if (propDatasets && propDatasets.length > 0) {
+      // If using parent datasets, only fetch statistics and groups
+      try {
+        const [statsResponse, groupsResponse] = await Promise.all([
+          datasetService.getDatasetStatistics(),
+          datasetService.getAvailableGroups()
+        ]);
+        
+        setStatistics(statsResponse.overview || statsResponse);
+        setAvailableGroups(groupsResponse || []);
+      } catch (error) {
+        console.error("Error fetching additional data:", error);
+      }
+      return;
+    }
+
+    // Legacy behavior - fetch all data if no parent datasets
     setLoading(true);
     setError(null);
     try {
       const params = {
-        page: page + 1, // API expects 1-based pagination
+        page: page + 1,
         page_size: pageSize,
         ...Object.fromEntries(
           Object.entries(filters).filter(([_, value]) => value !== '')
@@ -98,25 +139,16 @@ export default function EnhancedDataTable({
       };
       
       const promises = [
-        datasetService.getAllDatasetsWithFilters(params)
+        datasetService.getAllDatasetsWithFilters(params),
+        datasetService.getDatasetStatistics(),
+        datasetService.getAvailableGroups()
       ];
       
-      // Only fetch statistics and groups on initial load
-      if (page === 0) {
-        promises.push(datasetService.getDatasetStatistics());
-        if (availableGroups.length === 0) {
-          promises.push(datasetService.getAvailableGroups());
-        }
-      }
-      
       const results = await Promise.all(promises);
-      const datasetsResponse = results[0];
       
-      setDatasets(datasetsResponse.data || []);
-      setTotalCount(datasetsResponse.pagination?.total_count || 0);
-      
-      if (results[1]) setStatistics(results[1].overview || results[1]);
-      if (results[2]) setAvailableGroups(results[2] || []);
+      setDatasets(results[0].data || []);
+      setStatistics(results[1].overview || results[1]);
+      setAvailableGroups(results[2] || []);
       
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -125,11 +157,11 @@ export default function EnhancedDataTable({
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, filters, availableGroups.length]);
+  }, [propDatasets, page, pageSize, filters]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchAdditionalData();
+  }, [fetchAdditionalData]);
 
   // Notification handler
   const showNotification = (message, severity = 'success') => {
@@ -140,10 +172,16 @@ export default function EnhancedDataTable({
     });
   };
 
-  // Training handlers
+  // ✅ FIXED: Training handlers - forward to parent if available
   const handleTrain = async (piece) => {
+    if (onTrain && typeof onTrain === 'function') {
+      // Use parent's training handler
+      onTrain(piece);
+      return;
+    }
+
+    // Legacy fallback behavior
     try {
-      // Prepare training data
       const trainingInfo = {
         status: 'training',
         piece_labels: [piece.label],
@@ -173,13 +211,10 @@ export default function EnhancedDataTable({
         ]
       };
 
-      // Call the parent's training start handler
-      onTrainingStart(trainingInfo);
+      if (onTrainingStart) onTrainingStart(trainingInfo);
       
-      // Start the actual training
       await datasetService.trainPieceModel(piece.label);
       
-      // Check training status after starting
       if (onTrainingCheck) {
         setTimeout(async () => {
           await onTrainingCheck();
@@ -189,7 +224,6 @@ export default function EnhancedDataTable({
     } catch (error) {
       showNotification(`Failed to start training for ${piece.label}`, "error");
       
-      // If training failed to start, check status to update UI
       if (onTrainingCheck) {
         setTimeout(async () => {
           await onTrainingCheck();
@@ -198,7 +232,21 @@ export default function EnhancedDataTable({
     }
   };
 
-  const handleTrainAll = async () => {
+  // ✅ CRITICAL FIX: Create a proper wrapper for handleBatchTrain that forwards to parent
+  const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => {
+    console.log('=== DatasetComponenet.handleBatchTrain WRAPPER ===');
+    console.log('Received pieceLabels:', pieceLabels);
+    console.log('Parent onBatchTrain:', typeof onBatchTrain);
+    
+    if (onBatchTrain && typeof onBatchTrain === 'function') {
+      console.log('Forwarding to parent onBatchTrain...');
+      const result = await onBatchTrain(pieceLabels, sequential);
+      console.log('Parent returned:', result);
+      return result;
+    }
+
+    console.log('No parent onBatchTrain, using legacy fallback');
+    // Legacy fallback behavior
     try {
       const nonTrainedPieces = datasets
         .filter(piece => !piece.is_yolo_trained)
@@ -206,10 +254,9 @@ export default function EnhancedDataTable({
       
       if (nonTrainedPieces.length === 0) {
         showNotification("No pieces available for training", "warning");
-        return;
+        return { success: false, error: "No pieces available" };
       }
       
-      // Set training data for multiple pieces
       const totalImages = datasets
         .filter(piece => !piece.is_yolo_trained)
         .reduce((sum, piece) => sum + piece.nbre_img, 0);
@@ -247,36 +294,56 @@ export default function EnhancedDataTable({
         ]
       };
 
-      // Call the parent's training start handler
-      onTrainingStart(trainingInfo);
+      if (onTrainingStart) onTrainingStart(trainingInfo);
       
-      // Start the actual training
       await datasetService.trainAllPieces();
       
-      // Check training status after starting
       if (onTrainingCheck) {
         setTimeout(async () => {
           await onTrainingCheck();
         }, 3000);
       }
       
+      return { success: true };
+      
     } catch (error) {
       showNotification("Failed to start training for all pieces", "error");
       
-      // If training failed to start, check status to update UI
       if (onTrainingCheck) {
         setTimeout(async () => {
           await onTrainingCheck();
         }, 1000);
       }
+      
+      return { success: false, error: error.message };
     }
+  }, [onBatchTrain, datasets, onTrainingStart, onTrainingCheck, showNotification]);
+
+  const handleTrainAll = async () => {
+    // ✅ FIXED: Use the local wrapper which properly forwards to parent
+    const nonTrainedPieces = datasets
+      .filter(piece => !piece.is_yolo_trained)
+      .map(piece => piece.label);
+    
+    if (nonTrainedPieces.length === 0) {
+      showNotification("No pieces available for training", "warning");
+      return;
+    }
+    
+    await handleBatchTrain(nonTrainedPieces);
   };
 
   const handleStopTraining = async () => {
+    // ✅ FIXED: Use parent's stop handler if available
+    if (onStopTraining && typeof onStopTraining === 'function') {
+      onStopTraining();
+      return;
+    }
+
+    // Legacy fallback
     try {
       await datasetService.stopTraining();
       
-      // After stopping, check status to update UI
       if (onTrainingCheck) {
         setTimeout(async () => {
           await onTrainingCheck();
@@ -294,7 +361,6 @@ export default function EnhancedDataTable({
   // Filter handlers
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
-    setPage(0); // Reset to first page when filters change
   };
 
   const handleClearFilters = () => {
@@ -310,53 +376,26 @@ export default function EnhancedDataTable({
       min_images: '',
       max_images: ''
     });
-    setPage(0);
-  };
-
-  // Pagination handlers
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event) => {
-    setPageSize(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  // Selection handlers
-  const handleSelectAll = () => {
-    if (selectAll) {
-      setSelectedDatasets([]);
-      setSelectAll(false);
-    } else {
-      setSelectedDatasets(datasets.map(dataset => dataset.id));
-      setSelectAll(true);
-    }
-  };
-
-  const handleSelect = (id) => {
-    setSelectedDatasets(prevSelected => {
-      const newSelected = prevSelected.includes(id) 
-        ? prevSelected.filter(item => item !== id) 
-        : [...prevSelected, id];
-      
-      // Update selectAll state
-      setSelectAll(newSelected.length === datasets.length);
-      return newSelected;
-    });
   };
 
   // Action handlers
   const handleView = (piece) => {
-    console.log("Viewing:", piece);
-    // Navigate to detail view or open modal
-    showNotification(`Viewing details for ${piece.label}`, "info");
+    if (onView && typeof onView === 'function') {
+      onView(piece);
+    } else {
+      console.log("Viewing:", piece);
+      showNotification(`Viewing details for ${piece.label}`, "info");
+    }
   };
 
   const handleDelete = (piece) => {
-    setActionType("delete");
-    setActionTarget(piece);
-    setConfirmationOpen(true);
+    if (onDelete && typeof onDelete === 'function') {
+      onDelete(piece);
+    } else {
+      setActionType("delete");
+      setActionTarget(piece);
+      setConfirmationOpen(true);
+    }
   };
 
   const handleBulkDelete = () => {
@@ -376,7 +415,6 @@ export default function EnhancedDataTable({
           await datasetService.deletePieceByLabel(actionTarget.label);
           showNotification(`Successfully deleted ${actionTarget.label}`, "success");
         } else if (actionType === "bulkDelete" && actionTarget) {
-          // For bulk delete, you might need to delete each piece individually
           for (const id of actionTarget) {
             const piece = datasets.find(d => d.id === id);
             if (piece) {
@@ -384,11 +422,9 @@ export default function EnhancedDataTable({
             }
           }
           showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");
-          setSelectedDatasets([]);
-          setSelectAll(false);
         }
         
-        fetchData(); // Refresh data after deletion
+        fetchAdditionalData(); // Refresh data after deletion
       } catch (error) {
         showNotification("Failed to delete. Please try again.", "error");
       } finally {
@@ -400,7 +436,11 @@ export default function EnhancedDataTable({
     setActionType("");
   };
 
-  const formatDate = (dateString) => {
+  const localFormatDate = (dateString) => {
+    if (formatDate && typeof formatDate === 'function') {
+      return formatDate(dateString);
+    }
+    
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -417,18 +457,18 @@ export default function EnhancedDataTable({
         <CircularProgress color="inherit" />
       </Backdrop>
 
-        <HeaderActions
+      <HeaderActions
         trainingInProgress={trainingInProgress}
         sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onToggleSidebar={() => setSidebarOpen && setSidebarOpen(!sidebarOpen)}
         showFilters={showFilters}
-        onToggleFilters={() => setShowFilters(!showFilters)}  // ✅ Correct prop name and toggle function
+        onToggleFilters={() => setShowFilters(!showFilters)}
         selectedCount={selectedDatasets.length}
         onTrainAll={handleTrainAll}
         onStopTraining={handleStopTraining}
-        onRefresh={fetchData}
+        onRefresh={fetchAdditionalData}
         onBulkDelete={handleBulkDelete}
-        />
+      />
 
       {/* Error Alert */}
       {error && (
@@ -447,22 +487,28 @@ export default function EnhancedDataTable({
         onClearFilters={handleClearFilters}
       />
 
+      {/* ✅ CRITICAL FIX: Pass the LOCAL wrapper function, not the parent function directly */}
       <DataTable
         datasets={datasets}
         selectedDatasets={selectedDatasets}
         selectAll={selectAll}
         page={page}
         pageSize={pageSize}
-        totalCount={totalCount}
+        totalCount={totalCount || datasets.length}
         trainingInProgress={trainingInProgress}
-        onSelectAll={handleSelectAll}
-        onSelect={handleSelect}
+        trainingData={trainingData}
+        onSelectAll={onSelectAll}
+        onSelect={onSelect}
         onView={handleView}
         onDelete={handleDelete}
         onTrain={handleTrain}
-        onChangePage={handleChangePage}
-        onChangeRowsPerPage={handleChangeRowsPerPage}
-        formatDate={formatDate}
+        onPageChange={onPageChange}
+        onRowsPerPageChange={onRowsPerPageChange}
+        formatDate={localFormatDate}
+        onBatchTrain={handleBatchTrain} // ✅ CRITICAL FIX: Pass the LOCAL wrapper
+        onStopTraining={onStopTraining} // ✅ FIXED: Forward parent's stop handler
+        onPauseTraining={onPauseTraining} // ✅ FIXED: Forward parent's pause handler
+        onResumeTraining={onResumeTraining} // ✅ FIXED: Forward parent's resume handler
       />
 
       <ConfirmationDialog
