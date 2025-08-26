@@ -534,8 +534,10 @@ export default function AppDatabasesetup() {
     );
   }
 
+
   return (
     <Container>
+
       {data && Array.isArray(data) && data.length > 0 ? (
         <>
           {/* ✅ FIXED: Pass ALL required props with correct names */}

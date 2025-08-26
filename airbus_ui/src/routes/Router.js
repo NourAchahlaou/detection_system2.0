@@ -18,7 +18,7 @@ const CaptureImage = Loadable(lazy(() => import('../views/captureImage/CameraCap
 const SignInSide = Loadable(lazy(() => import('../views/auth/sign-in-side/SignInSide')));
 const Annotation = Loadable(lazy (()=> import('../views/imageAnnotaion/AppImageAnnotaion')));
 const PiecesOverview = Loadable(lazy(() => import('../views/imageAnnotaion/PiecesOverview')));
-const Dataset = Loadable(lazy(() => import('../views/dataset/dataset')));
+const Dataset = Loadable(lazy(() => import('../views/dataset/AppDatabasesetup')));
 const Detection = Loadable(lazy(() => import('../views/detection/Detection')));
 const NoData = Loadable(lazy(() => import("../views/sessions/NoData")));
 const NoDataAnnotation = Loadable(lazy(() => import("../views/sessions/NoData_annotation")));
