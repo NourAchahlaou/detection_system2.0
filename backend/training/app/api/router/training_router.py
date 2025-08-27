@@ -1425,8 +1425,15 @@ async def pause_training(db: db_dependency):
                 )
             )
         
-        # Add pause logic here (this would depend on your training implementation)
-        # For now, we'll just update the session status
+        
+        # Send stop signal
+        await stop_training()
+        
+        # Update session status
+        active_session.stop_training()
+        if not safe_commit(db):
+            logger.warning("Failed to update training session stop status")
+                # For now, we'll just update the session status
         active_session.add_log("INFO", "Training paused by user request")
         active_session.is_training = False
         
@@ -1495,33 +1502,58 @@ async def resume_specific_session(session_id: int, db: db_dependency, background
                 )
             )
         
-        if session.completed_at :
+        # FIXED: Use same logic as find_existing_training_session
+        # A session is resumable if it hasn't completed all epochs
+        if session.current_epoch >= session.epochs:
             raise HTTPException(
                 status_code=400,
                 detail=create_error_response(
-                    "Cannot resume completed or failed session",
+                    "Cannot resume session - all epochs completed",
+                    details={
+                        "current_epoch": session.current_epoch,
+                        "total_epochs": session.epochs,
+                        "progress": f"{session.current_epoch}/{session.epochs}"
+                    },
                     status_code=400
                 )
             )
         
-        # Resume the session
-        session.add_log("INFO", f"Resuming training from epoch {session.current_epoch}")
+        # Additional check: ensure session has started (at least epoch 1)
+        if session.current_epoch < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=create_error_response(
+                    "Cannot resume session - training never started",
+                    status_code=400
+                )
+            )
+        
+        # Resume the session using the same logic as train endpoint
+        resumed_session = resume_training_session(db, session, session.piece_labels)
         
         # Start training as background task
         background_tasks.add_task(
             train_model_with_status_updates,
-            session.piece_labels,
-            session_id,
+            resumed_session.piece_labels,
+            resumed_session.id,
             True  # is_resume = True
         )
         
         return create_success_response(
             data={
-                "session_id": session.id,
-                "session_name": session.session_name,
-                "resume_from_epoch": session.current_epoch,
-                "piece_labels": session.piece_labels,
-                "total_epochs": session.epochs
+                "session_id": resumed_session.id,
+                "session_name": resumed_session.session_name,
+                "resume_from_epoch": resumed_session.current_epoch,
+                "piece_labels": resumed_session.piece_labels,
+                "total_epochs": resumed_session.epochs,
+                "action": "resumed",
+                "is_resume": True,
+                "resume_info": {
+                    "can_resume": True,
+                    "progress_percentage": resumed_session.progress_percentage,
+                    "epochs_completed": resumed_session.current_epoch - 1,
+                    "epochs_remaining": resumed_session.epochs - resumed_session.current_epoch + 1
+                }
             },
             message="Training session resumed successfully"
         )
@@ -1537,7 +1569,6 @@ async def resume_specific_session(session_id: int, db: db_dependency, background
                 details=str(e)
             )
         )
-
 
 # ==================== CLEANUP OPERATIONS ====================
 

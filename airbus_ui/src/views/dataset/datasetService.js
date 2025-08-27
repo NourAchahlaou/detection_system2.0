@@ -391,7 +391,7 @@ getTrainingSessions: async (params = {}) => {
   },
   pauseTraining: async () => {
   try {
-    const response = await api.post("/api/training/training/stop");
+    const response = await api.post("/api/training/training/pause");
     console.log(response.data.message || "Training paused successfully");
     return response.data;
   } catch (error) {
