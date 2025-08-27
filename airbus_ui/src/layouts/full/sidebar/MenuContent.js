@@ -31,6 +31,7 @@ const menuSections = [
       { text: 'Capture Image', icon: <CameraAltRoundedIcon />, to: '/captureImage' },
       { text: 'Pieces Overview', icon: <LabelRoundedIcon />, to: '/piecesOverview' },
       { text: 'Manage Dataset', icon: <FolderRoundedIcon />, to: '/dataset' },
+      { text: 'Groupe details', icon: <FolderRoundedIcon />, to: '/PiecesGroupOverview' },
     ],
   },
   {
