@@ -40,7 +40,7 @@ import {
   Group as GroupIcon,
 } from "@mui/icons-material";
 import { ProductTable, ModernCard, StatusChip, ActionButton } from './StyledComponents';
-
+import { useNavigate } from "react-router-dom";
 export default function DataTable({ 
   datasets = [],
   selectedDatasets = [],
@@ -70,7 +70,7 @@ export default function DataTable({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteType, setDeleteType] = useState(''); // 'single' or 'group'
-
+  const navigate = useNavigate();
   // Group datasets by first 4 characters of label
   const groupedDatasets = useMemo(() => {
     const groups = {};
@@ -235,7 +235,9 @@ export default function DataTable({
     const pieceLabels = group.pieces.map(piece => piece.label);
     onDelete(pieceLabels);
   }, [onDelete]);
-
+  const onViewGroups =()=>{
+    navigate(`/PiecesGroupOverview`);
+  }
   // Group training action button
   const renderGroupTrainingButton = useCallback((group) => {
     const isCurrentlyTraining = isGroupBeingTrained(group);
@@ -553,13 +555,31 @@ export default function DataTable({
 
       {/* Group Overview Header */}
       <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(102, 126, 234, 0.05)', borderRadius: 2 }}>
-        <Typography variant="h6" sx={{ color: '#667eea', fontWeight: 600, mb: 1 }}>
-          Group Overview
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Pieces are automatically grouped by their label prefix (first 4 characters). Train entire groups efficiently.
-        </Typography>
+        <Box 
+          sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            flexWrap: 'wrap' 
+          }}
+        >
+          <Box>
+            <Typography variant="h6" sx={{ color: '#667eea', fontWeight: 600, mb: 1 }}>
+              Group Overview
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Pieces are automatically grouped by their label prefix (first 4 characters). Train entire groups efficiently.
+            </Typography>
+          </Box>
+
+          <Tooltip title="View group details">
+            <ActionButton variant="view" onClick={() => onViewGroups()}>
+              <Visibility fontSize="small" />
+            </ActionButton>
+          </Tooltip>
+        </Box>
       </Box>
+
 
       {/* Grouped Datasets */}
       {Object.entries(groupedDatasets).map(([groupKey, group]) => (
