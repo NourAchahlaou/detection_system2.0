@@ -26,6 +26,7 @@ const DetectionLotsOverview = Loadable(lazy(() => import("../views/detection/Det
 const Identification = Loadable(lazy(() => import("../views/identification/AppIdentification")));
 const PiecesGroupOverview = Loadable(lazy(() => import("../views/pieces/PiecesGroupOverview")));
 const PieceImageViewer = Loadable(lazy(() => import("../views/pieces/PieceImageViewer")));
+const LotSessionViewer = Loadable(lazy(() => import("../views/lotSession/lotSessionDatabase")));
 const router = createBrowserRouter([
   // Root redirect to dashboard
   {
@@ -86,6 +87,10 @@ const router = createBrowserRouter([
         path: 'pieceImageViewer',
         element: <PieceImageViewer />,  
       },
+      {
+        path: 'lotSessionViewer',
+        element: <LotSessionViewer />,
+      }
     ],
 
   },

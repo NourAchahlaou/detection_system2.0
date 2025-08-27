@@ -7,6 +7,7 @@ from detection.app.api.route.graceful_shutdown_endpoints import detection_shutdo
 from detection.app.api.route.basic_detection_router import basic_detection_router
 from detection.app.api.route.statistics_service_router import statistic_detection_router 
 from detection.app.api.route.identification_router import identification_router
+from detection.app.api.route.lot_session_router import lot_dashboard_router
 def create_application():
     application = FastAPI(
         title="detection Service",
@@ -19,6 +20,7 @@ def create_application():
     application.include_router(basic_detection_router)
     application.include_router(statistic_detection_router)
     application.include_router(identification_router)
+    application.include_router(lot_dashboard_router)
     return application 
 
 app = create_application()
