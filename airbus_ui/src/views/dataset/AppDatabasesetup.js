@@ -2,7 +2,6 @@
 import { Box, styled, Typography, CircularProgress, Snackbar, Alert } from "@mui/material";
 import DatasetComponenet from "./datasetTable/Dataset";
 import NoData from "../sessions/NoData";
-import TrainingProgressSidebar from "./TrainingProgressSidebar";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { datasetService } from "./datasetService";
 import { useNavigate } from "react-router-dom";
@@ -559,13 +558,7 @@ const handleDelete = useCallback(async (pieceInput) => {
             setSidebarOpen={setSidebarOpen}
             onTrainingCheck={checkTrainingStatus}
           />
-          <TrainingProgressSidebar
-            isOpen={sidebarOpen}
-            onClose={handleSidebarClose}
-            trainingData={trainingData}
-            onStopTraining={handleTrainingStop}
-            onRefresh={handleRefreshTraining}
-          />
+
         </>
       ) : (
         <NoData />

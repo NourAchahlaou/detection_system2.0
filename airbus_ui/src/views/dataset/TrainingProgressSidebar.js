@@ -256,7 +256,7 @@ const TrainingProgressSidebar = ({
     status: 'idle',
     piece_labels: [],
     current_epoch: 1,
-    total_epochs: 30,
+    total_epochs: 50,
     progress: 0,
     batch_size: 4,
     image_size: 640,

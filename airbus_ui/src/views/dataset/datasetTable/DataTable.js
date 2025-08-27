@@ -495,7 +495,7 @@ const renderGroupTrainingButton = useCallback((group) => {
 
   return (
     <ModernCard elevation={0}>
-      {/* Global Training Progress Bar */}
+      {/* Global Training Progress Bar
       {trainingInProgress && trainingData && (
         <Box sx={{ mb: 2, p: 2, bgcolor: "rgba(102, 126, 234, 0.04)", borderRadius: 2 }}>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
@@ -549,7 +549,7 @@ const renderGroupTrainingButton = useCallback((group) => {
             </Typography>
           </Box>
         </Box>
-      )}
+      )} */}
 
       {/* Group Overview Header */}
       <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(102, 126, 234, 0.05)', borderRadius: 2 }}>
