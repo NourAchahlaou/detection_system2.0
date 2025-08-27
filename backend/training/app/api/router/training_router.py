@@ -108,37 +108,27 @@ def find_existing_training_session(db: Session, piece_labels: List[str]) -> Opti
             
         sorted_labels = sorted(piece_labels)
         
-        # FIXED: Look for sessions that are truly incomplete
+        # FIXED: Look for sessions that are truly incomplete AND not currently training
         # A session is resumable if:
-        # 1. Not currently training (is_training == False)
+        # 1. Not currently training (is_training == False) 
         # 2. Has made some progress (current_epoch >= 1)
         # 3. Hasn't finished all epochs (current_epoch < epochs)
-        # 4. Either completed_at is NULL OR current_epoch < epochs (handles premature completion)
         
         incomplete_sessions = db.query(TrainingSession).filter(
             TrainingSession.is_training == False,  # Not currently training
-            TrainingSession.current_epoch >= 1,  # Has started (epoch 1 or more)
-            TrainingSession.current_epoch < TrainingSession.epochs,  # Not finished all epochs
-            # REMOVED the completed_at.is_(None) condition - it's handled by epoch check
+            TrainingSession.current_epoch >= 1,    # Has started (epoch 1 or more)
+            TrainingSession.current_epoch < TrainingSession.epochs  # Not finished all epochs
         ).order_by(TrainingSession.started_at.desc()).all()
         
-        # Additional filtering: Only consider sessions where epochs weren't fully completed
-        truly_incomplete_sessions = []
-        for session in incomplete_sessions:
-            # A session is truly incomplete if it hasn't done all epochs
-            if session.current_epoch < session.epochs:
-                truly_incomplete_sessions.append(session)
-                logger.info(f"Found resumable session {session.id}: {session.current_epoch}/{session.epochs} epochs")
-        
-        logger.info(f"Found {len(truly_incomplete_sessions)} truly incomplete sessions")
+        logger.info(f"Found {len(incomplete_sessions)} incomplete sessions")
         logger.info(f"Looking for resumable session for pieces: {piece_labels}")
         
-        if not truly_incomplete_sessions:
+        if not incomplete_sessions:
             logger.info("No incomplete sessions found")
             return None
         
         # Strategy 1: Exact piece label match (highest priority)
-        for session in truly_incomplete_sessions:
+        for session in incomplete_sessions:
             if not session.piece_labels:
                 logger.info(f"Session {session.id}: No piece_labels, skipping")
                 continue
@@ -156,7 +146,7 @@ def find_existing_training_session(db: Session, piece_labels: List[str]) -> Opti
                 return session
         
         # Strategy 2: High overlap match (80% or more)
-        for session in truly_incomplete_sessions:
+        for session in incomplete_sessions:
             if not session.piece_labels:
                 continue
                 
@@ -187,7 +177,7 @@ def find_existing_training_session(db: Session, piece_labels: List[str]) -> Opti
                 for group_name in piece_groups.keys():
                     logger.info(f"Searching for resumable sessions for group: {group_name}")
                     
-                    for session in truly_incomplete_sessions:
+                    for session in incomplete_sessions:
                         if not session.piece_labels:
                             continue
                             
@@ -226,7 +216,7 @@ def find_existing_training_session(db: Session, piece_labels: List[str]) -> Opti
             logger.warning(f"Group extraction failed: {str(group_extraction_error)}")
         
         # Strategy 4: Partial match (any overlap, lowest priority)
-        for session in truly_incomplete_sessions:
+        for session in incomplete_sessions:
             if not session.piece_labels:
                 continue
                 
@@ -252,7 +242,6 @@ def find_existing_training_session(db: Session, piece_labels: List[str]) -> Opti
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return None
-
 def create_training_session(db: Session, piece_labels: List[str]) -> TrainingSession:
     """Create a new training session with comprehensive error handling."""
     try:
@@ -1042,24 +1031,17 @@ def get_resumable_sessions(db: db_dependency):
     """
     try:
         # FIXED: Use same criteria as find_existing_training_session
-        # Find sessions that are incomplete (not all epochs finished)
+        # Find sessions that are incomplete (not all epochs finished) and not currently training
         resumable_sessions = db.query(TrainingSession).filter(
             TrainingSession.is_training == False,  # Not currently training
-            TrainingSession.current_epoch >= 1,   # Has started (epoch 1 or more)
-            TrainingSession.current_epoch < TrainingSession.epochs,  # Not finished all epochs
-            # REMOVED completed_at condition - let epoch comparison be the authority
+            TrainingSession.current_epoch >= 1,    # Has started (epoch 1 or more)
+            TrainingSession.current_epoch < TrainingSession.epochs  # Not finished all epochs
         ).order_by(TrainingSession.started_at.desc()).all()
         
-        # Additional filtering: Only include sessions that truly haven't finished
-        truly_resumable = []
-        for session in resumable_sessions:
-            if session.current_epoch < session.epochs:
-                truly_resumable.append(session)
-        
-        logger.info(f"Found {len(truly_resumable)} resumable sessions out of {len(resumable_sessions)} candidates")
+        logger.info(f"Found {len(resumable_sessions)} resumable sessions")
         
         sessions_data = []
-        for session in truly_resumable:
+        for session in resumable_sessions:
             session_dict = session.to_dict()
             
             # Calculate resumability metrics
@@ -1109,7 +1091,7 @@ def get_resumable_sessions(db: db_dependency):
                     "avg_progress": sum(s["resumability_score"] for s in sessions_data) / len(sessions_data) if sessions_data else 0,
                     "debug": {
                         "candidates_found": len(resumable_sessions),
-                        "truly_resumable": len(truly_resumable)
+                        "query_criteria": "is_training=False AND current_epoch>=1 AND current_epoch<epochs"
                     }
                 }
             },
@@ -1125,7 +1107,7 @@ def get_resumable_sessions(db: db_dependency):
                 details=str(e)
             )
         )
-
+        
 @training_router.get("/group/{group_name}/status")
 def get_group_training_status(group_name: str, db: db_dependency):
     """

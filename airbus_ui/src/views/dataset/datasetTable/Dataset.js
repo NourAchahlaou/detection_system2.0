@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   CircularProgress,
   Backdrop,
@@ -64,6 +64,9 @@ export default function DatasetComponenet({
   // Training state - removed local training state since it's now passed from parent
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [trainingPieces, setTrainingPieces] = useState([]);
+  
+  // FIXED: Add ref to track if additional data has been fetched to prevent multiple calls
+  const additionalDataFetched = useRef(false);
   
   // Filter state
   const [filters, setFilters] = useState({
@@ -209,9 +212,15 @@ export default function DatasetComponenet({
     setShowTrainingStatus(shouldShowTrainingStatus);
   }, [trainingInProgress, trainingData, hasActiveOrPausedSession]);
 
-  // FIXED: Separate function for fetching additional data (statistics, groups)
+  // FIXED: Separate function for fetching additional data - only fetch once and cache result
   const fetchAdditionalData = useCallback(async () => {
+    if (additionalDataFetched.current) {
+      console.log('Additional data already fetched, skipping...');
+      return;
+    }
+    
     try {
+      console.log('Fetching additional data (statistics and groups)...');
       const [statsResponse, groupsResponse] = await Promise.all([
         datasetService.getDatasetStatistics(),
         datasetService.getAvailableGroups()
@@ -219,6 +228,8 @@ export default function DatasetComponenet({
       
       setStatistics(statsResponse.overview || statsResponse);
       setAvailableGroups(groupsResponse || []);
+      additionalDataFetched.current = true;
+      console.log('Additional data fetched successfully');
     } catch (error) {
       console.error("Error fetching additional data:", error);
       setError("Failed to fetch additional data. Please try again.");
@@ -228,7 +239,7 @@ export default function DatasetComponenet({
   // FIXED: Only fetch additional data once on mount
   useEffect(() => {
     fetchAdditionalData();
-  }, []); // Empty dependency array - only run once
+  }, [fetchAdditionalData]);
 
   // Notification handler
   const showNotification = (message, severity = 'success') => {
@@ -576,8 +587,8 @@ export default function DatasetComponenet({
           }
         }
         
-        // Refresh only additional data, not the datasets
-        await fetchAdditionalData();
+        // FIXED: Don't refresh additional data after delete operations
+        // The parent component should handle refreshing the main dataset
         
       } catch (error) {
         console.error("Delete operation failed:", error);
@@ -615,8 +626,10 @@ export default function DatasetComponenet({
     // based on combined state (training + session + component state)
   }, []);
 
-  // FIXED: Refresh function that doesn't cause infinite loops
+  // FIXED: Refresh function that only refreshes additional data, not datasets
   const handleRefresh = useCallback(async () => {
+    // Reset the flag so additional data can be refetched
+    additionalDataFetched.current = false;
     await fetchAdditionalData();
   }, [fetchAdditionalData]);
 

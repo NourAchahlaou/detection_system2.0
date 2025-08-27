@@ -17,7 +17,6 @@ import {
   ListItemText,
   Divider,
   Grid,
-  Alert,
   Tooltip,
   Collapse,
   Accordion,
@@ -34,7 +33,6 @@ import {
   Analytics,
   Refresh,
   CheckCircle,
-  Error,
   Schedule,
   Computer,
 } from '@mui/icons-material';
@@ -43,8 +41,6 @@ import { datasetService } from '../datasetService';
 const TrainingStatusComponent = ({ onTrainingStateChange }) => {
   const [trainingStatus, setTrainingStatus] = useState(null);
   const [trainingSessions, setTrainingSessions] = useState([]);
-  const [resumableSessions, setResumableSessions] = useState([]);
-  // Add state to persist session info even when training is paused
   const [persistedSessionInfo, setPersistedSessionInfo] = useState(null);
   const [showSessionsDialog, setShowSessionsDialog] = useState(false);
   const [showLogsDialog, setShowLogsDialog] = useState(false);
@@ -52,7 +48,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  // Fetch training sessions
+  // Fetch training sessions (only when dialog is opened)
   const fetchTrainingSessions = async () => {
     try {
       const response = await datasetService.getTrainingSessions({ limit: 10 });
@@ -62,32 +58,13 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     }
   };
 
-  // Fetch resumable sessions
-  const fetchResumableSessions = async () => {
-    try {
-      const response = await datasetService.getResumableSessions();
-      setResumableSessions(response.data?.resumable_sessions || []);
-    } catch (error) {
-      console.error('Error fetching resumable sessions:', error);
-    }
-  };
-
   // Manual refresh function for buttons
   const refreshTrainingData = async () => {
     try {
-      const [statusResponse, sessionsResponse, resumableResponse] = await Promise.all([
-        datasetService.getTrainingStatus(true),
-        datasetService.getTrainingSessions({ limit: 10 }),
-        datasetService.getResumableSessions()
-      ]);
-
+      const statusResponse = await datasetService.getTrainingStatus(true);
       const newStatus = statusResponse.data;
-      const sessions = sessionsResponse.data?.sessions || [];
-      const resumable = resumableResponse.data?.resumable_sessions || [];
 
       setTrainingStatus(newStatus);
-      setTrainingSessions(sessions);
-      setResumableSessions(resumable);
 
       if (newStatus?.session_info) {
         setPersistedSessionInfo(newStatus.session_info);
@@ -96,7 +73,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
       if (onTrainingStateChange) {
         const currentPersistedInfo = newStatus?.session_info || persistedSessionInfo;
         const hasActiveSession = newStatus?.is_training || 
-          (currentPersistedInfo && !currentPersistedInfo.completed_at && resumable.length > 0);
+          (currentPersistedInfo && !currentPersistedInfo.completed_at);
         
         onTrainingStateChange(hasActiveSession);
       }
@@ -105,7 +82,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     }
   };
 
-  // Fetch training logs
+  // Fetch training logs (only when dialog is opened)
   const fetchTrainingLogs = async () => {
     try {
       const response = await datasetService.getTrainingLogs({ limit: 100 });
@@ -120,16 +97,10 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     setLoading(true);
     try {
       await datasetService.stopTraining();
-      
-      // Clear persisted session info when explicitly stopping
       setPersistedSessionInfo(null);
-      
-      // Refresh all data
       await refreshTrainingData();
       
-      // Notify parent that training is no longer active
       if (onTrainingStateChange) {
-        console.log('Notifying parent after stop - no active sessions');
         onTrainingStateChange(false);
       }
     } catch (error) {
@@ -152,15 +123,10 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     }
   };
 
-  // Resume training session
+  // Resume training session using session ID from paused session
   const handleResumeSession = async (sessionId) => {
     setLoading(true);
     try {
-      // If no specific sessionId provided, try to resume the most recent resumable session
-      if (!sessionId && resumableSessions.length > 0) {
-        sessionId = resumableSessions[0].id;
-      }
-      
       await datasetService.resumeTrainingSession(sessionId);
       await refreshTrainingData();
     } catch (error) {
@@ -170,7 +136,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     }
   };
 
-  // Get status info with improved logic
+  // Get status info
   const getStatusInfo = () => {
     if (!trainingStatus) return { color: 'default', text: 'Unknown', icon: null };
     
@@ -185,12 +151,6 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
         color: 'warning', 
         text: 'Paused', 
         icon: <Pause fontSize="small" />
-      };
-    } else if (resumableSessions.length > 0) {
-      return { 
-        color: 'info', 
-        text: 'Resumable Session Available', 
-        icon: <Resume fontSize="small" />
       };
     } else if (trainingStatus.session_info || persistedSessionInfo) {
       return { 
@@ -216,65 +176,10 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Auto-refresh training status
+  // Initial data fetch only - no polling
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchAllData = async () => {
-      try {
-        // Fetch all data in sequence to avoid race conditions
-        const [statusResponse, sessionsResponse, resumableResponse] = await Promise.all([
-          datasetService.getTrainingStatus(true),
-          datasetService.getTrainingSessions({ limit: 10 }),
-          datasetService.getResumableSessions()
-        ]);
-
-        if (!isMounted) return;
-
-        const newStatus = statusResponse.data;
-        const sessions = sessionsResponse.data?.sessions || [];
-        const resumable = resumableResponse.data?.resumable_sessions || [];
-
-        // Update all states
-        setTrainingStatus(newStatus);
-        setTrainingSessions(sessions);
-        setResumableSessions(resumable);
-
-        // Handle session persistence
-        if (newStatus?.session_info) {
-          setPersistedSessionInfo(newStatus.session_info);
-        }
-
-        // Notify parent component with current data
-        if (onTrainingStateChange) {
-          const currentPersistedInfo = newStatus?.session_info || persistedSessionInfo;
-          
-          const hasActiveSession = newStatus?.is_training || 
-            (currentPersistedInfo && !currentPersistedInfo.completed_at && resumable.length > 0);
-          
-          console.log('Notifying parent - hasActiveSession:', hasActiveSession, {
-            isTraining: newStatus?.is_training,
-            hasPersistedInfo: !!currentPersistedInfo,
-            resumableSessions: resumable.length
-          });
-          
-          onTrainingStateChange(hasActiveSession);
-        }
-      } catch (error) {
-        console.error('Error fetching training data:', error);
-      }
-    };
-
-    // Initial fetch
-    fetchAllData();
-
-    const interval = setInterval(fetchAllData, 5000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [persistedSessionInfo, onTrainingStateChange]);
+    refreshTrainingData();
+  }, []);
 
   // Use persisted session info or current session info
   const currentSessionInfo = trainingStatus?.session_info || persistedSessionInfo;
@@ -306,7 +211,10 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
             
             <Tooltip title="View Sessions">
               <IconButton 
-                onClick={() => setShowSessionsDialog(true)} 
+                onClick={() => {
+                  fetchTrainingSessions();
+                  setShowSessionsDialog(true);
+                }} 
                 size="small"
                 color="primary"
               >
@@ -331,7 +239,6 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
           </Box>
         </Box>
 
-        {/* Use currentSessionInfo instead of trainingStatus.session_info */}
         {currentSessionInfo && (
           <Accordion expanded={expanded} onChange={(e, isExpanded) => setExpanded(isExpanded)}>
             <AccordionSummary expandIcon={<ExpandMore />}>
@@ -439,7 +346,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
         )}
 
         {/* Control Buttons - Show when we have session info or training is active */}
-        {(trainingStatus?.is_training || currentSessionInfo || resumableSessions.length > 0) && (
+        {(trainingStatus?.is_training || currentSessionInfo) && (
           <Box display="flex" gap={1} mt={2}>
             {trainingStatus?.is_training ? (
               <>
@@ -465,13 +372,13 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
                 </Button>
               </>
             ) : (
-              // Show resume button when paused or when resumable sessions exist
-              (currentSessionInfo || resumableSessions.length > 0) && (
+              // Show resume button when paused session exists
+              currentSessionInfo && !currentSessionInfo.completed_at && (
                 <Button
                   variant="outlined"
                   color="success"
                   startIcon={<Resume />}
-                  onClick={() => handleResumeSession()}
+                  onClick={() => handleResumeSession(currentSessionInfo.id)}
                   disabled={loading}
                   size="small"
                 >
@@ -480,25 +387,6 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
               )
             )}
           </Box>
-        )}
-
-        {/* Resumable Sessions Alert */}
-        {resumableSessions.length > 0 && !trainingStatus?.is_training && (
-          <Alert 
-            severity="info" 
-            sx={{ mt: 2 }}
-            action={
-              <Button 
-                color="inherit" 
-                size="small" 
-                onClick={() => setShowSessionsDialog(true)}
-              >
-                View All
-              </Button>
-            }
-          >
-            {resumableSessions.length} training session(s) can be resumed
-          </Alert>
         )}
       </CardContent>
 
@@ -511,64 +399,6 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
       >
         <DialogTitle>Training Sessions</DialogTitle>
         <DialogContent>
-          {/* Resumable Sessions Section */}
-          {resumableSessions.length > 0 && (
-            <>
-              <Typography variant="h6" gutterBottom color="primary">
-                Resumable Sessions
-              </Typography>
-              <List>
-                {resumableSessions.map((session, index) => (
-                  <React.Fragment key={session.id}>
-                    <ListItem>
-                      <ListItemText
-                        primary={
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Typography variant="subtitle2">{session.session_name}</Typography>
-                            <Chip
-                              size="small"
-                              label="Resumable"
-                              color="warning"
-                              icon={<Pause />}
-                            />
-                          </Box>
-                        }
-                        secondary={
-                          <Box>
-                            <Typography variant="caption" display="block">
-                              Started: {new Date(session.started_at).toLocaleString()}
-                            </Typography>
-                            <Typography variant="caption" display="block">
-                              Progress: {Math.round(session.progress_percentage || 0)}%
-                            </Typography>
-                          </Box>
-                        }
-                      />
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<Resume />}
-                        onClick={() => {
-                          handleResumeSession(session.id);
-                          setShowSessionsDialog(false);
-                        }}
-                        disabled={loading}
-                      >
-                        Resume
-                      </Button>
-                    </ListItem>
-                    {index < resumableSessions.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </List>
-              <Divider sx={{ my: 2 }} />
-            </>
-          )}
-
-          {/* All Sessions Section */}
-          <Typography variant="h6" gutterBottom>
-            Recent Sessions
-          </Typography>
           <List>
             {trainingSessions.map((session, index) => (
               <React.Fragment key={session.id}>
