@@ -372,6 +372,8 @@ export default function AppDatabasesetup() {
   }, []);
 
   const handleView = useCallback((piece) => {
+    navigate(`/pieceImageViewer?piece=${encodeURIComponent(piece.label)}`);
+
     console.log('👁️ View piece:', piece);
   }, []);
 
@@ -380,10 +382,10 @@ export default function AppDatabasesetup() {
 // FIXED: handleDelete in AppDatabasesetup.js
 const handleDelete = useCallback(async (pieceInput) => {
   console.log('Delete pieces called with:', pieceInput);
-  
+  let labelsToDelete;
   try {
     // FIXED: Normalize input - handle both single piece and array formats
-    let labelsToDelete;
+    
     
     if (Array.isArray(pieceInput)) {
       // Array of labels or piece objects
