@@ -307,7 +307,7 @@ trainMultiplePieces: async (pieceLabels) => {
   // Stop training process
   stopTraining: async () => {
     try {
-      const response = await api.post("/api/training/training/stop_training");
+      const response = await api.post("/api/training/training/stop");
       console.log(response.data.message || "Training stopped successfully");
       return response.data;
     } catch (error) {

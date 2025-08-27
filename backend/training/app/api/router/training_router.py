@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from training.app.request.training_request import TrainRequest
-from training.app.services.model_training_service import train_model, stop_training
+from training.app.services.model_training_service import train_model, stop_training,extract_group_from_piece_label, group_pieces_by_prefix
 from training.app.db.session import get_session, create_new_session, safe_commit, safe_close
 from training.app.db.models.training import TrainingSession
 from datetime import datetime
@@ -17,6 +17,7 @@ from datetime import timedelta
 # Professional logging setup with volume mounting
 log_dir = os.getenv("LOG_PATH", "/usr/srv/logs")
 log_file = os.path.join(log_dir, "training.log")
+       
 
 # Ensure log directory exists with proper permissions
 os.makedirs(log_dir, exist_ok=True)
@@ -102,28 +103,35 @@ def get_active_training_session(db: Session) -> Optional[TrainingSession]:
 
 
 def find_existing_training_session(db: Session, piece_labels: List[str]) -> Optional[TrainingSession]:
-    """Find existing training session for the same piece labels with improved logic."""
+    """Find existing incomplete training session for the same piece labels with improved logic."""
     try:
         if not piece_labels:
             return None
             
         sorted_labels = sorted(piece_labels)
         
-        # Find incomplete sessions (not training, not completed, not failed)
-        sessions = db.query(TrainingSession).filter(
-            TrainingSession.is_training == False,
-            TrainingSession.completed_at.is_(None),
-          
-        ).order_by(TrainingSession.started_at.desc()).all()
+        # Extract group from piece labels to find group-based sessions
         
-        for session in sessions:
-            if session.piece_labels and sorted(session.piece_labels) == sorted_labels:
-                return session
+        piece_groups = group_pieces_by_prefix(piece_labels)
+        
+        # Look for incomplete sessions for any of these groups
+        for group_name in piece_groups.keys():
+            # Find incomplete sessions (not training, not completed, current_epoch < total_epochs)
+            sessions = db.query(TrainingSession).filter(
+                TrainingSession.is_training == False,
+                TrainingSession.completed_at.is_(None),
+                TrainingSession.current_epoch < TrainingSession.epochs,  # Not completed all epochs
+                TrainingSession.session_name.like(f"%{group_name}%")  # Contains group name
+            ).order_by(TrainingSession.started_at.desc()).all()
+            
+            for session in sessions:
+                if session.piece_labels:
+                    session_groups = group_pieces_by_prefix(session.piece_labels)
+                    # Check if this session contains the same group
+                    if group_name in session_groups:
+                        return session
         
         return None
-    except SQLAlchemyError as e:
-        logger.error(f"Database error finding existing training session: {str(e)}")
-        raise HTTPException(status_code=500, detail="Database error occurred")
     except Exception as e:
         logger.error(f"Error finding existing training session: {str(e)}")
         return None
@@ -172,11 +180,11 @@ def resume_training_session(db: Session, session: TrainingSession, piece_labels:
         # Reset training state but keep progress
         session.is_training = False
         session.completed_at = None
-       
         
         # Add log entry about resuming
-        resume_message = f"Resuming training from epoch {session.current_epoch}"
+        resume_message = f"Resuming training from epoch {session.current_epoch}/{session.epochs}"
         session.add_log("INFO", resume_message)
+        session.add_log("INFO", f"Resume progress: {session.progress_percentage:.1f}%")
         
         if not safe_commit(db):
             raise HTTPException(status_code=500, detail="Failed to resume training session")
@@ -194,7 +202,6 @@ def resume_training_session(db: Session, session: TrainingSession, piece_labels:
 
 
 # ==================== TRAINING ENDPOINTS ====================
-
 @training_router.post("/train")
 async def train_piece_model(request: TrainRequest, db: db_dependency, background_tasks: BackgroundTasks):
     """
@@ -234,7 +241,7 @@ async def train_piece_model(request: TrainRequest, db: db_dependency, background
                 }
             )
         
-        # Look for resumable session
+        # Look for resumable session for the same group
         existing_session = find_existing_training_session(db, request.piece_labels)
         
         if existing_session:
@@ -242,6 +249,14 @@ async def train_piece_model(request: TrainRequest, db: db_dependency, background
             action = "resumed"
             is_resume = True
             start_epoch = training_session.current_epoch
+            
+            # Log resume details
+            from training.app.services.model_training_service import group_pieces_by_prefix
+            piece_groups = group_pieces_by_prefix(request.piece_labels)
+            group_names = list(piece_groups.keys())
+            
+            logger.info(f"Resuming training for groups {group_names} from epoch {start_epoch}")
+            training_session.add_log("INFO", f"Resuming training for groups {group_names}")
         else:
             training_session = create_training_session(db, request.piece_labels)
             action = "created"
@@ -265,7 +280,13 @@ async def train_piece_model(request: TrainRequest, db: db_dependency, background
             "start_epoch": start_epoch,
             "total_epochs": training_session.epochs,
             "model_type": training_session.model_type,
-            "status": "initiated"
+            "status": "initiated",
+            "resume_info": {
+                "can_resume": is_resume,
+                "progress_percentage": training_session.progress_percentage if is_resume else 0,
+                "epochs_completed": start_epoch - 1 if is_resume else 0,
+                "epochs_remaining": training_session.epochs - start_epoch + 1 if is_resume else training_session.epochs
+            }
         }
         
         return create_success_response(
@@ -284,8 +305,7 @@ async def train_piece_model(request: TrainRequest, db: db_dependency, background
                 details=str(e)
             )
         )
-
-
+    
 async def train_model_with_status_updates(piece_labels: List[str], session_id: int, is_resume: bool = False):
     """
     Enhanced wrapper function for training with better error handling and async support.
@@ -314,13 +334,32 @@ async def train_model_with_status_updates(piece_labels: List[str], session_id: i
         # Execute training
         await asyncio.to_thread(train_model, piece_labels, db, session_id)
         
-        # Mark as completed
+        # Mark as completed ONLY if all epochs are done
         db.refresh(training_session)
-        training_session.complete_training()
-        if not safe_commit(db):
-            logger.error("Failed to mark training as completed")
+        if training_session.current_epoch >= training_session.epochs:
+            training_session.complete_training()
+            training_session.add_log("SUCCESS", f"Training completed successfully! All {training_session.epochs} epochs finished.")
+            
+            # Update pieces to is_yolo_trained = True
+            from training.app.services.model_training_service import group_pieces_by_prefix
+            from training.app.db.models.piece import Piece
+            
+            piece_groups = group_pieces_by_prefix(piece_labels)
+            for group_name, group_pieces in piece_groups.items():
+                for piece_label in group_pieces:
+                    piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+                    if piece:
+                        piece.is_yolo_trained = True
+            
+            if not safe_commit(db):
+                logger.error("Failed to mark training as completed and update pieces")
+            else:
+                logger.info(f"Training completed successfully for session {session_id} - All pieces marked as trained")
+        else:
+            training_session.add_log("INFO", f"Training session stopped at epoch {training_session.current_epoch}/{training_session.epochs}. Can be resumed later.")
+            logger.info(f"Training session {session_id} incomplete - can be resumed from epoch {training_session.current_epoch}")
         
-        logger.info(f"Training completed successfully for session {session_id}")
+        safe_commit(db)
         
     except Exception as e:
         logger.error(f"Training failed for session {session_id}: {str(e)}", exc_info=True)
@@ -878,34 +917,58 @@ def get_training_statistics(db: db_dependency):
             )
         )
 
-
 @training_router.get("/resumable")
 def get_resumable_sessions(db: db_dependency):
     """
-    Get list of training sessions that can be resumed with enhanced filtering.
+    Get list of training sessions that can be resumed with enhanced group-based filtering.
     """
     try:
+        # Find sessions that are incomplete (not all epochs finished)
         resumable_sessions = db.query(TrainingSession).filter(
             TrainingSession.is_training == False,
             TrainingSession.completed_at.is_(None),
-        
-            TrainingSession.current_epoch > 1  # Only sessions that have made some progress
+            TrainingSession.current_epoch < TrainingSession.epochs,  # Not all epochs completed
+            TrainingSession.current_epoch > 1  # Has made some progress
         ).order_by(TrainingSession.started_at.desc()).all()
         
         sessions_data = []
         for session in resumable_sessions:
             session_dict = session.to_dict()
-            # Add resumability score based on progress
-            progress_score = (session.current_epoch / session.epochs) * 100 if session.epochs else 0
-            session_dict["resumability_score"] = round(progress_score, 1)
-            session_dict["estimated_remaining_epochs"] = max(0, session.epochs - session.current_epoch)
+            
+            # Calculate resumability metrics
+            epochs_completed = session.current_epoch - 1
+            epochs_remaining = session.epochs - session.current_epoch + 1
+            progress_score = (epochs_completed / session.epochs) * 100 if session.epochs else 0
+            
+            # Extract group information
+            from training.app.services.model_training_service import group_pieces_by_prefix
+            piece_groups = group_pieces_by_prefix(session.piece_labels or [])
+            
+            session_dict.update({
+                "resumability_score": round(progress_score, 1),
+                "epochs_completed": epochs_completed,
+                "epochs_remaining": epochs_remaining,
+                "groups": list(piece_groups.keys()) if piece_groups else [],
+                "can_resume": True,
+                "resume_benefits": {
+                    "time_saved": f"Skip {epochs_completed} completed epochs",
+                    "progress_preserved": f"{progress_score:.1f}% progress maintained"
+                }
+            })
             sessions_data.append(session_dict)
+        
+        # Sort by resumability score (highest first)
+        sessions_data.sort(key=lambda x: x["resumability_score"], reverse=True)
         
         return create_success_response(
             data={
                 "resumable_sessions": sessions_data,
                 "total_count": len(sessions_data),
-                "recommendation": sessions_data[0] if sessions_data else None
+                "recommendation": sessions_data[0] if sessions_data else None,
+                "summary": {
+                    "total_resumable": len(sessions_data),
+                    "avg_progress": sum(s["resumability_score"] for s in sessions_data) / len(sessions_data) if sessions_data else 0
+                }
             },
             message=f"Found {len(sessions_data)} resumable training sessions"
         )
@@ -921,6 +984,81 @@ def get_resumable_sessions(db: db_dependency):
         )
 
 
+@training_router.get("/group/{group_name}/status")
+def get_group_training_status(group_name: str, db: db_dependency):
+    """
+    Get training status for a specific group.
+    """
+    try:
+        # Find the most recent session for this group
+        group_sessions = db.query(TrainingSession).filter(
+            TrainingSession.session_name.like(f"%{group_name}%")
+        ).order_by(TrainingSession.started_at.desc()).all()
+        
+        if not group_sessions:
+            return create_success_response(
+                data={
+                    "group_name": group_name,
+                    "status": "never_trained",
+                    "sessions": []
+                }
+            )
+        
+        latest_session = group_sessions[0]
+        
+        # Determine group status
+        if latest_session.is_training:
+            status = "training"
+        elif latest_session.completed_at:
+            status = "completed"
+        elif latest_session.current_epoch >= latest_session.epochs:
+            status = "completed"
+        elif latest_session.current_epoch > 1:
+            status = "resumable"
+        else:
+            status = "failed"
+        
+        # Get pieces training status
+        from training.app.db.models.piece import Piece
+        pieces_status = []
+        
+        if latest_session.piece_labels:
+            for piece_label in latest_session.piece_labels:
+                piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+                if piece:
+                    pieces_status.append({
+                        "piece_label": piece_label,
+                        "is_yolo_trained": piece.is_yolo_trained,
+                        "is_annotated": piece.is_annotated
+                    })
+        
+        return create_success_response(
+            data={
+                "group_name": group_name,
+                "status": status,
+                "latest_session": latest_session.to_dict(),
+                "pieces_status": pieces_status,
+                "can_resume": status == "resumable",
+                "all_sessions_count": len(group_sessions),
+                "training_summary": {
+                    "epochs_completed": latest_session.current_epoch - 1 if latest_session.current_epoch > 1 else 0,
+                    "epochs_total": latest_session.epochs,
+                    "progress_percentage": latest_session.progress_percentage or 0,
+                    "pieces_trained": sum(1 for p in pieces_status if p["is_yolo_trained"]),
+                    "total_pieces": len(pieces_status)
+                }
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get group training status: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Failed to get group training status",
+                details=str(e)
+            )
+        )
 # ==================== BATCH OPERATIONS ====================
 
 @training_router.post("/batch/train")

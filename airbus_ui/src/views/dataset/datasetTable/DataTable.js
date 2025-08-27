@@ -239,38 +239,57 @@ export default function DataTable({
     navigate(`/PiecesGroupOverview`);
   }
   // Group training action button
-  const renderGroupTrainingButton = useCallback((group) => {
-    const isCurrentlyTraining = isGroupBeingTrained(group);
-    const trainableCount = group.pieces.filter(p => p.is_annotated && !p.is_yolo_trained).length;
-    
-    if (isCurrentlyTraining) {
-      return (
-        <Tooltip title="Training in progress">
-          <Button 
-            size="small"
-            variant="contained"
-            disabled
-            startIcon={<CircularProgress size={12} />}
-            sx={{ 
-              textTransform: "none",
-              minWidth: "100px",
-              fontSize: "0.75rem",
-              bgcolor: "#ff9800",
-              color: "white",
-              "&:disabled": {
-                bgcolor: "rgba(255, 152, 0, 0.6)",
-                color: "white"
-              }
-            }}
-          >
-            Training
-          </Button>
-        </Tooltip>
-      );
-    }
+const renderGroupTrainingButton = useCallback((group) => {
+  const isCurrentlyTraining = isGroupBeingTrained(group);
+  const trainableCount = group.pieces.filter(p => p.is_annotated && !p.is_yolo_trained).length;
+  
+  if (isCurrentlyTraining) {
+    return (
+      <Tooltip title="Training in progress">
+        <Button 
+          size="small"
+          variant="contained"
+          disabled
+          startIcon={<CircularProgress size={12} />}
+          sx={{ 
+            textTransform: "none",
+            minWidth: "100px",
+            fontSize: "0.75rem",
+            bgcolor: "#ff9800",
+            color: "white",
+            "&:disabled": {
+              bgcolor: "rgba(255, 152, 0, 0.6)",
+              color: "white"
+            }
+          }}
+        >
+          Training
+        </Button>
+      </Tooltip>
+    );
+  }
 
-    if (group.isFullyTrained) {
-      return (
+  if (group.isFullyTrained) {
+    return (
+      <Button 
+        size="small"
+        variant="outlined"
+        disabled
+        sx={{ 
+          textTransform: "none",
+          minWidth: "100px",
+          fontSize: "0.75rem",
+          opacity: 0.6
+        }}
+      >
+        Trained
+      </Button>
+    );
+  }
+
+  if (trainableCount === 0) {
+    return (
+      <Tooltip title="No pieces ready for training">
         <Button 
           size="small"
           variant="outlined"
@@ -279,86 +298,65 @@ export default function DataTable({
             textTransform: "none",
             minWidth: "100px",
             fontSize: "0.75rem",
-            opacity: 0.6
+            opacity: 0.5
           }}
         >
-          Trained
+          Not Ready
         </Button>
-      );
-    }
+      </Tooltip>
+    );
+  }
 
-    if (trainableCount === 0) {
-      return (
-        <Tooltip title="No pieces ready for training">
-          <Button 
-            size="small"
-            variant="outlined"
-            disabled
-            sx={{ 
-              textTransform: "none",
-              minWidth: "100px",
-              fontSize: "0.75rem",
-              opacity: 0.5
-            }}
-          >
-            Not Ready
-          </Button>
-        </Tooltip>
-      );
-    }
-
-    if (trainingInProgress && !isCurrentlyTraining) {
-      return (
-        <Tooltip title="Another training session is active">
-          <Button 
-            size="small"
-            variant="outlined"
-            disabled
-            sx={{ 
-              textTransform: "none",
-              minWidth: "100px",
-              fontSize: "0.75rem",
-              opacity: 0.5
-            }}
-          >
-            Train Group
-          </Button>
-        </Tooltip>
-      );
-    }
-
+  if (trainingInProgress && !isCurrentlyTraining) {
     return (
-      <Tooltip title={`Train ${trainableCount} pieces in this group`}>
+      <Tooltip title="Another training session is active">
         <Button 
-          onClick={(event) => {
-            console.log('Train Group button clicked!');
-            handleTrainGroup(event, group);
-          }}
-          onMouseDown={(event) => {
-            event.stopPropagation();
-          }}
           size="small"
           variant="outlined"
-          startIcon={<PlayArrow fontSize="small" />}
+          disabled
           sx={{ 
             textTransform: "none",
             minWidth: "100px",
             fontSize: "0.75rem",
-            color: "#667eea",
-            borderColor: "#667eea",
-            "&:hover": {
-              bgcolor: "rgba(102, 126, 234, 0.04)",
-              borderColor: "#667eea"
-            },
-            zIndex: 2,
-            position: 'relative'
+            opacity: 0.5
           }}
         >
           Train Group
         </Button>
       </Tooltip>
     );
-  }, [isGroupBeingTrained, trainingInProgress, handleTrainGroup]);
+  }
+
+  return (
+    <Button 
+      onClick={(event) => {
+        console.log('🔥 Train Group button clicked for group:', group.name);
+        event.preventDefault();
+        event.stopPropagation();
+        handleTrainGroup(event, group);
+      }}
+      size="small"
+      variant="outlined"
+      startIcon={<PlayArrow fontSize="small" />}
+      sx={{ 
+        textTransform: "none",
+        minWidth: "100px",
+        fontSize: "0.75rem",
+        color: "#667eea",
+        borderColor: "#667eea",
+        "&:hover": {
+          bgcolor: "rgba(102, 126, 234, 0.04)",
+          borderColor: "#667eea"
+        },
+        // FIXED: Remove problematic z-index and positioning
+        cursor: 'pointer'
+      }}
+    >
+      Train Group ({trainableCount})
+    </Button>
+  );
+}, [isGroupBeingTrained, trainingInProgress, handleTrainGroup]);
+
 
   // GroupHeader component
   const GroupHeader = useCallback(({ group }) => (
@@ -462,7 +460,7 @@ export default function DataTable({
         
         {renderGroupTrainingButton(group)}
         
-        <Button
+        {/* <Button
           size="small"
           endIcon={<MoreVert />}
           onClick={(e) => {
@@ -478,7 +476,7 @@ export default function DataTable({
           }}
         >
           More
-        </Button>
+        </Button> */}
       </Box>
     </Box>
   ), [isGroupBeingTrained, renderGroupTrainingButton, handleTrainingMenuClick, trainingInProgress]);
@@ -722,7 +720,7 @@ export default function DataTable({
                       
                       <TableCell align="center">
                         <Typography variant="body2" color="#667eea" fontWeight="600">
-                          {piece.total_annotations}
+                          {piece.is_annotated ? "10":"0"}
                         </Typography>
                       </TableCell>
                       

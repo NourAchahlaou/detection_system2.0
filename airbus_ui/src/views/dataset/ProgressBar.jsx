@@ -18,7 +18,7 @@ const modalStyle = {
 export default function TrainingProgressModal({ open, handleClose, progress, details }) {
   const handleStopTraining = async () => {
     try {
-      await axios.post('http://localhost:8000/detection/stop_training');
+      await axios.post('api/training/training/stop');
       // Handle any state updates or notifications after stopping the training
     } catch (error) {
       console.error('Error stopping training:', error);

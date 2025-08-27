@@ -684,7 +684,6 @@ def get_pieces_by_group(group: str, db: Session) -> List[dict]:
     except SQLAlchemyError as e:
         raise Exception(f"Database error getting pieces by group: {str(e)}")
 
-
 def delete_pieces_batch(piece_labels: List[str], db: Session) -> Dict[str, Any]:
     """
     Delete multiple pieces by their labels with corrected file paths
@@ -697,6 +696,10 @@ def delete_pieces_batch(piece_labels: List[str], db: Session) -> Dict[str, Any]:
     
     try:
         logger.info(f"Starting batch delete for {len(piece_labels)} pieces: {piece_labels}")
+        
+        # Get the dataset base path from environment variable
+        dataset_base_path = os.getenv('DATASET_BASE_PATH', '/app/shared/dataset')
+        logger.info(f"Using dataset base path: {dataset_base_path}")
         
         # Step 1: Validate all pieces exist before starting deletion
         pieces_to_delete = []
@@ -756,38 +759,75 @@ def delete_pieces_batch(piece_labels: List[str], db: Session) -> Dict[str, Any]:
                 match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
                 if match:
                     extracted_label = match.group(1)
+                    logger.info(f"Extracted label: {extracted_label} from piece: {piece_label}")
                     
-                    # Based on your docker-compose, the dataset volume maps to /app/shared/dataset
-                    # But inside the container, the environment variable DATASET_BASE_PATH=/app/shared/dataset
-                    
+                    # List all possible folder paths that need to be deleted
                     folder_paths = [
-                        # Original piece folder
-                        os.path.join("/app/shared/dataset", 'piece', 'piece', extracted_label, piece_label),
+                        # Original piece folder (check both possible structures)
+                        os.path.join(dataset_base_path, 'piece', 'piece', extracted_label, piece_label),
+                        os.path.join(dataset_base_path, 'piece', extracted_label, piece_label),
                         
                         # Dataset custom folders for the specific piece
-                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'labels', 'valid', piece_label),
-                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'images', 'valid', piece_label),
-                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'labels', 'train', piece_label),
-                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'images', 'train', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'labels', 'valid', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'images', 'valid', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'labels', 'train', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'images', 'train', piece_label),
                         
                         # Cropped dataset folders
-                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'valid', piece_label),
-                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'images', 'valid', piece_label),
-                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'train', piece_label),
-                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'images', 'train', piece_label)
+                        os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'valid', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'images', 'valid', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'train', piece_label),
+                        os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'images', 'train', piece_label),
+                        
+                        # Additional possible locations (add more if you know other patterns)
+                        os.path.join(dataset_base_path, 'images', extracted_label, piece_label),
+                        os.path.join(dataset_base_path, 'labels', extracted_label, piece_label),
                     ]
+                    
+                    deleted_folders = []
+                    not_found_folders = []
+                    failed_folders = []
                     
                     # Log and delete each folder
                     for folder_path in folder_paths:
-                        logger.info(f"Attempting to delete folder: {folder_path}")
+                        logger.info(f"Checking folder: {folder_path}")
                         if os.path.exists(folder_path):
                             try:
                                 delete_directory(folder_path)
+                                deleted_folders.append(folder_path)
                                 logger.info(f"Successfully deleted folder: {folder_path}")
                             except Exception as folder_error:
-                                logger.warning(f"Failed to delete folder {folder_path}: {folder_error}")
+                                failed_folders.append(folder_path)
+                                logger.error(f"Failed to delete folder {folder_path}: {folder_error}")
                         else:
-                            logger.info(f"Folder does not exist: {folder_path}")
+                            not_found_folders.append(folder_path)
+                            logger.debug(f"Folder does not exist: {folder_path}")
+                    
+                    # Also check for any directories that might contain the piece_label directly
+                    # This is a more thorough search in case the structure is different
+                    try:
+                        for root, dirs, files in os.walk(dataset_base_path):
+                            if piece_label in dirs:
+                                piece_dir = os.path.join(root, piece_label)
+                                logger.info(f"Found additional piece directory: {piece_dir}")
+                                if piece_dir not in [fp for fp in folder_paths]:  # Avoid duplicates
+                                    try:
+                                        delete_directory(piece_dir)
+                                        deleted_folders.append(piece_dir)
+                                        logger.info(f"Successfully deleted additional folder: {piece_dir}")
+                                    except Exception as folder_error:
+                                        failed_folders.append(piece_dir)
+                                        logger.error(f"Failed to delete additional folder {piece_dir}: {folder_error}")
+                    except Exception as walk_error:
+                        logger.warning(f"Error during directory walk: {walk_error}")
+                    
+                    logger.info(f"Folder deletion summary for {piece_label}:")
+                    logger.info(f"  - Deleted: {len(deleted_folders)} folders")
+                    logger.info(f"  - Not found: {len(not_found_folders)} folders")
+                    logger.info(f"  - Failed: {len(failed_folders)} folders")
+                    
+                    if failed_folders:
+                        logger.warning(f"Some folders could not be deleted for {piece_label}: {failed_folders}")
                 else:
                     logger.warning(f"Could not extract label pattern from: {piece_label}")
                 

@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Annotated, List, Optional
 from datetime import datetime
-from artifact_keeper.app.services.deleteBatch import delete_pieces_batch_isolated
 from artifact_keeper.app.services.datasetManagerService import (
     get_all_datasets,
     get_all_datasets_with_filters,

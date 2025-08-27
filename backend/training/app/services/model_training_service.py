@@ -12,7 +12,7 @@ from datetime import datetime
 import time
 import re
 from collections import defaultdict
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 import gc
 import math
 
@@ -481,6 +481,22 @@ def train_model_group_based(piece_labels: list, db: Session, session_id: int):
         force_cleanup_gpu_memory()
         logger.info("Group-based training process finished and GPU memory cleared.")
 
+def find_existing_group_session(db: Session, group_name: str) -> Optional[TrainingSession]:
+    """Find existing incomplete training session for the same group."""
+    try:
+        # Look for incomplete sessions for this specific group
+        existing_session = db.query(TrainingSession).filter(
+            TrainingSession.is_training == False,
+            TrainingSession.completed_at.is_(None),
+            TrainingSession.current_epoch < TrainingSession.epochs,  # Not completed all epochs
+            TrainingSession.session_name.like(f"%{group_name}%")  # Contains group name
+        ).order_by(TrainingSession.started_at.desc()).first()
+        
+        return existing_session
+    except Exception as e:
+        logger.error(f"Error finding existing group session: {str(e)}")
+        return None
+
 def train_single_group(group_name: str, piece_labels: List[str], db: Session, session_id: int, device=None):
     """Train a single group with NaN prevention and stability improvements."""
     model = None
@@ -489,6 +505,41 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         if not training_session:
             logger.error(f"Training session {session_id} not found")
             return
+
+        # Check for existing incomplete session for this group
+        existing_group_session = find_existing_group_session(db, group_name)
+        resume_from_epoch = 1
+        is_resume = False
+        
+        if existing_group_session and existing_group_session.id != session_id:
+            # Found an existing incomplete session for this group
+            resume_from_epoch = existing_group_session.current_epoch
+            is_resume = True
+            
+            # Transfer the progress to current session
+            training_session.current_epoch = resume_from_epoch
+            training_session.progress_percentage = (resume_from_epoch / training_session.epochs) * 100
+            
+            # Copy relevant training data
+            if existing_group_session.device_used:
+                training_session.device_used = existing_group_session.device_used
+            if existing_group_session.batch_size:
+                training_session.batch_size = existing_group_session.batch_size
+            if existing_group_session.image_size:
+                training_session.image_size = existing_group_session.image_size
+                
+            # Add log about resuming
+            training_session.add_log("INFO", f"Resuming training for group {group_name} from epoch {resume_from_epoch}")
+            training_session.add_log("INFO", f"Previous session: {existing_group_session.session_name} (ID: {existing_group_session.id})")
+            
+            # Mark old session as superseded
+            existing_group_session.add_log("INFO", f"Session superseded by new session {training_session.session_name}")
+            
+            safe_commit(db)
+            logger.info(f"Resuming training for group {group_name} from epoch {resume_from_epoch}")
+        else:
+            training_session.add_log("INFO", f"Starting new training for group {group_name}")
+            safe_commit(db)
 
         # Use passed device or select new one
         if device is None:
@@ -571,23 +622,28 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         training_session.add_log("INFO", f"Created data.yaml for group {group_name} with {len(class_names)} classes")
         safe_commit(db)
 
-        # Rotation and augmentation
-        logger.info(f"Starting rotation and augmentation for group {group_name}")
-        training_session.add_log("INFO", f"Starting rotation and augmentation for group {group_name}")
-        safe_commit(db)
-        
-        try:
-            rotate_and_update_images(piece_labels, db)
-            training_session.add_log("INFO", f"Completed rotation and augmentation for group {group_name}")
-        except Exception as rotation_error:
-            training_session.add_log("WARNING", f"Rotation failed for group {group_name}: {str(rotation_error)}")
-        safe_commit(db)
+        # Only do rotation and cropping if starting from epoch 1
+        if resume_from_epoch == 1:
+            # Rotation and augmentation
+            logger.info(f"Starting rotation and augmentation for group {group_name}")
+            training_session.add_log("INFO", f"Starting rotation and augmentation for group {group_name}")
+            safe_commit(db)
+            
+            try:
+                rotate_and_update_images(piece_labels, db)
+                training_session.add_log("INFO", f"Completed rotation and augmentation for group {group_name}")
+            except Exception as rotation_error:
+                training_session.add_log("WARNING", f"Rotation failed for group {group_name}: {str(rotation_error)}")
+            safe_commit(db)
 
-        try:
-            crop_stats = apply_smart_cropping_to_group(group_name, piece_labels, crop_size=980, final_size=512)
-            training_session.add_log("INFO", f"Smart cropping completed for group {group_name}: {crop_stats}")
-        except Exception as crop_error:
-            training_session.add_log("WARNING", f"Smart cropping failed for group {group_name}: {str(crop_error)}")
+            try:
+                crop_stats = apply_smart_cropping_to_group(group_name, piece_labels, crop_size=980, final_size=512)
+                training_session.add_log("INFO", f"Smart cropping completed for group {group_name}: {crop_stats}")
+            except Exception as crop_error:
+                training_session.add_log("WARNING", f"Smart cropping failed for group {group_name}: {str(crop_error)}")
+        else:
+            training_session.add_log("INFO", f"Skipping rotation and cropping - resuming from epoch {resume_from_epoch}")
+            
         # Check existing model
         existing_classes = check_existing_classes_in_model(model_save_path)
         new_classes = list(class_mapping.keys())
@@ -665,7 +721,8 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             safe_commit(db)
             return
         
-        training_session.add_log("INFO", f"Starting training for group {group_name} with {training_session.epochs} epochs")
+        remaining_epochs = training_session.epochs - resume_from_epoch + 1
+        training_session.add_log("INFO", f"Starting training for group {group_name} from epoch {resume_from_epoch} ({remaining_epochs} epochs remaining)")
         training_session.add_log("INFO", f"Training hyperparameters: {hyperparameters}")
         safe_commit(db)
         
@@ -673,20 +730,19 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         use_amp = False
         
         if device.type == 'cpu':
-            # CPU: Train with fewer epochs first to test stability
-            test_epochs = min(5, training_session.epochs)
+            # CPU: Train with remaining epochs
             try:
-                training_session.add_log("INFO", f"CPU Training: Starting with {test_epochs} test epochs")
+                training_session.add_log("INFO", f"CPU Training: Starting with {remaining_epochs} epochs from epoch {resume_from_epoch}")
                 safe_commit(db)
                 
                 results = model.train(
                     data=data_yaml_path,
-                    epochs=test_epochs,
+                    epochs=remaining_epochs,
                     imgsz=imgsz,
                     batch=batch_size,
                     device=device,
                     project=training_path_cpu,
-                    name=f"{group_name}_test_training",
+                    name=f"{group_name}_training",
                     exist_ok=True,
                     amp=use_amp,
                     plots=True,
@@ -700,34 +756,11 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
                 # Check results for NaN
                 if hasattr(results, 'results_dict'):
                     if check_for_nan_in_results(results.results_dict):
-                        training_session.add_log("ERROR", "NaN detected in test training, aborting")
+                        training_session.add_log("ERROR", "NaN detected in training, aborting")
                         safe_commit(db)
                         return
                 
-                # If test training successful, continue with full training
-                if training_session.epochs > test_epochs:
-                    remaining_epochs = training_session.epochs - test_epochs
-                    training_session.add_log("INFO", f"Test training successful, continuing with {remaining_epochs} more epochs")
-                    
-                    results = model.train(
-                        data=data_yaml_path,
-                        epochs=remaining_epochs,
-                        imgsz=imgsz,
-                        batch=batch_size,
-                        device=device,
-                        project=training_path_cpu,
-                        name=f"{group_name}_full_training",
-                        exist_ok=True,
-                        amp=use_amp,
-                        plots=True,
-                        resume=False,
-                        augment=True,
-                        verbose=True,
-                        workers=1,
-                        **hyperparameters
-                    )
-                
-                # Update progress
+                # Update progress to completion
                 training_session.current_epoch = training_session.epochs
                 training_session.progress_percentage = 100.0
                 
@@ -761,11 +794,11 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
                 return
                 
         else:
-            # GPU: Train epoch by epoch with extensive NaN checking
+            # GPU: Train epoch by epoch starting from resume_from_epoch
             consecutive_nan_count = 0
             max_consecutive_nans = 3
             
-            for epoch in range(1, training_session.epochs + 1):
+            for epoch in range(resume_from_epoch, training_session.epochs + 1):
                 if stop_event.is_set():
                     training_session.add_log("INFO", "Stop event detected during group training")
                     safe_commit(db)
@@ -911,12 +944,15 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         except Exception as save_error:
             training_session.add_log("ERROR", f"Failed to save final model: {str(save_error)}")
         
-        # Mark pieces as trained
-        for piece in valid_pieces:
-            piece.is_yolo_trained = True
-        safe_commit(db)
+        # IMPORTANT: Only mark pieces as trained if we completed ALL epochs
+        if training_session.current_epoch >= training_session.epochs:
+            for piece in valid_pieces:
+                piece.is_yolo_trained = True
+            safe_commit(db)
+            training_session.add_log("INFO", f"Training completed successfully! Updated is_yolo_trained=True for all pieces in group {group_name}")
+        else:
+            training_session.add_log("INFO", f"Training incomplete ({training_session.current_epoch}/{training_session.epochs} epochs). Pieces not marked as trained.")
         
-        training_session.add_log("INFO", f"Updated training status for all pieces in group {group_name}")
         safe_commit(db)
 
     except Exception as e:

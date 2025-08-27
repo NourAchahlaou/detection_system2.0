@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   CircularProgress,
   Backdrop,
@@ -50,7 +50,7 @@ export default function DatasetComponenet({
 }) {
   
   // State management - Use parent datasets if available, otherwise local
-  const [datasets, setDatasets] = useState(propDatasets || data || []);
+  const [rawDatasets] = useState(propDatasets || data || []);
   const [statistics, setStatistics] = useState(null);
   const [availableGroups, setAvailableGroups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -90,12 +90,99 @@ export default function DatasetComponenet({
     severity: 'success'
   });
 
-  // Update local datasets when prop changes
-  useEffect(() => {
-    if (propDatasets && propDatasets.length > 0) {
-      setDatasets(propDatasets);
+  // FIXED: Use useMemo to filter datasets instead of setting state in useEffect
+  const datasets = useMemo(() => {
+    let filteredData = propDatasets || rawDatasets || [];
+    
+    // Apply search filter
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filteredData = filteredData.filter(item => 
+        item.label?.toLowerCase().includes(searchLower) ||
+        item.class_data_id?.toString().includes(searchLower)
+      );
     }
-  }, [propDatasets]);
+    
+    // Apply status filter
+    if (filters.status_filter) {
+      if (filters.status_filter === 'annotated') {
+        filteredData = filteredData.filter(item => item.is_annotated);
+      } else if (filters.status_filter === 'pending') {
+        filteredData = filteredData.filter(item => !item.is_annotated);
+      }
+    }
+    
+    // Apply training filter
+    if (filters.training_filter) {
+      if (filters.training_filter === 'trained') {
+        filteredData = filteredData.filter(item => item.is_yolo_trained);
+      } else if (filters.training_filter === 'not_trained') {
+        filteredData = filteredData.filter(item => !item.is_yolo_trained);
+      }
+    }
+    
+    // Apply group filter (first 4 characters of label)
+    if (filters.group_filter) {
+      filteredData = filteredData.filter(item => 
+        item.label?.substring(0, 4) === filters.group_filter
+      );
+    }
+    
+    // Apply date filters
+    if (filters.date_from) {
+      const fromDate = new Date(filters.date_from);
+      filteredData = filteredData.filter(item => 
+        new Date(item.created_at) >= fromDate
+      );
+    }
+    
+    if (filters.date_to) {
+      const toDate = new Date(filters.date_to);
+      filteredData = filteredData.filter(item => 
+        new Date(item.created_at) <= toDate
+      );
+    }
+    
+    // Apply image count filters
+    if (filters.min_images) {
+      const minImages = parseInt(filters.min_images);
+      filteredData = filteredData.filter(item => 
+        (item.nbre_img || 0) >= minImages
+      );
+    }
+    
+    if (filters.max_images) {
+      const maxImages = parseInt(filters.max_images);
+      filteredData = filteredData.filter(item => 
+        (item.nbre_img || 0) <= maxImages
+      );
+    }
+    
+    // Apply sorting
+    if (filters.sort_by) {
+      filteredData = [...filteredData].sort((a, b) => {
+        let aVal = a[filters.sort_by];
+        let bVal = b[filters.sort_by];
+        
+        // Handle different data types
+        if (filters.sort_by === 'created_at') {
+          aVal = new Date(aVal).getTime();
+          bVal = new Date(bVal).getTime();
+        } else if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = bVal?.toLowerCase();
+        }
+        
+        if (filters.sort_order === 'desc') {
+          return bVal > aVal ? 1 : bVal < aVal ? -1 : 0;
+        } else {
+          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+        }
+      });
+    }
+    
+    return filteredData;
+  }, [propDatasets, rawDatasets, filters]);
 
   // Sync training pieces with training data from parent
   useEffect(() => {
@@ -113,59 +200,26 @@ export default function DatasetComponenet({
     setShowTrainingStatus(trainingInProgress);
   }, [trainingInProgress]);
 
-  // Fetch additional data (statistics, groups)
+  // FIXED: Separate function for fetching additional data (statistics, groups)
   const fetchAdditionalData = useCallback(async () => {
-    if (propDatasets && propDatasets.length > 0) {
-      try {
-        const [statsResponse, groupsResponse] = await Promise.all([
-          datasetService.getDatasetStatistics(),
-          datasetService.getAvailableGroups()
-        ]);
-        
-        setStatistics(statsResponse.overview || statsResponse);
-        setAvailableGroups(groupsResponse || []);
-      } catch (error) {
-        console.error("Error fetching additional data:", error);
-      }
-      return;
-    }
-
-    // Legacy behavior - fetch all data if no parent datasets
-    setLoading(true);
-    setError(null);
     try {
-      const params = {
-        page: page + 1,
-        page_size: pageSize,
-        ...Object.fromEntries(
-          Object.entries(filters).filter(([_, value]) => value !== '')
-        )
-      };
-      
-      const promises = [
-        datasetService.getAllDatasetsWithFilters(params),
+      const [statsResponse, groupsResponse] = await Promise.all([
         datasetService.getDatasetStatistics(),
         datasetService.getAvailableGroups()
-      ];
+      ]);
       
-      const results = await Promise.all(promises);
-      
-      setDatasets(results[0].data || []);
-      setStatistics(results[1].overview || results[1]);
-      setAvailableGroups(results[2] || []);
-      
+      setStatistics(statsResponse.overview || statsResponse);
+      setAvailableGroups(groupsResponse || []);
     } catch (error) {
-      console.error("Error fetching data:", error);
-      setError("Failed to fetch data. Please try again.");
-      showNotification("Failed to fetch data", "error");
-    } finally {
-      setLoading(false);
+      console.error("Error fetching additional data:", error);
+      setError("Failed to fetch additional data. Please try again.");
     }
-  }, [propDatasets, page, pageSize, filters]);
+  }, []);
 
+  // FIXED: Only fetch additional data once on mount
   useEffect(() => {
     fetchAdditionalData();
-  }, [fetchAdditionalData]);
+  }, []); // Empty dependency array - only run once
 
   // Notification handler
   const showNotification = (message, severity = 'success') => {
@@ -244,32 +298,43 @@ export default function DatasetComponenet({
     }
   };
 
+  // FIXED: Add debouncing to prevent multiple rapid calls
+  const [isTrainingStarting, setIsTrainingStarting] = useState(false);
+
   // Enhanced wrapper for handleBatchTrain that shows TrainingStatusComponent
   const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => {
+    // FIXED: Prevent multiple simultaneous calls
+    if (isTrainingStarting) {
+      console.log('Training already starting, ignoring additional calls');
+      return { success: false, error: 'Training already starting' };
+    }
+
     console.log('=== DatasetComponent.handleBatchTrain WRAPPER ===');
     console.log('Received pieceLabels:', pieceLabels);
     console.log('Parent onBatchTrain:', typeof onBatchTrain);
     
-    if (onBatchTrain && typeof onBatchTrain === 'function') {
-      console.log('Forwarding to parent onBatchTrain...');
-      
-      // Show TrainingStatusComponent immediately when starting training
-      setShowTrainingStatus(true);
-      
-      const result = await onBatchTrain(pieceLabels, sequential);
-      console.log('Parent returned:', result);
-      
-      // If training failed, hide the TrainingStatusComponent
-      if (result && !result.success) {
-        setShowTrainingStatus(false);
-      }
-      
-      return result;
-    }
-
-    console.log('No parent onBatchTrain, using legacy fallback');
-    // Legacy fallback behavior
+    setIsTrainingStarting(true);
+    
     try {
+      if (onBatchTrain && typeof onBatchTrain === 'function') {
+        console.log('Forwarding to parent onBatchTrain...');
+        
+        // Show TrainingStatusComponent immediately when starting training
+        setShowTrainingStatus(true);
+        
+        const result = await onBatchTrain(pieceLabels, sequential);
+        console.log('Parent returned:', result);
+        
+        // If training failed, hide the TrainingStatusComponent
+        if (result && !result.success) {
+          setShowTrainingStatus(false);
+        }
+        
+        return result;
+      }
+
+      console.log('No parent onBatchTrain, using legacy fallback');
+      // Legacy fallback behavior
       const nonTrainedPieces = datasets
         .filter(piece => !piece.is_yolo_trained)
         .map(piece => piece.label);
@@ -342,8 +407,11 @@ export default function DatasetComponenet({
       }
       
       return { success: false, error: error.message };
+    } finally {
+      // FIXED: Always reset the flag
+      setTimeout(() => setIsTrainingStarting(false), 1000);
     }
-  }, [onBatchTrain, datasets, onTrainingStart, onTrainingCheck, showNotification]);
+  }, [onBatchTrain, datasets, onTrainingStart, onTrainingCheck, showNotification, isTrainingStarting]);
 
   const handleTrainAll = async () => {
     const nonTrainedPieces = datasets
@@ -416,12 +484,12 @@ export default function DatasetComponenet({
   };
 
   // UPDATED: handleDelete - Now handles single piece deletion via bulk delete
-const handleDelete = (piece) => {
-  console.log("Delete button clicked for piece:", piece);
-  setActionType("delete");
-  setActionTarget(piece); // FIXED: Store the entire piece object, not just the label
-  setConfirmationOpen(true);
-};
+  const handleDelete = (piece) => {
+    console.log("Delete button clicked for piece:", piece);
+    setActionType("delete");
+    setActionTarget(piece); // FIXED: Store the entire piece object, not just the label
+    setConfirmationOpen(true);
+  };
 
   const handleBulkDelete = () => {
     setActionType("bulkDelete");
@@ -429,91 +497,84 @@ const handleDelete = (piece) => {
     setConfirmationOpen(true);
   };
 
-    // UPDATED: handleConfirmationClose - Modified to use bulk delete for single pieces
-const handleConfirmationClose = async (confirm) => {
-  console.log("=== DELETION CONFIRMATION ===");
-  console.log("Confirmed:", confirm);
-  console.log("Action type:", actionType);
-  console.log("Action target:", actionTarget);
-  
-  setConfirmationOpen(false);
-  
-  if (confirm) {
-    try {
-      setLoading(true);
-      
-      if (actionType === "delete" && actionTarget) {
-        // FIXED: Handle single piece deletion properly
-        console.log("Single piece deletion for:", actionTarget);
+  // UPDATED: handleConfirmationClose - Modified to use bulk delete for single pieces
+  const handleConfirmationClose = async (confirm) => {
+    console.log("=== DELETION CONFIRMATION ===");
+    console.log("Confirmed:", confirm);
+    console.log("Action type:", actionType);
+    console.log("Action target:", actionTarget);
+    
+    setConfirmationOpen(false);
+    
+    if (confirm) {
+      try {
+        setLoading(true);
         
-        // FIXED: Check if actionTarget is a piece object or just a string
-        let pieceLabel;
-        if (typeof actionTarget === 'string') {
-          pieceLabel = actionTarget;
-        } else if (actionTarget && actionTarget.label) {
-          pieceLabel = actionTarget.label;
-        } else {
-          console.error("Invalid action target:", actionTarget);
-          showNotification("Invalid piece for deletion", "error");
-          return;
-        }
-        
-        if (onDelete && typeof onDelete === 'function') {
-          // Pass the piece label
-          await onDelete(pieceLabel); // FIXED: Pass single label, not array
-        } else {
-          // Legacy fallback
-          await datasetService.deleteBatchOfPieces([pieceLabel]);
-          setDatasets(prevDatasets => 
-            prevDatasets.filter(piece => piece.label !== pieceLabel)
-          );
-        }
-        showNotification(`Successfully deleted ${pieceLabel}`, "success");
-        
-      } else if (actionType === "bulkDelete" && actionTarget && actionTarget.length > 0) {
-        // Bulk deletion remains the same
-        console.log("Bulk deletion for piece IDs:", actionTarget);
-        
-        const piecesToDelete = datasets.filter(piece => actionTarget.includes(piece.id));
-        const pieceLabels = piecesToDelete.map(piece => piece.label);
-        
-        console.log("Pieces to delete:", piecesToDelete);
-        console.log("Piece labels:", pieceLabels);
-        
-        if (onBulkDelete && typeof onBulkDelete === 'function') {
-          console.log("Using parent's onBulkDelete function");
-          await onBulkDelete(pieceLabels);
-        } else {
-          console.log("Using datasetService.deleteBatchOfPieces");
-          await datasetService.deleteBatchOfPieces(pieceLabels);
+        if (actionType === "delete" && actionTarget) {
+          // FIXED: Handle single piece deletion properly
+          console.log("Single piece deletion for:", actionTarget);
           
-          setDatasets(prevDatasets => 
-            prevDatasets.filter(piece => !actionTarget.includes(piece.id))
-          );
+          // FIXED: Check if actionTarget is a piece object or just a string
+          let pieceLabel;
+          if (typeof actionTarget === 'string') {
+            pieceLabel = actionTarget;
+          } else if (actionTarget && actionTarget.label) {
+            pieceLabel = actionTarget.label;
+          } else {
+            console.error("Invalid action target:", actionTarget);
+            showNotification("Invalid piece for deletion", "error");
+            return;
+          }
+          
+          if (onDelete && typeof onDelete === 'function') {
+            // Pass the piece label
+            await onDelete(pieceLabel); // FIXED: Pass single label, not array
+          } else {
+            // Legacy fallback
+            await datasetService.deleteBatchOfPieces([pieceLabel]);
+          }
+          showNotification(`Successfully deleted ${pieceLabel}`, "success");
+          
+        } else if (actionType === "bulkDelete" && actionTarget && actionTarget.length > 0) {
+          // Bulk deletion remains the same
+          console.log("Bulk deletion for piece IDs:", actionTarget);
+          
+          const piecesToDelete = datasets.filter(piece => actionTarget.includes(piece.id));
+          const pieceLabels = piecesToDelete.map(piece => piece.label);
+          
+          console.log("Pieces to delete:", piecesToDelete);
+          console.log("Piece labels:", pieceLabels);
+          
+          if (onBulkDelete && typeof onBulkDelete === 'function') {
+            console.log("Using parent's onBulkDelete function");
+            await onBulkDelete(pieceLabels);
+          } else {
+            console.log("Using datasetService.deleteBatchOfPieces");
+            await datasetService.deleteBatchOfPieces(pieceLabels);
+          }
+          
+          showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");
+          
+          // Clear selection after bulk delete
+          if (onSelectAll) {
+            onSelectAll();
+          }
         }
         
-        showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");
+        // Refresh only additional data, not the datasets
+        await fetchAdditionalData();
         
-        // Clear selection after bulk delete
-        if (onSelectAll) {
-          onSelectAll();
-        }
+      } catch (error) {
+        console.error("Delete operation failed:", error);
+        showNotification(`Failed to delete: ${error.message}`, "error");
+      } finally {
+        setLoading(false);
       }
-      
-      // Refresh data
-      await fetchAdditionalData();
-      
-    } catch (error) {
-      console.error("Delete operation failed:", error);
-      showNotification(`Failed to delete: ${error.message}`, "error");
-    } finally {
-      setLoading(false);
     }
-  }
-  
-  setActionTarget(null);
-  setActionType("");
-};
+    
+    setActionTarget(null);
+    setActionType("");
+  };
 
   const localFormatDate = (dateString) => {
     if (formatDate && typeof formatDate === 'function') {
@@ -535,6 +596,11 @@ const handleConfirmationClose = async (confirm) => {
     setShowTrainingStatus(isTraining);
   }, []);
 
+  // FIXED: Refresh function that doesn't cause infinite loops
+  const handleRefresh = useCallback(async () => {
+    await fetchAdditionalData();
+  }, [fetchAdditionalData]);
+
   return (
     <Container>
       <Backdrop open={loading} sx={{ zIndex: 1000, color: '#fff' }}>
@@ -550,7 +616,7 @@ const handleConfirmationClose = async (confirm) => {
         selectedCount={selectedDatasets.length}
         onTrainAll={handleTrainAll}
         onStopTraining={handleStopTraining}
-        onRefresh={fetchAdditionalData}
+        onRefresh={handleRefresh}
         onBulkDelete={handleBulkDelete}
       />
 
