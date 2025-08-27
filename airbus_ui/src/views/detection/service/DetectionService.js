@@ -1,4 +1,3 @@
-
 import { SystemProfiler } from './SystemProfiler';
 import { StreamManager } from './StreamManger/MainStreamManager';
 import { StateManager } from './StateManager';
@@ -39,6 +38,12 @@ class DetectionService {
     this.healthCheckInProgress = false;
     this.stateChangeListeners = new Set();
     
+    // NEW: Lot context tracking
+    this.currentLotId = null;
+    this.currentPieceLabel = null;
+    this.isInitializedForLot = false;
+    this.lotSpecificModelLoaded = false;
+    
     // System profiling and performance mode
     this.systemProfile = null;
     this.currentPerformanceMode = PerformanceModes.BASIC; // Default to basic
@@ -71,19 +76,181 @@ class DetectionService {
     this.streamManager = new StreamManager(this);
     this.stateManager = new StateManager(this);
     
-    // Initialize system profiling
+    // Initialize system profiling but DON'T initialize detection yet
     this.initializeSystemProfiling();
   }
 
   // ===================
-  // SYSTEM PROFILING METHODS (delegated to SystemProfiler)
+  // NEW: LOT-BASED INITIALIZATION METHODS
   // ===================
-// Enhanced ensureDetectionServiceReady with better optimized mode handling
-  async ensureDetectionServiceReady() {
+
+  /**
+   * Initialize the detection system for a specific lot and piece
+   * This replaces the old auto-initialization approach
+   */
+  async initializeForLot(lotId, pieceLabel) {
+    console.log(`🎯 Initializing detection system for lot ${lotId} with piece: ${pieceLabel}`);
+    
+    try {
+      // Check if already initialized for this specific lot
+      if (this.isInitializedForLot && 
+          this.currentLotId === lotId && 
+          this.currentPieceLabel === pieceLabel && 
+          this.state === DetectionStates.READY) {
+        console.log('✅ Already initialized for this lot and piece');
+        return {
+          success: true,
+          message: `Already initialized for ${pieceLabel}`,
+          lotId: lotId,
+          pieceLabel: pieceLabel
+        };
+      }
+
+      // If initialized for a different lot, shutdown first
+      if (this.isInitializedForLot && 
+          (this.currentLotId !== lotId || this.currentPieceLabel !== pieceLabel)) {
+        console.log(`🔄 Switching from lot ${this.currentLotId}(${this.currentPieceLabel}) to lot ${lotId}(${pieceLabel})`);
+        await this.shutdownLotSpecificInitialization();
+      }
+
+      // Set lot context BEFORE initialization
+      this.currentLotId = lotId;
+      this.currentPieceLabel = pieceLabel;
+
+      // Ensure system profile is updated
+      if (!this.systemProfile) {
+        await this.updateSystemProfile();
+      }
+
+      // Use lot-aware initialization from StateManager
+      const result = await this.stateManager.ensureInitializedForLot(lotId, pieceLabel);
+
+      if (result.success) {
+        this.isInitializedForLot = true;
+        this.lotSpecificModelLoaded = true;
+        
+        console.log(`✅ Detection system initialized successfully for lot ${lotId} with piece: ${pieceLabel}`);
+        
+        return {
+          success: true,
+          message: `Detection system ready for ${pieceLabel}`,
+          lotId: lotId,
+          pieceLabel: pieceLabel,
+          mode: this.currentStreamingType,
+          state: this.state
+        };
+      } else {
+        throw new Error(result.message || 'Failed to initialize for lot');
+      }
+
+    } catch (error) {
+      console.error(`❌ Failed to initialize for lot ${lotId}:`, error);
+      
+      // Clear lot context on failure
+      this.currentLotId = null;
+      this.currentPieceLabel = null;
+      this.isInitializedForLot = false;
+      this.lotSpecificModelLoaded = false;
+      
+      throw new Error(`Failed to initialize for ${pieceLabel}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Shutdown lot-specific initialization to switch to another lot
+   */
+  async shutdownLotSpecificInitialization() {
+    console.log(`🛑 Shutting down lot-specific initialization for lot ${this.currentLotId}`);
+    
+    try {
+      // Stop all current streams first
+      if (this.currentStreams.size > 0) {
+        await this.stopAllStreams(false);
+      }
+
+      // Perform graceful shutdown if needed
+      if (this.state === DetectionStates.RUNNING || this.state === DetectionStates.READY) {
+        await this.gracefulShutdown();
+      }
+
+      // Clear lot-specific state
+      this.currentLotId = null;
+      this.currentPieceLabel = null;
+      this.isInitializedForLot = false;
+      this.lotSpecificModelLoaded = false;
+
+      // Reset to initializing state for next lot
+      this.stateManager.resetToInitializing('Switching to new lot');
+
+      console.log('✅ Lot-specific shutdown completed');
+      return { success: true };
+
+    } catch (error) {
+      console.error('❌ Error during lot-specific shutdown:', error);
+      
+      // Force reset on error
+      this.currentLotId = null;
+      this.currentPieceLabel = null;
+      this.isInitializedForLot = false;
+      this.lotSpecificModelLoaded = false;
+      this.stateManager.resetToInitializing('Force reset due to shutdown error');
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Check if system is ready for a specific lot
+   */
+  isReadyForLot(lotId, pieceLabel) {
+    return this.isInitializedForLot &&
+           this.currentLotId === lotId &&
+           this.currentPieceLabel === pieceLabel &&
+           this.state === DetectionStates.READY &&
+           this.lotSpecificModelLoaded;
+  }
+
+  /**
+   * Get current lot context
+   */
+  getCurrentLotContext() {
+    return {
+      lotId: this.currentLotId,
+      pieceLabel: this.currentPieceLabel,
+      isInitialized: this.isInitializedForLot,
+      modelLoaded: this.lotSpecificModelLoaded
+    };
+  }
+
+  // ===================
+  // UPDATED: Enhanced detection service readiness check
+  // ===================
+  async ensureDetectionServiceReady(lotId = null, pieceLabel = null) {
     try {
       console.log('🔧 Ensuring detection service is ready...');
       
-      // More comprehensive readiness check
+      // If lot context is provided, ensure initialization for that specific lot
+      if (lotId && pieceLabel) {
+        if (!this.isReadyForLot(lotId, pieceLabel)) {
+          console.log(`🎯 Initializing for lot ${lotId} with piece ${pieceLabel}...`);
+          const initResult = await this.initializeForLot(lotId, pieceLabel);
+          return {
+            success: initResult.success,
+            message: initResult.message,
+            fallbackMode: initResult.success ? null : 'basic',
+            lotContext: true
+          };
+        } else {
+          console.log(`✅ Already ready for lot ${lotId} with piece ${pieceLabel}`);
+          return { 
+            success: true, 
+            message: `Ready for ${pieceLabel}`,
+            lotContext: true
+          };
+        }
+      }
+
+      // Legacy check without lot context (not recommended but supported)
       const currentState = this.getState();
       if (currentState !== DetectionStates.READY) {
         console.log(`⚠️ Service not in READY state (current: ${currentState})`);
@@ -94,7 +261,7 @@ class DetectionService {
         };
       }
 
-      // FIXED: Different readiness checks based on mode
+      // Different readiness checks based on mode
       if (this.shouldUseBasicMode()) {
         console.log('✅ Basic mode - service is ready');
         return { success: true, message: 'Basic mode service ready' };
@@ -105,7 +272,6 @@ class DetectionService {
 
       // Check if processor initialization was successful
       try {
-        // FIXED: Try to ping the Redis initialization endpoint instead of health
         const initResponse = await fetch('/api/detection/redis/initialize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -119,7 +285,6 @@ class DetectionService {
           if (initData.status === 'already_running' || initData.status === 'initialized') {
             console.log('✅ Optimized detection processor is running');
             
-            // FIXED: Even if health check fails, if processor is running, consider it ready
             // Try health check but don't fail on 503
             try {
               const healthResponse = await fetch('/api/detection/redis/health', { timeout: 5000 });
@@ -165,7 +330,7 @@ class DetectionService {
       } catch (processorError) {
         console.log(`⚠️ Processor check failed: ${processorError.message}`);
         
-        // FIXED: Try recovery by attempting initialization
+        // Try recovery by attempting initialization
         console.log('🔧 Attempting processor recovery...');
         try {
           const recoveryResult = await this.initializeProcessor();
@@ -193,6 +358,10 @@ class DetectionService {
       };
     }
   }
+
+  // ===================
+  // SYSTEM PROFILING METHODS (delegated to SystemProfiler)
+  // ===================
   async initializeSystemProfiling() {
     return this.systemProfiler.initializeSystemProfiling();
   }
@@ -269,7 +438,11 @@ class DetectionService {
       performance_tier: this.systemProfile.performance_tier,
       meets_minimum_requirements: this.systemProfile.meets_minimum_requirements,
       current_mode: this.currentStreamingType,
-      auto_mode_enabled: this.autoModeEnabled
+      auto_mode_enabled: this.autoModeEnabled,
+      // NEW: Lot context info
+      current_lot_id: this.currentLotId,
+      current_piece_label: this.currentPieceLabel,
+      is_initialized_for_lot: this.isInitializedForLot
     };
   }
 
@@ -360,13 +533,27 @@ class DetectionService {
     return this.streamManager.performBatchDetection(detections);
   }
 
-  // Stream methods with auto mode
+  // UPDATED: Stream methods with lot context awareness
   async startDetectionFeedWithAutoMode(cameraId, targetLabel, options = {}) {
-    return this.streamManager.startDetectionFeedWithAutoMode(cameraId, targetLabel, options);
+    // If we have lot context, ensure it's passed to the stream manager
+    const enhancedOptions = {
+      ...options,
+      lotId: this.currentLotId,
+      pieceLabel: this.currentPieceLabel
+    };
+    
+    return this.streamManager.startDetectionFeedWithAutoMode(cameraId, targetLabel, enhancedOptions);
   }
 
   async startStreamWithAutoMode(cameraId, options = {}) {
-    return this.streamManager.startStreamWithAutoMode(cameraId, options);
+    // If we have lot context, ensure it's passed to the stream manager
+    const enhancedOptions = {
+      ...options,
+      lotId: this.currentLotId,
+      pieceLabel: this.currentPieceLabel
+    };
+    
+    return this.streamManager.startStreamWithAutoMode(cameraId, enhancedOptions);
   }
 
   // Basic stream methods
@@ -473,13 +660,21 @@ class DetectionService {
   // STATE MANAGEMENT METHODS (delegated to StateManager)
   // ===================
 
-  // Initialization and health check methods
+  // UPDATED: Lot-aware initialization methods
   async loadModel(isInitialCheck = false) {
     return this.stateManager.loadModel(isInitialCheck);
   }
 
+  async loadModelWithLotContext(lotId, pieceLabel, isInitialCheck = false) {
+    return this.stateManager.loadModelWithLotContext(lotId, pieceLabel, isInitialCheck);
+  }
+
   async initializeProcessor() {
     return this.stateManager.initializeProcessor();
+  }
+
+  async initializeProcessorWithLot(lotId, pieceLabel) {
+    return this.stateManager.initializeProcessorWithLot(lotId, pieceLabel);
   }
 
   async checkOptimizedHealth(isInitialCheck = false, isPostShutdownCheck = false) {
@@ -494,9 +689,13 @@ class DetectionService {
     return this.stateManager.getShutdownStatus();
   }
 
-
+  // UPDATED: Lot-aware ensureInitialized methods
   async ensureInitialized() {
     return this.stateManager.ensureInitialized();
+  }
+
+  async ensureInitializedForLot(lotId, pieceLabel) {
+    return this.stateManager.ensureInitializedForLot(lotId, pieceLabel);
   }
 
   // State management methods
@@ -560,6 +759,7 @@ class DetectionService {
     return this.state === DetectionStates.SHUTTING_DOWN;
   }
 
+  // UPDATED: Enhanced status with lot context
   getDetailedStatus() {
     return {
       state: this.state,
@@ -578,7 +778,12 @@ class DetectionService {
       currentPerformanceMode: this.currentPerformanceMode,
       currentStreamingType: this.currentStreamingType,
       autoModeEnabled: this.autoModeEnabled,
-      systemCapabilities: this.systemCapabilities
+      systemCapabilities: this.systemCapabilities,
+      // NEW: Lot context status
+      currentLotId: this.currentLotId,
+      currentPieceLabel: this.currentPieceLabel,
+      isInitializedForLot: this.isInitializedForLot,
+      lotSpecificModelLoaded: this.lotSpecificModelLoaded
     };
   }
 }

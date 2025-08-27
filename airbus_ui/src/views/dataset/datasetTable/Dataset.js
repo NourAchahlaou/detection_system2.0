@@ -3,6 +3,7 @@ import {
   CircularProgress,
   Backdrop,
   Alert,
+  Snackbar,
 } from "@mui/material";
 
 // Import your real service
@@ -15,17 +16,19 @@ import StatisticsPanel from './StatisticsPanel';
 import FiltersPanel from './FiltersPanel';
 import DataTable from './DataTable';
 import ConfirmationDialog from './ConfirmationDialog';
+import TrainingStatusComponent from './EnhancedTrainingStatus';
 
 export default function DatasetComponenet({ 
   // Props from AppDatabasesetup
-  datasets: propDatasets = [], // ✅ FIXED: Receive datasets from parent
+  datasets: propDatasets = [], 
   selectedDatasets = [],
   selectAll = false,
   onSelectAll = () => {},
   onSelect = () => {},
   onView = () => {},
-  onDelete = () => {},
-  onTrain = () => {}, // ✅ FIXED: Single piece training from parent
+  onDelete = () => {}, // Now expects piece labels array instead of piece object
+  onBulkDelete = () => {},
+  onTrain = () => {},
   trainingInProgress = false,
   trainingData = null,
   page = 0,
@@ -34,7 +37,7 @@ export default function DatasetComponenet({
   onPageChange = () => {},
   onRowsPerPageChange = () => {},
   formatDate = (date) => date,
-  onBatchTrain = () => {}, // ✅ FIXED: Batch training from parent
+  onBatchTrain = () => {},
   onStopTraining = () => {},
   onPauseTraining = () => {},
   onResumeTraining = () => {},
@@ -46,12 +49,6 @@ export default function DatasetComponenet({
   onTrainingCheck
 }) {
   
-  // DEBUG: Log the received onBatchTrain function
-  console.log('=== DatasetComponenet DEBUG ===');
-  console.log('onBatchTrain received:', onBatchTrain);
-  console.log('onBatchTrain type:', typeof onBatchTrain);
-  console.log('onBatchTrain toString:', onBatchTrain.toString().substring(0, 100));
-  
   // State management - Use parent datasets if available, otherwise local
   const [datasets, setDatasets] = useState(propDatasets || data || []);
   const [statistics, setStatistics] = useState(null);
@@ -59,6 +56,9 @@ export default function DatasetComponenet({
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState(null);
+  
+  // TrainingStatusComponent visibility state
+  const [showTrainingStatus, setShowTrainingStatus] = useState(false);
   
   // Training state - removed local training state since it's now passed from parent
   const [trainingProgress, setTrainingProgress] = useState(0);
@@ -90,7 +90,7 @@ export default function DatasetComponenet({
     severity: 'success'
   });
 
-  // ✅ FIXED: Update local datasets when prop changes
+  // Update local datasets when prop changes
   useEffect(() => {
     if (propDatasets && propDatasets.length > 0) {
       setDatasets(propDatasets);
@@ -108,10 +108,14 @@ export default function DatasetComponenet({
     }
   }, [trainingData]);
 
-  // Fetch additional data (statistics, groups) - only if not using parent datasets
+  // Show/hide TrainingStatusComponent based on training state
+  useEffect(() => {
+    setShowTrainingStatus(trainingInProgress);
+  }, [trainingInProgress]);
+
+  // Fetch additional data (statistics, groups)
   const fetchAdditionalData = useCallback(async () => {
     if (propDatasets && propDatasets.length > 0) {
-      // If using parent datasets, only fetch statistics and groups
       try {
         const [statsResponse, groupsResponse] = await Promise.all([
           datasetService.getDatasetStatistics(),
@@ -172,7 +176,15 @@ export default function DatasetComponenet({
     });
   };
 
-  // ✅ FIXED: Training handlers - forward to parent if available
+  const hideNotification = useCallback(() => {
+    setNotification({
+      open: false,
+      message: '',
+      severity: 'success'
+    });
+  }, []);
+
+  // Training handlers - forward to parent if available
   const handleTrain = async (piece) => {
     if (onTrain && typeof onTrain === 'function') {
       // Use parent's training handler
@@ -232,16 +244,26 @@ export default function DatasetComponenet({
     }
   };
 
-  // ✅ CRITICAL FIX: Create a proper wrapper for handleBatchTrain that forwards to parent
+  // Enhanced wrapper for handleBatchTrain that shows TrainingStatusComponent
   const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => {
-    console.log('=== DatasetComponenet.handleBatchTrain WRAPPER ===');
+    console.log('=== DatasetComponent.handleBatchTrain WRAPPER ===');
     console.log('Received pieceLabels:', pieceLabels);
     console.log('Parent onBatchTrain:', typeof onBatchTrain);
     
     if (onBatchTrain && typeof onBatchTrain === 'function') {
       console.log('Forwarding to parent onBatchTrain...');
+      
+      // Show TrainingStatusComponent immediately when starting training
+      setShowTrainingStatus(true);
+      
       const result = await onBatchTrain(pieceLabels, sequential);
       console.log('Parent returned:', result);
+      
+      // If training failed, hide the TrainingStatusComponent
+      if (result && !result.success) {
+        setShowTrainingStatus(false);
+      }
+      
       return result;
     }
 
@@ -264,6 +286,9 @@ export default function DatasetComponenet({
       const totalAnnotations = datasets
         .filter(piece => !piece.is_yolo_trained)
         .reduce((sum, piece) => sum + piece.total_annotations, 0);
+      
+      // Show TrainingStatusComponent
+      setShowTrainingStatus(true);
       
       const trainingInfo = {
         status: 'training',
@@ -308,6 +333,7 @@ export default function DatasetComponenet({
       
     } catch (error) {
       showNotification("Failed to start training for all pieces", "error");
+      setShowTrainingStatus(false);
       
       if (onTrainingCheck) {
         setTimeout(async () => {
@@ -320,7 +346,6 @@ export default function DatasetComponenet({
   }, [onBatchTrain, datasets, onTrainingStart, onTrainingCheck, showNotification]);
 
   const handleTrainAll = async () => {
-    // ✅ FIXED: Use the local wrapper which properly forwards to parent
     const nonTrainedPieces = datasets
       .filter(piece => !piece.is_yolo_trained)
       .map(piece => piece.label);
@@ -334,9 +359,10 @@ export default function DatasetComponenet({
   };
 
   const handleStopTraining = async () => {
-    // ✅ FIXED: Use parent's stop handler if available
     if (onStopTraining && typeof onStopTraining === 'function') {
       onStopTraining();
+      // Hide TrainingStatusComponent when stopping
+      setShowTrainingStatus(false);
       return;
     }
 
@@ -352,6 +378,7 @@ export default function DatasetComponenet({
       
       setTrainingProgress(0);
       setTrainingPieces([]);
+      setShowTrainingStatus(false);
       showNotification("Training stopped successfully", "info");
     } catch (error) {
       showNotification("Failed to stop training", "error");
@@ -388,15 +415,13 @@ export default function DatasetComponenet({
     }
   };
 
-  const handleDelete = (piece) => {
-    if (onDelete && typeof onDelete === 'function') {
-      onDelete(piece);
-    } else {
-      setActionType("delete");
-      setActionTarget(piece);
-      setConfirmationOpen(true);
-    }
-  };
+  // UPDATED: handleDelete - Now handles single piece deletion via bulk delete
+const handleDelete = (piece) => {
+  console.log("Delete button clicked for piece:", piece);
+  setActionType("delete");
+  setActionTarget(piece); // FIXED: Store the entire piece object, not just the label
+  setConfirmationOpen(true);
+};
 
   const handleBulkDelete = () => {
     setActionType("bulkDelete");
@@ -404,37 +429,91 @@ export default function DatasetComponenet({
     setConfirmationOpen(true);
   };
 
-  const handleConfirmationClose = async (confirm) => {
-    setConfirmationOpen(false);
-    
-    if (confirm) {
-      try {
-        setLoading(true);
+    // UPDATED: handleConfirmationClose - Modified to use bulk delete for single pieces
+const handleConfirmationClose = async (confirm) => {
+  console.log("=== DELETION CONFIRMATION ===");
+  console.log("Confirmed:", confirm);
+  console.log("Action type:", actionType);
+  console.log("Action target:", actionTarget);
+  
+  setConfirmationOpen(false);
+  
+  if (confirm) {
+    try {
+      setLoading(true);
+      
+      if (actionType === "delete" && actionTarget) {
+        // FIXED: Handle single piece deletion properly
+        console.log("Single piece deletion for:", actionTarget);
         
-        if (actionType === "delete" && actionTarget) {
-          await datasetService.deletePieceByLabel(actionTarget.label);
-          showNotification(`Successfully deleted ${actionTarget.label}`, "success");
-        } else if (actionType === "bulkDelete" && actionTarget) {
-          for (const id of actionTarget) {
-            const piece = datasets.find(d => d.id === id);
-            if (piece) {
-              await datasetService.deletePieceByLabel(piece.label);
-            }
-          }
-          showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");
+        // FIXED: Check if actionTarget is a piece object or just a string
+        let pieceLabel;
+        if (typeof actionTarget === 'string') {
+          pieceLabel = actionTarget;
+        } else if (actionTarget && actionTarget.label) {
+          pieceLabel = actionTarget.label;
+        } else {
+          console.error("Invalid action target:", actionTarget);
+          showNotification("Invalid piece for deletion", "error");
+          return;
         }
         
-        fetchAdditionalData(); // Refresh data after deletion
-      } catch (error) {
-        showNotification("Failed to delete. Please try again.", "error");
-      } finally {
-        setLoading(false);
+        if (onDelete && typeof onDelete === 'function') {
+          // Pass the piece label
+          await onDelete(pieceLabel); // FIXED: Pass single label, not array
+        } else {
+          // Legacy fallback
+          await datasetService.deleteBatchOfPieces([pieceLabel]);
+          setDatasets(prevDatasets => 
+            prevDatasets.filter(piece => piece.label !== pieceLabel)
+          );
+        }
+        showNotification(`Successfully deleted ${pieceLabel}`, "success");
+        
+      } else if (actionType === "bulkDelete" && actionTarget && actionTarget.length > 0) {
+        // Bulk deletion remains the same
+        console.log("Bulk deletion for piece IDs:", actionTarget);
+        
+        const piecesToDelete = datasets.filter(piece => actionTarget.includes(piece.id));
+        const pieceLabels = piecesToDelete.map(piece => piece.label);
+        
+        console.log("Pieces to delete:", piecesToDelete);
+        console.log("Piece labels:", pieceLabels);
+        
+        if (onBulkDelete && typeof onBulkDelete === 'function') {
+          console.log("Using parent's onBulkDelete function");
+          await onBulkDelete(pieceLabels);
+        } else {
+          console.log("Using datasetService.deleteBatchOfPieces");
+          await datasetService.deleteBatchOfPieces(pieceLabels);
+          
+          setDatasets(prevDatasets => 
+            prevDatasets.filter(piece => !actionTarget.includes(piece.id))
+          );
+        }
+        
+        showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");
+        
+        // Clear selection after bulk delete
+        if (onSelectAll) {
+          onSelectAll();
+        }
       }
+      
+      // Refresh data
+      await fetchAdditionalData();
+      
+    } catch (error) {
+      console.error("Delete operation failed:", error);
+      showNotification(`Failed to delete: ${error.message}`, "error");
+    } finally {
+      setLoading(false);
     }
-    
-    setActionTarget(null);
-    setActionType("");
-  };
+  }
+  
+  setActionTarget(null);
+  setActionType("");
+};
 
   const localFormatDate = (dateString) => {
     if (formatDate && typeof formatDate === 'function') {
@@ -450,6 +529,11 @@ export default function DatasetComponenet({
       minute: '2-digit'
     });
   };
+
+  // Handler for TrainingStatusComponent state changes
+  const handleTrainingStateChange = useCallback((isTraining) => {
+    setShowTrainingStatus(isTraining);
+  }, []);
 
   return (
     <Container>
@@ -479,6 +563,13 @@ export default function DatasetComponenet({
 
       <StatisticsPanel statistics={statistics} />
       
+      {/* Show TrainingStatusComponent when training is active */}
+      {showTrainingStatus && (
+        <TrainingStatusComponent 
+          onTrainingStateChange={handleTrainingStateChange}
+        />
+      )}
+      
       <FiltersPanel
         showFilters={showFilters}
         filters={filters}
@@ -487,7 +578,6 @@ export default function DatasetComponenet({
         onClearFilters={handleClearFilters}
       />
 
-      {/* ✅ CRITICAL FIX: Pass the LOCAL wrapper function, not the parent function directly */}
       <DataTable
         datasets={datasets}
         selectedDatasets={selectedDatasets}
@@ -500,23 +590,36 @@ export default function DatasetComponenet({
         onSelectAll={onSelectAll}
         onSelect={onSelect}
         onView={handleView}
-        onDelete={handleDelete}
+        onDelete={handleDelete} // This will trigger confirmation dialog for single pieces
         onTrain={handleTrain}
         onPageChange={onPageChange}
         onRowsPerPageChange={onRowsPerPageChange}
         formatDate={localFormatDate}
-        onBatchTrain={handleBatchTrain} // ✅ CRITICAL FIX: Pass the LOCAL wrapper
-        onStopTraining={onStopTraining} // ✅ FIXED: Forward parent's stop handler
-        onPauseTraining={onPauseTraining} // ✅ FIXED: Forward parent's pause handler
-        onResumeTraining={onResumeTraining} // ✅ FIXED: Forward parent's resume handler
+        onBatchTrain={handleBatchTrain}
+        onStopTraining={onStopTraining}
+        onPauseTraining={onPauseTraining}
+        onResumeTraining={onResumeTraining}
       />
 
       <ConfirmationDialog
         open={confirmationOpen}
         actionType={actionType}
-        selectedCount={selectedDatasets.length}
+        selectedCount={actionType === "bulkDelete" ? actionTarget?.length || 0 : 1}
+        targetName={actionType === "delete" ? actionTarget?.label : undefined}
         onClose={handleConfirmationClose}
       />
+
+      {/* Notification Snackbar */}
+      <Snackbar 
+        open={notification.open} 
+        autoHideDuration={6000} 
+        onClose={hideNotification}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={hideNotification} severity={notification.severity}>
+          {notification.message}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 }

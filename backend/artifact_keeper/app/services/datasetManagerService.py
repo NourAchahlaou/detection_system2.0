@@ -4,10 +4,10 @@ import shutil
 import requests
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from fastapi import HTTPException, Query
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import String, func, desc, asc, and_, or_
-
+from sqlalchemy import String, func, desc, asc, or_
+from sqlalchemy.exc import SQLAlchemyError
 from artifact_keeper.app.db.models.piece import Piece
 from artifact_keeper.app.db.models.piece_image import PieceImage
 from artifact_keeper.app.db.models.annotation import Annotation
@@ -97,20 +97,20 @@ def get_all_datasets_with_filters(
         
         # Process pieces data
         datasets = []
-        for piece in pieces:
+        for piece_record in pieces:
             piece_data = {
-                "id": piece.id,
-                "class_data_id": piece.class_data_id,
-                "label": piece.piece_label,
-                "is_annotated": piece.is_annotated,
-                "is_yolo_trained": piece.is_yolo_trained,
-                "nbre_img": piece.nbre_img,
-                "created_at": piece.created_at.isoformat() if piece.created_at else None,
+                "id": piece_record.id,
+                "class_data_id": piece_record.class_data_id,
+                "label": piece_record.piece_label,
+                "is_annotated": piece_record.is_annotated,
+                "is_yolo_trained": piece_record.is_yolo_trained,
+                "nbre_img": piece_record.nbre_img,
+                "created_at": piece_record.created_at.isoformat() if piece_record.created_at else None,
                 "images": []
             }
 
             # Fetch images with their annotation counts
-            images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+            images = db.query(PieceImage).filter(PieceImage.piece_id == piece_record.id).all()
             
             total_annotations = 0
             for image in images:
@@ -131,7 +131,7 @@ def get_all_datasets_with_filters(
                 total_annotations += annotation_count
             
             piece_data["total_annotations"] = total_annotations
-            piece_data["group"] = piece.piece_label.split(".")[0] if "." in piece.piece_label else "Other"
+            piece_data["group"] = piece_record.piece_label.split(".")[0] if "." in piece_record.piece_label else "Other"
             
             datasets.append(piece_data)
         
@@ -233,9 +233,9 @@ def get_available_groups(db: Session) -> List[str]:
         pieces = db.query(Piece.piece_label).all()
         groups = set()
         
-        for piece in pieces:
-            if "." in piece.piece_label:
-                group = piece.piece_label.split(".")[0]
+        for piece_record in pieces:
+            if "." in piece_record.piece_label:
+                group = piece_record.piece_label.split(".")[0]
                 groups.add(group)
         
         return sorted(list(groups))
@@ -285,10 +285,10 @@ def bulk_update_pieces(db: Session, piece_ids: List[int], updates: Dict[str, Any
         
         # Apply updates
         updated_count = 0
-        for piece in pieces:
+        for piece_record in pieces:
             for field, value in updates.items():
-                if hasattr(piece, field):
-                    setattr(piece, field, value)
+                if hasattr(piece_record, field):
+                    setattr(piece_record, field, value)
                     updated_count += 1
         
         db.commit()
@@ -317,18 +317,18 @@ def get_all_datasets(db: Session) -> Dict[str, Any]:
     datasets = {}
     pieces = db.query(Piece).all()
 
-    for piece in pieces:
+    for piece_record in pieces:
         piece_data = {
-            "id": piece.id,
-            "class_data_id": piece.class_data_id,
-            "label": piece.piece_label,
-            "is_annotated": piece.is_annotated,
-            "is_yolo_trained": piece.is_yolo_trained,
-            "nbre_img": piece.nbre_img,
+            "id": piece_record.id,
+            "class_data_id": piece_record.class_data_id,
+            "label": piece_record.piece_label,
+            "is_annotated": piece_record.is_annotated,
+            "is_yolo_trained": piece_record.is_yolo_trained,
+            "nbre_img": piece_record.nbre_img,
             "images": []
         }
 
-        images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+        images = db.query(PieceImage).filter(PieceImage.piece_id == piece_record.id).all()
 
         for image in images:
             image_data = {
@@ -354,19 +354,18 @@ def get_all_datasets(db: Session) -> Dict[str, Any]:
 
             piece_data["images"].append(image_data)
 
-        datasets[piece.piece_label] = piece_data
+        datasets[piece_record.piece_label] = piece_data
 
     return datasets
 
 
-# Keep all other existing functions unchanged...
 def get_piece_labels_by_group(group_label: str, db: Session) -> List[str]:
     """
     Get piece labels by group.
     """
     try:
         pieces = db.query(Piece).filter(Piece.piece_label.like(f'{group_label}%')).all()
-        piece_labels = [piece.piece_label for piece in pieces]
+        piece_labels = [piece_record.piece_label for piece_record in pieces]
         
         if not piece_labels:
             logger.info(f"No pieces found for group '{group_label}'.")
@@ -377,14 +376,50 @@ def get_piece_labels_by_group(group_label: str, db: Session) -> List[str]:
         logger.error(f"An error occurred while fetching piece labels: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching piece labels: {e}")
 
+def get_piece_group_by_label(piece_label: str, db: Session) -> Optional[str]:
+    """
+    Extract the group from a piece label and return it.
+    Assumes group is the prefix before the first dot or a specific pattern.
+    """
+    try:
+        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+        if not piece:
+            return None
+        
+        # Extract group from piece_label (assuming group is before first dot)
+        # Adjust this logic based on your actual group naming convention
+        if '.' in piece_label:
+            group = piece_label.split('.')[0]
+        else:
+            # If no dot, maybe the whole label is the group or use another pattern
+            group = piece_label
+        
+        return group
+        
+    except SQLAlchemyError as e:
+        raise Exception(f"Database error getting piece group: {str(e)}")
+
 
 def delete_directory(directory_path: str) -> None:
-    """Recursively delete a directory and its contents."""
-    if os.path.exists(directory_path):
-        shutil.rmtree(directory_path)
-        print(f"Deleted directory: {directory_path}")
-    else:
-        print(f"Directory not found: {directory_path}")
+    """Recursively delete a directory and its contents with better error handling."""
+    try:
+        if os.path.exists(directory_path):
+            # Check if it's actually a directory
+            if os.path.isdir(directory_path):
+                shutil.rmtree(directory_path)
+                logger.info(f"Deleted directory: {directory_path}")
+            else:
+                logger.warning(f"Path exists but is not a directory: {directory_path}")
+        else:
+            logger.info(f"Directory not found (may already be deleted): {directory_path}")
+    except PermissionError as e:
+        logger.error(f"Permission denied when deleting {directory_path}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting directory {directory_path}: {e}")
+        raise
+
+
 
 
 def _call_annotation_service_delete_piece(piece_label: str) -> bool:
@@ -412,59 +447,63 @@ def _call_annotation_service_delete_piece(piece_label: str) -> bool:
         return False
 
 
-def delete_piece_by_label(piece_label: str, db: Session) -> Dict[str, Any]:
-    """
-    Delete a piece, its images, and related folders.
-    """
-    try:
-        piece = db.query(Piece).filter(Piece.piece_label == piece_label).first()
-        if not piece:
-            raise HTTPException(status_code=404, detail="Piece not found")
+# def delete_piece_by_label(piece_label: str, db: Session) -> Dict[str, Any]:
+#     """
+#     Delete a piece, its images, and related folders.
+#     """
+#     try:
+#         piece_to_delete = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+#         if not piece_to_delete:
+#             raise HTTPException(status_code=404, detail="Piece not found in delete_piece_by_label")
 
-        annotation_deletion_success = _call_annotation_service_delete_piece(piece_label)
-        if not annotation_deletion_success:
-            print(f"Warning: Failed to delete annotations for piece {piece_label}")
+#         annotation_deletion_success = _call_annotation_service_delete_piece(piece_label)
+#         if not annotation_deletion_success:
+#             print(f"Warning: Failed to delete annotations for piece {piece_label}")
 
-        images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+#         images = db.query(PieceImage).filter(PieceImage.piece_id == piece_to_delete.id).all()
         
-        for image in images:
-            db.delete(image)
+#         for image in images:
+#             db.delete(image)
         
-        db.delete(piece)
-        db.commit()
+#         db.delete(piece_to_delete)
+#         db.commit()
 
-        match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
-        if not match:
-            raise HTTPException(status_code=400, detail="Invalid piece_label format.")
+#         match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
+#         if not match:
+#             raise HTTPException(status_code=400, detail="Invalid piece_label format.")
         
-        extracted_label = match.group(1)
+#         extracted_label = match.group(1)
         
-        folder_paths = [
-            os.path.join("dataset", 'Pieces', 'Pieces', 'labels', 'valid', extracted_label, piece_label),
-            os.path.join("dataset", 'Pieces', 'Pieces', 'images', 'valid', extracted_label, piece_label),
-            os.path.join("dataset", 'Pieces', 'Pieces', 'labels', 'train', extracted_label, piece_label),
-            os.path.join("dataset", 'Pieces', 'Pieces', 'images', 'train', extracted_label, piece_label),
-            os.path.join("dataset", "piece", piece_label)
-        ]
+#         folder_paths = [
+#             os.path.join("app","shared","dataset", 'piece', 'piece', extracted_label, piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', extracted_label, 'labels', 'valid', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', extracted_label, 'images', 'valid', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', extracted_label, 'labels', 'train', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', extracted_label, 'images', 'train', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'valid', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', f"{extracted_label}_cropped", 'images', 'valid', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'train', piece_label),
+#             os.path.join("app","shared","dataset", 'dataset_custom', f"{extracted_label}_cropped", 'images', 'train', piece_label)           
+#         ]
         
-        for folder_path in folder_paths:
-            delete_directory(folder_path)
-        
-        return {
-            "status": "Piece and associated data deleted successfully",
-            "piece_label": piece_label,
-            "annotations_deleted": annotation_deletion_success
-        }
-        
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        error_msg = str(e)
-        print(f"Error deleting piece {piece_label}: {error_msg}")
-        raise HTTPException(status_code=500, detail=f"Error deleting piece: {error_msg}")
+#         for folder_path in folder_paths:
+#             delete_directory(folder_path)
 
+                
+#         return {
+#             "status": "Piece and associated data deleted successfully",
+#             "piece_label": piece_label,
+#             "annotations_deleted": annotation_deletion_success,
+#         }
+        
+#     except HTTPException:
+#         db.rollback()
+#         raise
+#     except Exception as e:
+#         db.rollback()
+#         error_msg = str(e)
+#         print(f"Error deleting piece {piece_label}: {error_msg}")
+#         raise HTTPException(status_code=500, detail=f"Error deleting piece! :( : {error_msg}")
 
 def delete_all_pieces(db: Session) -> Dict[str, Any]:
     """
@@ -479,30 +518,30 @@ def delete_all_pieces(db: Session) -> Dict[str, Any]:
         deleted_pieces = []
         failed_pieces = []
 
-        for piece in pieces:
+        for piece_record in pieces:
             try:
-                annotation_deletion_success = _call_annotation_service_delete_piece(piece.piece_label)
+                annotation_deletion_success = _call_annotation_service_delete_piece(piece_record.piece_label)
                 
-                images = db.query(PieceImage).filter(PieceImage.piece_id == piece.id).all()
+                images = db.query(PieceImage).filter(PieceImage.piece_id == piece_record.id).all()
 
                 for image in images:
                     db.delete(image)
                 
-                db.delete(piece)
+                db.delete(piece_record)
                 
                 deleted_pieces.append({
-                    "piece_label": piece.piece_label,
+                    "piece_label": piece_record.piece_label,
                     "annotations_deleted": annotation_deletion_success
                 })
                 
             except Exception as e:
-                print(f"Error deleting piece {piece.piece_label}: {str(e)}")
+                print(f"Error deleting piece {piece_record.piece_label}: {str(e)}")
                 failed_pieces.append({
-                    "piece_label": piece.piece_label,
+                    "piece_label": piece_record.piece_label,
                     "error": str(e)
                 })
 
-        folder_path = os.path.join("dataset", "Pieces")
+        folder_path = os.path.join("dataset", "piece")
         if os.path.exists(folder_path):
             shutil.rmtree(folder_path)
             print(f"Folder {folder_path} deleted successfully.")
@@ -588,3 +627,229 @@ def delete_annotation_via_api(annotation_id: int) -> Dict[str, Any]:
             status_code=503,
             detail=f"Annotation service unavailable: {str(e)}"
         )
+def update_group_training_status(group: str, db: Session) -> dict:
+    """
+    Update the is_yolo_trained status to False for all pieces in a specific group.
+    This function handles the training status update logic separately from deletion.
+    """
+    try:
+        # Find all pieces in the group (adjust the filter based on your group logic)
+        if group:
+            # Assuming group is a prefix of the piece_label
+            pieces_in_group = db.query(Piece).filter(
+                Piece.piece_label.like(f"{group}.%")
+            ).all()
+            
+            # Alternative: if group is stored in a separate field
+            # pieces_in_group = db.query(Piece).filter(Piece.group == group).all()
+            
+            updated_count = 0
+            for piece in pieces_in_group:
+                if piece.is_yolo_trained:  # Only update if currently True
+                    piece.is_yolo_trained = False
+                    updated_count += 1
+            
+            db.commit()
+            
+            return {
+                "group": group,
+                "total_pieces_in_group": len(pieces_in_group),
+                "pieces_updated": updated_count
+            }
+        else:
+            return {"group": None, "total_pieces_in_group": 0, "pieces_updated": 0}
+            
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise Exception(f"Database error updating group training status: {str(e)}")
+def get_pieces_by_group(group: str, db: Session) -> List[dict]:
+    """
+    Helper function to get all pieces belonging to a specific group.
+    """
+    try:
+        pieces = db.query(Piece).filter(
+            Piece.piece_label.like(f"{group}.%")
+        ).all()
+        
+        return [
+            {
+                "id": piece.id,
+                "label": piece.piece_label,
+                "is_yolo_trained": piece.is_yolo_trained,
+                "is_annotated": piece.is_annotated
+            }
+            for piece in pieces
+        ]
+        
+    except SQLAlchemyError as e:
+        raise Exception(f"Database error getting pieces by group: {str(e)}")
+
+
+def delete_pieces_batch(piece_labels: List[str], db: Session) -> Dict[str, Any]:
+    """
+    Delete multiple pieces by their labels with corrected file paths
+    """
+    if not piece_labels:
+        raise HTTPException(status_code=400, detail="piece_labels list cannot be empty")
+    
+    if len(piece_labels) > 100:
+        raise HTTPException(status_code=400, detail="Cannot delete more than 100 pieces at once.")
+    
+    try:
+        logger.info(f"Starting batch delete for {len(piece_labels)} pieces: {piece_labels}")
+        
+        # Step 1: Validate all pieces exist before starting deletion
+        pieces_to_delete = []
+        not_found_labels = []
+        
+        for piece_label in piece_labels:
+            logger.info(f"Validating piece: {piece_label}")
+            try:
+                piece_to_delete = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+                if not piece_to_delete:
+                    logger.warning(f"Piece not found: {piece_label}")
+                    not_found_labels.append(piece_label)
+                else:
+                    logger.info(f"Found piece: {piece_label} (ID: {piece_to_delete.id})")
+                    pieces_to_delete.append(piece_label)
+            except Exception as validation_error:
+                logger.error(f"Error validating piece {piece_label}: {type(validation_error).__name__} - {validation_error}")
+                not_found_labels.append(piece_label)
+        
+        if not_found_labels:
+            error_msg = f"Pieces not found: {not_found_labels}"
+            logger.error(error_msg)
+            raise HTTPException(status_code=404, detail=error_msg)
+        
+        logger.info(f"Validation complete. {len(pieces_to_delete)} pieces will be deleted")
+        
+        # Step 2: Delete each piece
+        deleted_pieces = []
+        failed_pieces = []
+        
+        for piece_label in pieces_to_delete:
+            logger.info(f"Processing piece: {piece_label}")
+            
+            try:
+                piece_to_delete = db.query(Piece).filter(Piece.piece_label == piece_label).first()
+                if not piece_to_delete:
+                    failed_pieces.append({
+                        "piece_label": piece_label,
+                        "error": "Piece not found during deletion",
+                        "error_type": "NotFound"
+                    })
+                    continue
+
+                # Delete annotations via API
+                annotation_deletion_success = _call_annotation_service_delete_piece(piece_label)
+                
+                # Delete images from database
+                images = db.query(PieceImage).filter(PieceImage.piece_id == piece_to_delete.id).all()
+                for image in images:
+                    db.delete(image)
+                
+                # Delete the piece from database
+                db.delete(piece_to_delete)
+                db.commit()
+
+                # Delete file system folders - CORRECTED PATHS
+                match = re.match(r'([A-Z]\d{3}\.\d{5})', piece_label)
+                if match:
+                    extracted_label = match.group(1)
+                    
+                    # Based on your docker-compose, the dataset volume maps to /app/shared/dataset
+                    # But inside the container, the environment variable DATASET_BASE_PATH=/app/shared/dataset
+                    
+                    folder_paths = [
+                        # Original piece folder
+                        os.path.join("/app/shared/dataset", 'piece', 'piece', extracted_label, piece_label),
+                        
+                        # Dataset custom folders for the specific piece
+                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'labels', 'valid', piece_label),
+                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'images', 'valid', piece_label),
+                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'labels', 'train', piece_label),
+                        os.path.join("/app/shared/dataset", 'dataset_custom', extracted_label, 'images', 'train', piece_label),
+                        
+                        # Cropped dataset folders
+                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'valid', piece_label),
+                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'images', 'valid', piece_label),
+                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'train', piece_label),
+                        os.path.join("/app/shared/dataset", 'dataset_custom', f"{extracted_label}_cropped", 'images', 'train', piece_label)
+                    ]
+                    
+                    # Log and delete each folder
+                    for folder_path in folder_paths:
+                        logger.info(f"Attempting to delete folder: {folder_path}")
+                        if os.path.exists(folder_path):
+                            try:
+                                delete_directory(folder_path)
+                                logger.info(f"Successfully deleted folder: {folder_path}")
+                            except Exception as folder_error:
+                                logger.warning(f"Failed to delete folder {folder_path}: {folder_error}")
+                        else:
+                            logger.info(f"Folder does not exist: {folder_path}")
+                else:
+                    logger.warning(f"Could not extract label pattern from: {piece_label}")
+                
+                # Record success
+                deleted_pieces.append({
+                    "piece_label": piece_label,
+                    "annotations_deleted": annotation_deletion_success,
+                    "status": "deleted"
+                })
+                logger.info(f"Successfully deleted piece: {piece_label}")
+                
+            except Exception as e:
+                db.rollback()  # Rollback on individual piece failure
+                error_msg = str(e) if str(e) else f"Unknown {type(e).__name__} error"
+                logger.error(f"Exception for piece {piece_label}: {type(e).__name__} - {error_msg}")
+                failed_pieces.append({
+                    "piece_label": piece_label,
+                    "error": error_msg,
+                    "error_type": type(e).__name__
+                })
+                continue
+        
+        result = {
+            "status": "Batch piece deletion completed",
+            "deleted_pieces": deleted_pieces,
+            "failed_pieces": failed_pieces,
+            "total_deleted": len(deleted_pieces),
+            "total_failed": len(failed_pieces)
+        }
+        
+        logger.info(f"Batch delete completed: {len(deleted_pieces)} deleted, {len(failed_pieces)} failed")
+        return result
+        
+    except HTTPException as he:
+        logger.error(f"HTTPException in batch delete: {he.status_code} - {he.detail}")
+        raise
+    except Exception as e:
+        db.rollback()
+        error_msg = str(e) if str(e) else f"Unknown {type(e).__name__} error"
+        full_error = f"Error in batch piece deletion: {error_msg}"
+        
+        logger.error(f"Critical error in batch delete: {type(e).__name__} - {error_msg}")
+        
+        raise HTTPException(status_code=500, detail=full_error)
+
+
+def delete_directory(directory_path: str) -> None:
+    """Recursively delete a directory and its contents with better error handling."""
+    try:
+        if os.path.exists(directory_path):
+            # Check if it's actually a directory
+            if os.path.isdir(directory_path):
+                shutil.rmtree(directory_path)
+                logger.info(f"Deleted directory: {directory_path}")
+            else:
+                logger.warning(f"Path exists but is not a directory: {directory_path}")
+        else:
+            logger.info(f"Directory not found (may already be deleted): {directory_path}")
+    except PermissionError as e:
+        logger.error(f"Permission denied when deleting {directory_path}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting directory {directory_path}: {e}")
+        raise
+

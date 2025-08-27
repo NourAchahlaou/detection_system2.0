@@ -1,3 +1,4 @@
+// UPDATED: AppDatabasesetup component with unified delete handling
 import { Box, styled, Typography, CircularProgress, Snackbar, Alert } from "@mui/material";
 import DatasetComponenet from "./datasetTable/Dataset";
 import NoData from "../sessions/NoData";
@@ -56,11 +57,11 @@ export default function AppDatabasesetup() {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [trainingHistory, setTrainingHistory] = useState([]);
   
-  // Selection state - Add this for DataTable
+  // Selection state
   const [selectedDatasets, setSelectedDatasets] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
   
-  // Pagination state - Add this for DataTable
+  // Pagination state
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   
@@ -84,7 +85,7 @@ export default function AppDatabasesetup() {
   const checkTrainingStatus = useCallback(async () => {
     try {
       console.log('🔍 Checking training status...');
-      const status = await datasetService.getTrainingStatus(true); // Include logs
+      const status = await datasetService.getTrainingStatus(true);
       console.log('Training status response:', status);
 
       if (status?.data?.is_training && status?.data?.session_info) {
@@ -94,7 +95,6 @@ export default function AppDatabasesetup() {
         setCurrentSessionId(status.data.session_info.id);
         setSidebarOpen(true);
         
-        // Start polling for updates when training is active
         if (!trainingStatusInterval.current) {
           startTrainingPolling();
         }
@@ -105,7 +105,6 @@ export default function AppDatabasesetup() {
         setCurrentSessionId(null);
         setSidebarOpen(false);
         
-        // Stop polling when training is not active
         stopTrainingPolling();
       }
     } catch (error) {
@@ -118,7 +117,7 @@ export default function AppDatabasesetup() {
     }
   }, []);
 
-  // Start polling for training updates (only when training is active)
+  // Start polling for training updates
   const startTrainingPolling = useCallback(() => {
     if (trainingStatusInterval.current) {
       console.log('⚠️ Training polling already active');
@@ -133,7 +132,6 @@ export default function AppDatabasesetup() {
         if (status?.data?.is_training && status?.data?.session_info) {
           setTrainingData(status.data.session_info);
         } else {
-          // Training finished
           console.log('🎉 Training completed!');
           setTrainingInProgress(false);
           setTrainingData(null);
@@ -142,14 +140,13 @@ export default function AppDatabasesetup() {
           stopTrainingPolling();
           showNotification('Training session completed!', 'success');
           
-          // Refresh dataset data to show updated training status
           fetchData();
         }
       } catch (error) {
         console.error("❌ Error during training polling:", error);
         stopTrainingPolling();
       }
-    }, 3000); // Poll every 3 seconds when training is active
+    }, 3000);
   }, [showNotification]);
 
   // Stop polling
@@ -199,7 +196,6 @@ export default function AppDatabasesetup() {
     
     try {
       const pieces = await datasetService.getAllDatasets();
-      // Convert object to array if needed
       const dataArray = Array.isArray(pieces) ? pieces : Object.values(pieces || {});
       console.log('📊 Datasets fetched:', dataArray.length, 'pieces');
       setData(dataArray);
@@ -220,7 +216,7 @@ export default function AppDatabasesetup() {
     fetchData();
   }, [fetchData]);
 
-  // Enhanced training handlers - ALL USING useCallback to ensure stable references
+  // Enhanced training handlers
   const handleTrainingStart = useCallback(async (piece) => {
     try {
       console.log('🚀 Starting single piece training for:', piece.label);
@@ -245,99 +241,30 @@ export default function AppDatabasesetup() {
     }
   }, [showNotification, startTrainingPolling]);
 
-  // CORRECTED handleBatchTrain function - ensures it always returns a result
   const handleBatchTrain = useCallback(async (pieceLabels, sequential = false) => {
     console.log('=== DEBUG handleBatchTrain START ===');
     console.log('Input pieceLabels:', pieceLabels);
-    console.log('Input sequential:', sequential);
     
     try {
-      console.log('Step 1: Function entered successfully');
-      
-      // Basic validation - ALWAYS return a result object
-      if (!pieceLabels) {
-        console.log('Step 2: No pieceLabels provided - returning error');
+      if (!pieceLabels || !Array.isArray(pieceLabels) || pieceLabels.length === 0) {
         const result = { success: false, error: 'No pieces provided' };
-        console.log('Returning result:', result);
         showNotification('No pieces provided for training', 'error');
         return result;
       }
 
-      if (!Array.isArray(pieceLabels)) {
-        console.log('Step 2: pieceLabels not an array - returning error');
-        const result = { success: false, error: 'Invalid format' };
-        console.log('Returning result:', result);
-        showNotification('Invalid piece format', 'error');
-        return result;
-      }
-
-      if (pieceLabels.length === 0) {
-        console.log('Step 2: Empty pieceLabels array - returning error');
-        const result = { success: false, error: 'Empty selection' };
-        console.log('Returning result:', result);
-        showNotification('No pieces selected for training', 'error');
-        return result;
-      }
-
-      console.log('Step 3: Basic validation passed');
-
-      // Check training in progress
       if (trainingInProgress) {
-        console.log('Step 4: Training already in progress - returning error');
         const result = { success: false, error: 'Training in progress' };
-        console.log('Returning result:', result);
         showNotification('Training is already in progress', 'warning');
         return result;
       }
 
-      console.log('Step 5: No training in progress, continuing');
-
-      // Check datasetService
-      if (!datasetService) {
-        console.log('Step 6: datasetService not available - returning error');
-        const result = { success: false, error: 'Service unavailable' };
-        console.log('Returning result:', result);
-        showNotification('Training service unavailable', 'error');
-        return result;
-      }
-
-      console.log('Step 7: datasetService available');
-
-      if (typeof datasetService.trainMultiplePieces !== 'function') {
-        console.log('Step 8: trainMultiplePieces method not found - returning error');
-        console.log('Available methods:', Object.keys(datasetService));
-        const result = { success: false, error: 'Method unavailable' };
-        console.log('Returning result:', result);
-        showNotification('Training method not available', 'error');
-        return result;
-      }
-
-      console.log('Step 9: trainMultiplePieces method available');
-      console.log('About to call API with:', pieceLabels);
-
-      // Show notification BEFORE API call
       showNotification(`Starting training for ${pieceLabels.length} pieces...`, 'info');
 
-      // Make API call with proper error handling
-      console.log('Step 10: Making API call...');
       const apiResult = await datasetService.trainMultiplePieces(pieceLabels);
-      console.log('Step 11: API call completed, result:', apiResult);
+      console.log('API call completed, result:', apiResult);
 
-      // Handle API response
-      if (!apiResult) {
-        console.log('Step 12: API returned null/undefined');
-        const result = { success: false, error: 'No response from training service' };
-        console.log('Returning result:', result);
-        showNotification('No response from training service', 'error');
-        return result;
-      }
-
-      if (apiResult.data) {
-        console.log('Step 12: API returned valid data');
-        
-        // Update UI state if session ID is provided
+      if (apiResult && apiResult.data) {
         if (apiResult.data.session_id) {
-          console.log('Step 13: Setting up training session');
           setCurrentSessionId(apiResult.data.session_id);
           setTrainingInProgress(true);
           setSidebarOpen(true);
@@ -345,34 +272,20 @@ export default function AppDatabasesetup() {
         }
         
         showNotification(`Training started successfully!`, 'success');
-        const result = { success: true, data: apiResult.data };
-        console.log('Step 14: Returning success result:', result);
-        return result;
+        return { success: true, data: apiResult.data };
       } else {
-        console.log('Step 12: API returned invalid data format');
-        console.log('API Result structure:', apiResult);
         const result = { success: false, error: 'Invalid API response format' };
-        console.log('Returning result:', result);
         showNotification('Invalid response from training service', 'error');
         return result;
       }
 
     } catch (error) {
-      console.log('Step ERROR: Exception caught:', error);
-      console.log('Error name:', error.name);
-      console.log('Error message:', error.message);
-      console.log('Error stack:', error.stack);
-      
+      console.log('Exception caught:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred';
       showNotification(`Training failed: ${errorMessage}`, 'error');
-      
-      const result = { success: false, error: errorMessage };
-      console.log('Returning error result:', result);
-      return result;
-    } finally {
-      console.log('=== DEBUG handleBatchTrain END ===');
+      return { success: false, error: errorMessage };
     }
-  }, [showNotification, startTrainingPolling, trainingInProgress, datasetService]);
+  }, [showNotification, startTrainingPolling, trainingInProgress]);
 
   const handleTrainingStop = useCallback(async () => {
     try {
@@ -385,7 +298,6 @@ export default function AppDatabasesetup() {
       stopTrainingPolling();
       showNotification('Training stopped successfully', 'success');
       
-      // Refresh data to show updated status
       fetchData();
     } catch (error) {
       console.error("❌ Failed to stop training:", error);
@@ -398,7 +310,7 @@ export default function AppDatabasesetup() {
       console.log('⏸️ Pausing training...');
       await datasetService.pauseTraining();
       showNotification('Training paused', 'info');
-      checkTrainingStatus(); // Refresh status
+      checkTrainingStatus();
     } catch (error) {
       console.error("❌ Failed to pause training:", error);
       showNotification('Failed to pause training', 'error');
@@ -433,14 +345,13 @@ export default function AppDatabasesetup() {
     setSidebarOpen(false);
   }, []);
 
-  // Manual refresh function
   const handlePageRefresh = useCallback(() => {
     console.log('🔄 Manual page refresh triggered');
     checkTrainingStatus();
     fetchData();
   }, [checkTrainingStatus, fetchData]);
 
-  // Add missing DataTable handler functions - ALL with useCallback
+  // DataTable handler functions
   const handleSelectAll = useCallback(() => {
     if (selectAll) {
       setSelectedDatasets([]);
@@ -461,16 +372,95 @@ export default function AppDatabasesetup() {
   }, []);
 
   const handleView = useCallback((piece) => {
-    // Implement view functionality
     console.log('👁️ View piece:', piece);
   }, []);
 
-  const handleDelete = useCallback((piece) => {
-    // Implement delete functionality
-    console.log('🗑️ Delete piece:', piece);
-  }, []);
+  // UPDATED: handleDelete now expects an array of piece labels (unified delete function)
+// FIXED: handleDelete in AppDatabasesetup.js
+// FIXED: handleDelete in AppDatabasesetup.js
+const handleDelete = useCallback(async (pieceInput) => {
+  console.log('Delete pieces called with:', pieceInput);
+  
+  try {
+    // FIXED: Normalize input - handle both single piece and array formats
+    let labelsToDelete;
+    
+    if (Array.isArray(pieceInput)) {
+      // Array of labels or piece objects
+      labelsToDelete = pieceInput.map(item => 
+        typeof item === 'string' ? item : item.label
+      ).filter(Boolean);
+    } else if (typeof pieceInput === 'string') {
+      // Single label string
+      labelsToDelete = [pieceInput];
+    } else if (pieceInput && typeof pieceInput === 'object' && pieceInput.label) {
+      // Single piece object - extract label
+      labelsToDelete = [pieceInput.label];
+    } else {
+      console.error('Invalid input for deletion:', pieceInput);
+      showNotification('Invalid pieces for deletion', 'error');
+      return;
+    }
 
-  // FIXED: Proper pagination handlers with correct signatures
+    console.log(`Deleting ${labelsToDelete.length} pieces:`, labelsToDelete);
+    
+    // FIXED: Ensure we pass a clean array of label strings
+    await datasetService.deleteBatchOfPieces(labelsToDelete);
+    
+    // Update local state to remove deleted pieces
+    setData(prevData => 
+      prevData.filter(item => !labelsToDelete.includes(item.label))
+    );
+    
+    // Clear selection if any of the deleted pieces were selected
+    setSelectedDatasets(prevSelected => {
+      const deletedPieceIds = data
+        .filter(item => labelsToDelete.includes(item.label))
+        .map(item => item.id);
+      return prevSelected.filter(id => !deletedPieceIds.includes(id));
+    });
+    
+    // Update selectAll if needed
+    if (selectedDatasets.length > 0) {
+      setSelectAll(false);
+    }
+    
+    // Refresh data to ensure consistency
+    await fetchData();
+    
+    const message = labelsToDelete.length === 1 
+      ? `Successfully deleted piece: ${labelsToDelete[0]}` 
+      : `Successfully deleted ${labelsToDelete.length} pieces`;
+    showNotification(message, 'success');
+    
+  } catch (error) {
+    console.error('Failed to delete pieces:', error);
+    const message = labelsToDelete && labelsToDelete.length === 1
+      ? `Failed to delete piece: ${error.message}` 
+      : `Failed to delete pieces: ${error.message}`;
+    showNotification(message, 'error');
+  }
+}, [data, selectedDatasets, fetchData, showNotification]);
+
+  // UPDATED: handleBulkDelete - Now just forwards to handleDelete since they use the same logic
+  const handleBulkDelete = useCallback(async (pieceLabels) => {
+    console.log('📦 Bulk delete pieces:', pieceLabels);
+    
+    try {
+      // Call the unified delete handler
+      await handleDelete(pieceLabels);
+      
+      // Clear selection after bulk delete
+      setSelectedDatasets([]);
+      setSelectAll(false);
+      
+    } catch (error) {
+      console.error('Failed to bulk delete pieces:', error);
+      throw error; // Re-throw to let the child component handle the error display
+    }
+  }, [handleDelete]);
+
+  // Pagination handlers
   const handlePageChange = useCallback((event, newPage) => {
     console.log('📄 Page change:', newPage);
     setPage(newPage);
@@ -492,12 +482,12 @@ export default function AppDatabasesetup() {
     }
   }, []);
 
-  // Add debug logging for render
+  // Debug logging for render
   console.log('🎨 === PARENT COMPONENT RENDER ===');
   console.log('📊 Data available:', !!data);
   console.log('📊 Data length:', data?.length || 0);
   console.log('🔧 handleBatchTrain type:', typeof handleBatchTrain);
-  console.log('🔧 handleBatchTrain is function:', typeof handleBatchTrain === 'function');
+  console.log('🔧 handleDelete type:', typeof handleDelete);
   console.log('⚠️ Current training status:', trainingInProgress);
 
   if (loading) {
@@ -534,22 +524,20 @@ export default function AppDatabasesetup() {
     );
   }
 
-
   return (
     <Container>
-
       {data && Array.isArray(data) && data.length > 0 ? (
         <>
-          {/* ✅ FIXED: Pass ALL required props with correct names */}
           <DatasetComponenet 
-            datasets={data} // ✅ FIXED: Pass data as datasets prop
+            datasets={data}
             selectedDatasets={selectedDatasets}
             selectAll={selectAll}
             onSelectAll={handleSelectAll}
             onSelect={handleSelect}
             onView={handleView}
-            onDelete={handleDelete}
-            onTrain={handleTrainingStart} // ✅ FIXED: Single piece training
+            onDelete={handleDelete} // ✅ UPDATED: Now handles array of piece labels
+            onBulkDelete={handleBulkDelete} // ✅ UPDATED: Forwards to handleDelete
+            onTrain={handleTrainingStart}
             trainingInProgress={trainingInProgress}
             trainingData={trainingData}
             page={page}
@@ -558,10 +546,10 @@ export default function AppDatabasesetup() {
             onPageChange={handlePageChange}
             onRowsPerPageChange={handleRowsPerPageChange}
             formatDate={formatDate}
-            onBatchTrain={handleBatchTrain} // ✅ FIXED: Batch training handler
-            onStopTraining={handleTrainingStop} // ✅ FIXED: Stop training handler
-            onPauseTraining={handleTrainingPause} // ✅ FIXED: Pause training handler
-            onResumeTraining={handleTrainingResume} // ✅ FIXED: Resume training handler
+            onBatchTrain={handleBatchTrain}
+            onStopTraining={handleTrainingStop}
+            onPauseTraining={handleTrainingPause}
+            onResumeTraining={handleTrainingResume}
             // Legacy props for compatibility
             data={data}
             onTrainingStart={handleTrainingStart}

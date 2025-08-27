@@ -546,14 +546,14 @@ export default function EnhancedDataTable({
         setLoading(true);
         
         if (actionType === "delete" && actionTarget) {
-          await datasetService.deletePieceByLabel(actionTarget.label);
+          await datasetService.deleteBatchOfPieces(actionTarget.label);
           showNotification(`Successfully deleted ${actionTarget.label}`, "success");
         } else if (actionType === "bulkDelete" && actionTarget) {
           // For bulk delete, you might need to delete each piece individually
           for (const id of actionTarget) {
             const piece = datasets.find(d => d.id === id);
             if (piece) {
-              await datasetService.deletePieceByLabel(piece.label);
+              await datasetService.deleteBatchOfPieces(piece.label);
             }
           }
           showNotification(`Successfully deleted ${actionTarget.length} pieces`, "success");

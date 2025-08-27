@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Annotated, List, Optional
 from datetime import datetime
-
+from artifact_keeper.app.services.deleteBatch import delete_pieces_batch_isolated
 from artifact_keeper.app.services.datasetManagerService import (
     get_all_datasets,
     get_all_datasets_with_filters,
@@ -10,13 +11,20 @@ from artifact_keeper.app.services.datasetManagerService import (
     get_available_groups,
     export_dataset_report,
     bulk_update_pieces,
-    delete_all_pieces,
-    delete_piece_by_label,
+    delete_all_pieces,# New function for training status update
     get_piece_labels_by_group,
     get_piece_annotations_via_api,
-    delete_annotation_via_api
+    delete_annotation_via_api,
+    delete_pieces_batch,  # New function for single deletion only
+    get_pieces_by_group,
+    update_group_training_status, 
+    # delete_piece_by_label, # New function for training status update
+ # New function for batch deletion only
+    get_piece_group_by_label  # New function to get the group of a piece
 )
 from artifact_keeper.app.db.session import get_session
+import logging
+logger = logging.getLogger(__name__)
 
 datasetManager_router = APIRouter(
     prefix="/datasetManager",
@@ -175,11 +183,31 @@ def get_piece_annotations_route(piece_label: str):
     return get_piece_annotations_via_api(piece_label)
 
 
-@datasetManager_router.delete("/pieces/{piece_label}", tags=["Dataset"])
-def delete_piece_route(piece_label: str, db: db_dependency):
-    """Route to delete a specific piece and its associated data."""
-    return delete_piece_by_label(piece_label, db)
-
+# @datasetManager_router.delete("/pieces/{piece_label}", tags=["Dataset"])
+# def delete_piece_route(piece_label: str, db: db_dependency):
+#     """Route to delete a specific piece and update training status for its group."""
+#     try:
+#         # First, get the group of the piece to be deleted
+#         piece_group = get_piece_group_by_label(piece_label, db)
+        
+#         # Delete the piece
+#         delete_result = delete_piece_by_label(piece_label, db)
+        
+#         # Update training status for remaining pieces in the same group
+#         if piece_group:
+#             update_group_training_status(piece_group, db)
+        
+#         return {
+#             "message": f"Piece '{piece_label}' deleted successfully",
+#             "deleted_piece": delete_result,
+#             "group_updated": piece_group if piece_group else "No group found"
+#         }
+        
+#     except HTTPException:
+#         # Re-raise HTTPExceptions without modification
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error deleting single piece: {str(e)}")
 
 @datasetManager_router.delete("/pieces", tags=["Dataset"])
 def delete_all_pieces_route(db: db_dependency):
@@ -191,3 +219,25 @@ def delete_all_pieces_route(db: db_dependency):
 def delete_annotation_route(annotation_id: int):
     """Route to delete a specific annotation via annotation service API."""
     return delete_annotation_via_api(annotation_id)
+
+
+class BatchDeleteRequest(BaseModel):
+    piece_labels: List[str]
+
+@datasetManager_router.delete("/pieces/batch", tags=["Dataset"])
+def delete_pieces_batch_route(
+    request: BatchDeleteRequest,
+    db: db_dependency
+):
+    """Route to delete multiple pieces by their labels."""
+    
+    if not request.piece_labels:
+        raise HTTPException(status_code=400, detail="piece_labels list cannot be empty")
+    
+    if len(request.piece_labels) > 100:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot delete more than 100 pieces at once."
+        )
+    
+    return delete_pieces_batch(request.piece_labels, db)

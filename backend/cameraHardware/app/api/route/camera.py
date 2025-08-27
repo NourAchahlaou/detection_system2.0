@@ -17,7 +17,7 @@ from app.service.camera_manager import CameraManager
 from app.service.circuitBreaker import CircuitBreaker
 from app.response.circuitBreaker import CircuitBreakerStatusResponse
 
-# Create circuit breakers for different camera operations
+# Create circuit breakers with more appropriate settings
 opencv_camera_cb = CircuitBreaker(
     failure_threshold=3,
     recovery_timeout=60,
@@ -34,6 +34,13 @@ detect_camera_cb = CircuitBreaker(
     failure_threshold=5,  # More tolerant for detection
     recovery_timeout=30,
     name="detect_cameras"
+)
+
+# More aggressive circuit breaker for image capture with faster recovery
+image_capture_cb = CircuitBreaker(
+    failure_threshold=3,    # Allow a few failures
+    recovery_timeout=10,    # Quick recovery - 10 seconds instead of 30
+    name="image_capture"
 )
 
 camera_router = APIRouter(
@@ -78,6 +85,8 @@ def start_opencv_camera(request: OpenCVCameraRequest):
     try:
         def start_opencv():
             frame_source.start_opencv_camera(request.camera_index)
+            # Reset image capture circuit breaker when camera starts successfully
+            image_capture_cb.reset()
             return {
                 "status": "success",
                 "message": f"OpenCV camera with index {request.camera_index} started successfully"
@@ -101,6 +110,8 @@ def start_basler_camera(request: BaslerCameraRequest):
     try:
         def start_basler():
             frame_source.start_basler_camera(request.serial_number)
+            # Reset image capture circuit breaker when camera starts successfully
+            image_capture_cb.reset()
             return {
                 "status": "success",
                 "message": f"Basler camera with serial number {request.serial_number} started successfully"
@@ -156,7 +167,7 @@ def raw_jpeg_stream():
 async def capture_images(
     piece_label: str = Path(..., title="The label of the piece to capture images for")
 ):
-    """Capture images with resilience using circuit breaker - NO LOCAL STORAGE"""
+    """Capture images with improved resilience using circuit breaker - NO LOCAL STORAGE"""
     if not frame_source.camera_is_running:
         raise HTTPException(
             status_code=503,
@@ -168,24 +179,31 @@ async def capture_images(
     if not match:
         raise HTTPException(status_code=400, detail="Invalid piece_label format.")
     
-    # Use a specific circuit breaker for image capture
-    image_capture_cb = CircuitBreaker(failure_threshold=2, recovery_timeout=30, name="image_capture")
-    
     def capture_image():
         """Capture an image using the ImageCapture service"""
         return ImageCapture().capture_image_only(frame_source, piece_label)
     
     def capture_fallback():
-        # Return a default "service unavailable" image or None
+        # Return None to indicate service unavailable
         return None
     
     try:
         frame = image_capture_cb.execute(capture_image, fallback=capture_fallback)
     except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Camera service temporarily unavailable: {str(e)}"
-        )
+        # If we get an exception even from the circuit breaker, provide more details
+        error_msg = str(e)
+        if "already a thread waiting" in error_msg:
+            # Reset the circuit breaker and suggest retry
+            image_capture_cb.reset()
+            raise HTTPException(
+                status_code=503,
+                detail="Camera access conflict resolved. Please try again in a moment."
+            )
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Camera service temporarily unavailable: {error_msg}"
+            )
     
     if frame is None:
         raise HTTPException(
@@ -217,6 +235,8 @@ def stop_camera():
     
     def stop():
         frame_source.stop()
+        # Reset image capture circuit breaker when camera is stopped
+        image_capture_cb.reset()
         return {"message": "Camera stopped"}
     
     def stop_fallback():
@@ -248,9 +268,13 @@ async def get_camera_status():
         "camera_is_running": frame_source.camera_is_running,
         "camera_type": frame_source.type,
         "camera_id": frame_source.cam_id,
-        "is_open": frame_source._check_camera() if frame_source.camera_is_running else False
+        "is_open": frame_source._check_camera() if frame_source.camera_is_running else False,
+        "image_capture_circuit_breaker": {
+            "state": image_capture_cb.current_state,
+            "failure_count": image_capture_cb.failure_count
+        }
     }
-# Add this to your camera router
+
 @camera_router.get("/single_frame")
 def get_single_frame():
     """Get a single frame as JPEG for video streaming service"""
@@ -283,7 +307,6 @@ def get_single_frame():
         )
         
     except Exception as e:
-       
         raise HTTPException(status_code=503, detail=f"Failed to get frame: {str(e)}")
 
 @camera_router.get("/frame_info")
@@ -295,6 +318,7 @@ def get_frame_info():
         "camera_id": frame_source.cam_id,
         "is_open": frame_source._check_camera() if frame_source.camera_is_running else False
     }
+
 # Circuit breaker management endpoints
 @camera_router.get("/circuit-breaker-status", response_model=Dict[str, CircuitBreakerStatusResponse])
 async def get_circuit_breaker_status():
@@ -314,6 +338,11 @@ async def get_circuit_breaker_status():
             "state": detect_camera_cb.current_state,
             "failure_count": detect_camera_cb.failure_count,
             "last_failure_time": detect_camera_cb.last_failure_time
+        },
+        "image_capture": {
+            "state": image_capture_cb.current_state,
+            "failure_count": image_capture_cb.failure_count,
+            "last_failure_time": image_capture_cb.last_failure_time
         }
     }
 
@@ -323,7 +352,8 @@ async def reset_circuit_breaker(breaker_name: str):
     breakers = {
         "opencv_camera": opencv_camera_cb,
         "basler_camera": basler_camera_cb,
-        "detect_cameras": detect_camera_cb
+        "detect_cameras": detect_camera_cb,
+        "image_capture": image_capture_cb
     }
     
     if breaker_name not in breakers:
@@ -331,3 +361,12 @@ async def reset_circuit_breaker(breaker_name: str):
     
     breakers[breaker_name].reset()
     return {"message": f"Circuit breaker '{breaker_name}' has been reset"}
+
+@camera_router.post("/reset-all-circuit-breakers")
+async def reset_all_circuit_breakers():
+    """Reset all circuit breakers"""
+    breakers = [opencv_camera_cb, basler_camera_cb, detect_camera_cb, image_capture_cb]
+    for breaker in breakers:
+        breaker.reset()
+    
+    return {"message": f"All {len(breakers)} circuit breakers have been reset"}

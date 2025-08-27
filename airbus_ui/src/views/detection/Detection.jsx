@@ -1,5 +1,4 @@
-
-// AppDetection.jsx - UPDATED: Proper integration with DetectionStatsPanel
+// AppDetection.jsx - UPDATED: Proper lot-based initialization
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { 
@@ -18,7 +17,7 @@ import DetectionVideoFeed from "./components/DetectionVideoFeed";
 import SystemPerformancePanel from "./components/SystemPerformancePanel";
 import LotWorkflowPanel from "./components/LotWorkflowPanel";
 import InfoPanel from "./components/InfoPanel";
-import DetectionStatsPanel from "./components/DetectionStatsPanel"; // Import DetectionStatsPanel
+import DetectionStatsPanel from "./components/DetectionStatsPanel";
 
 // Services
 import { detectionService } from "./service/DetectionService";
@@ -36,8 +35,6 @@ import {
 
 // Utils
 import { 
-  initializeDetectionSystem,
-  createRetryInitialization,
   getStateInfo,
   getModeDisplayInfo,
   createCleanupFunction,
@@ -68,6 +65,11 @@ export default function AppDetection() {
   const [detectionHistory, setDetectionHistory] = useState([]);
   const [isLotLoading, setIsLotLoading] = useState(false);
   const [lotLoadInitialized, setLotLoadInitialized] = useState(false);
+  
+  // NEW: Lot-based initialization state
+  const [isInitializingForLot, setIsInitializingForLot] = useState(false);
+  const [initializationError, setInitializationError] = useState(null);
+  const [lotInitialized, setLotInitialized] = useState(false);
 
   // SIMPLIFIED: Only one trigger for successful detections - timestamp based
   const [lastSuccessfulDetection, setLastSuccessfulDetection] = useState(null);
@@ -151,14 +153,55 @@ export default function AppDetection() {
 
   // UPDATED: Trigger stats refresh only on successful detection
   const triggerStatsRefreshOnSuccess = useCallback(() => {
-    console.log('📊 Detection successful - triggering stats refresh');
+    console.log('Detection successful - triggering stats refresh');
     setLastSuccessfulDetection(Date.now()); // Use timestamp to ensure uniqueness
   }, []);
 
-  // Enhanced lot loading function with better state management
+  // NEW: Lot-based initialization function
+  const initializeDetectionForLot = useCallback(async (lotId, pieceLabel) => {
+    console.log(`Initializing detection system for lot ${lotId} with piece: ${pieceLabel}`);
+    
+    setIsInitializingForLot(true);
+    setInitializationError(null);
+    
+    try {
+      // Use the new lot-based initialization from DetectionService
+      const result = await detectionService.initializeForLot(lotId, pieceLabel);
+      
+      if (result.success) {
+        setLotInitialized(true);
+        console.log(`Detection system ready for ${pieceLabel}`);
+        
+        lotManagement.showSnackbar(
+          `Detection system initialized for ${pieceLabel}`, 
+          'success'
+        );
+        
+        return { success: true };
+      } else {
+        throw new Error(result.message || 'Failed to initialize for lot');
+      }
+      
+    } catch (error) {
+      console.error(`Failed to initialize for lot ${lotId}:`, error);
+      setInitializationError(error.message);
+      setLotInitialized(false);
+      
+      lotManagement.showSnackbar(
+        `Failed to initialize for ${pieceLabel}: ${error.message}`, 
+        'error'
+      );
+      
+      return { success: false, error: error.message };
+    } finally {
+      setIsInitializingForLot(false);
+    }
+  }, [lotManagement]);
+
+  // Enhanced lot loading function with proper initialization
   const loadSelectedLot = useCallback(async (forceReload = false) => {
     if (!selectedLotId) {
-      console.log('📋 No lot ID to load');
+      console.log('No lot ID to load');
       setLotLoadInitialized(true);
       return { success: false, message: 'No lot ID provided' };
     }
@@ -168,14 +211,14 @@ export default function AppDetection() {
         lotManagement.currentLot && 
         lotManagement.currentLot.lot_id === selectedLotId &&
         lotLoadInitialized) {
-      console.log('📋 Lot already loaded correctly:', lotManagement.currentLot.lot_name);
+      console.log('Lot already loaded correctly:', lotManagement.currentLot.lot_name);
       return { success: true, lot: lotManagement.currentLot };
     }
 
     setIsLotLoading(true);
     
     try {
-      console.log('📋 Loading selected lot:', selectedLotId);
+      console.log('Loading selected lot:', selectedLotId);
       
       // Ensure StreamManager is available
       if (!streamManager) {
@@ -191,7 +234,7 @@ export default function AppDetection() {
         // Fetch the piece label from API and add it to the lot object
         let pieceLabel = lot.expected_piece_label;
         if (!pieceLabel && lot.expected_piece_id) {
-          console.log('📋 Fetching piece label for ID:', lot.expected_piece_id);
+          console.log('Fetching piece label for ID:', lot.expected_piece_id);
           pieceLabel = await fetchPieceLabel(lot.expected_piece_id);
           lot.expected_piece_label = pieceLabel;
         }
@@ -203,57 +246,67 @@ export default function AppDetection() {
         const targetLabelToUse = pieceLabel || `piece_${lot.expected_piece_id}`;
         setTargetLabel(targetLabelToUse);
         
-        // Activate lot workflow since we have a selected lot
-        setLotWorkflowActive(true);
+        // CRITICAL: Initialize detection system for this specific lot and piece
+        console.log(`Initializing detection system for lot ${selectedLotId} with piece: ${targetLabelToUse}`);
+        const initResult = await initializeDetectionForLot(selectedLotId, targetLabelToUse);
         
-        // Load detection history for this lot
-        try {
-          const historyResult = await streamManager.getLotDetectionSessions(selectedLotId);
-          if (historyResult.success) {
-            setDetectionHistory(historyResult.sessions || []);
-            console.log(`📋 Loaded ${historyResult.sessions?.length || 0} detection sessions`);
+        if (initResult.success) {
+          // Activate lot workflow since we have a selected lot and initialized system
+          setLotWorkflowActive(true);
+          
+          // Load detection history for this lot
+          try {
+            const historyResult = await streamManager.getLotDetectionSessions(selectedLotId);
+            if (historyResult.success) {
+              setDetectionHistory(historyResult.sessions || []);
+              console.log(`Loaded ${historyResult.sessions?.length || 0} detection sessions`);
+            }
+          } catch (historyError) {
+            console.warn('Failed to load detection history:', historyError);
+            setDetectionHistory([]);
           }
-        } catch (historyError) {
-          console.warn('📋 Failed to load detection history:', historyError);
-          setDetectionHistory([]);
+          
+          // Mark as initialized
+          setLotLoadInitialized(true);
+          
+          console.log('Lot loaded and system initialized successfully:', {
+            lotId: lot.lot_id,
+            lotName: lot.lot_name,
+            expectedPiece: targetLabelToUse,
+            isComplete: lot.is_target_match,
+            workflowActive: true,
+            systemInitialized: true
+          });
+          
+          return { success: true, lot };
+        } else {
+          throw new Error(`Failed to initialize detection system: ${initResult.error}`);
         }
-        
-        // Mark as initialized
-        setLotLoadInitialized(true);
-        
-        console.log('✅ Lot loaded successfully:', {
-          lotId: lot.lot_id,
-          lotName: lot.lot_name,
-          expectedPiece: targetLabelToUse,
-          isComplete: lot.is_target_match,
-          workflowActive: true
-        });
-        
-        return { success: true, lot };
       } else {
         throw new Error(`Lot not found or API error: ${lotResult.message || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('❌ Error loading selected lot:', error);
+      console.error('Error loading selected lot:', error);
       
       let errorMessage = `Failed to load lot: ${error.message}`;
       lotManagement.showSnackbar(errorMessage, 'error');
       
       // Mark as initialized even on error to prevent infinite loops
       setLotLoadInitialized(true);
+      setLotInitialized(false);
       
       return { success: false, error: errorMessage };
     } finally {
       setIsLotLoading(false);
     }
-  }, [selectedLotId, lotManagement, streamManager, setTargetLabel, fetchPieceLabel, lotLoadInitialized]);
+  }, [selectedLotId, lotManagement, streamManager, setTargetLabel, fetchPieceLabel, lotLoadInitialized, initializeDetectionForLot]);
 
-  // Enhanced URL parameter handling with proper timing
+  // Enhanced URL parameter handling
   useEffect(() => {
     const lotIdFromUrl = searchParams.get('lotId');
     const modeFromUrl = searchParams.get('mode');
     
-    console.log('🔍 URL params check:', { 
+    console.log('URL params check:', { 
       lotIdFromUrl, 
       modeFromUrl, 
       currentSelectedLotId: selectedLotId,
@@ -261,30 +314,34 @@ export default function AppDetection() {
     });
     
     if (lotIdFromUrl && parseInt(lotIdFromUrl) !== selectedLotId) {
-      console.log('📋 New lot selected from URL:', lotIdFromUrl);
+      console.log('New lot selected from URL:', lotIdFromUrl);
       
+      // Reset lot-specific states
       const newLotId = parseInt(lotIdFromUrl);
       setSelectedLotId(newLotId);
       setLotLoadInitialized(false);
+      setLotInitialized(false);
+      setIsInitializingForLot(false);
+      setInitializationError(null);
     }
   }, [searchParams, selectedLotId, streamManager]);
 
+  // UPDATED: Load lot only when needed, without waiting for system state
   useEffect(() => {
     if (selectedLotId && 
         streamManager && 
-        (detectionSystem.detectionState === DetectionStates.READY || 
-         detectionSystem.detectionState === DetectionStates.INITIALIZING) &&
-        !lotLoadInitialized) {
+        !lotLoadInitialized &&
+        !isLotLoading) {
       
-      console.log('🔄 Conditions met, loading lot details:', {
+      console.log('Conditions met, loading lot details:', {
         selectedLotId,
-        detectionState: detectionSystem.detectionState,
-        lotLoadInitialized
+        lotLoadInitialized,
+        isLotLoading
       });
       
       loadSelectedLot();
     }
-  }, [selectedLotId, streamManager, detectionSystem.detectionState, lotLoadInitialized, loadSelectedLot]);
+  }, [selectedLotId, streamManager, lotLoadInitialized, isLotLoading, loadSelectedLot]);
 
   // Enhanced lots fetching with improved caching
   const fetchExistingLotsEfficient = useCallback(async (forceRefresh = false) => {
@@ -294,31 +351,31 @@ export default function AppDetection() {
         lotsCache.current.isValid && 
         lotsCache.current.data.size > 0 && 
         (now - lotsCache.current.lastFetch) < LOTS_CACHE_DURATION) {
-      console.log('📋 Using cached lots data');
+      console.log('Using cached lots data');
       const cachedData = Array.from(lotsCache.current.data.values());
       lotManagement.setExistingLots(cachedData);
       return cachedData;
     }
 
     if (lotsCache.current.fetchPromise) {
-      console.log('📋 Fetch already in progress, waiting...');
+      console.log('Fetch already in progress, waiting...');
       try {
         return await lotsCache.current.fetchPromise;
       } catch (error) {
-        console.warn('📋 Previous fetch failed, retrying');
+        console.warn('Previous fetch failed, retrying');
         lotsCache.current.fetchPromise = null;
       }
     }
 
     // Don't fetch if StreamManager is not available yet
     if (!streamManager) {
-      console.log('📋 StreamManager not available, skipping lots fetch');
+      console.log('StreamManager not available, skipping lots fetch');
       return [];
     }
 
     lotsCache.current.fetchPromise = (async () => {
       try {
-        console.log('📋 Fetching lots via StreamManager...');
+        console.log('Fetching lots via StreamManager...');
 
         const result = await streamManager.getAllDetectionLots();
 
@@ -334,19 +391,17 @@ export default function AppDetection() {
           // Update state
           lotManagement.setExistingLots(result.lots);
           
-          console.log(`✅ Fetched ${result.lots.length} lots`);
+          console.log(`Fetched ${result.lots.length} lots`);
           return result.lots;
         } else {
           throw new Error(result.message || 'Failed to fetch lots');
         }
 
       } catch (error) {
-        console.error('❌ Error fetching lots:', error);
+        console.error('Error fetching lots:', error);
         lotsCache.current.isValid = false;
         
-        if (detectionSystem.detectionState !== DetectionStates.SHUTTING_DOWN) {
-          lotManagement.showSnackbar(`Failed to fetch lots: ${error.message}`, 'error');
-        }
+        lotManagement.showSnackbar(`Failed to fetch lots: ${error.message}`, 'error');
         
         return lotManagement.existingLots;
       } finally {
@@ -355,7 +410,7 @@ export default function AppDetection() {
     })();
 
     return lotsCache.current.fetchPromise;
-  }, [streamManager, lotManagement, detectionSystem.detectionState]);
+  }, [streamManager, lotManagement]);
 
   // Enhanced detection handlers with proper lot context
   const detectionHandlers = useDetectionHandlers({
@@ -395,20 +450,17 @@ export default function AppDetection() {
 
   // Enhanced lot workflow handlers
   const handleStartLotWorkflow = useCallback(async () => {
-    console.log('🚀 Starting lot workflow...', {
+    console.log('Starting lot workflow...', {
       selectedLotId,
       hasCurrentLot: !!lotManagement.currentLot,
       cameraId: cameraManagement.cameraId,
-      targetLabel
+      targetLabel,
+      lotInitialized
     });
 
-    if (!lotManagement.currentLot && selectedLotId) {
-      console.log('📋 Current lot not loaded, loading it first...');
-      const loadResult = await loadSelectedLot();
-      if (!loadResult.success) {
-        lotManagement.showSnackbar(`Cannot start workflow: ${loadResult.error}`, 'error');
-        return;
-      }
+    if (!lotInitialized) {
+      lotManagement.showSnackbar('Detection system not initialized for this lot. Please wait for initialization to complete.', 'error');
+      return;
     }
 
     if (!selectedLotId || !lotManagement.currentLot) {
@@ -422,17 +474,27 @@ export default function AppDetection() {
     }
 
     setLotWorkflowActive(true);
-    console.log('✅ Starting detection with lot context');
+    console.log('Starting detection with lot context and initialized system');
     await detectionHandlers.handleStartDetection();
-  }, [selectedLotId, lotManagement.currentLot, cameraManagement.cameraId, detectionHandlers, loadSelectedLot]);
+  }, [selectedLotId, lotManagement.currentLot, cameraManagement.cameraId, detectionHandlers, lotInitialized]);
 
   const handleStopLotWorkflow = useCallback(async () => {
-    console.log('🛑 Stopping lot workflow');
+    console.log('Stopping lot workflow');
     
     setLotWorkflowActive(false);
     setSelectedLotId(null);
     setDetectionHistory([]);
     setLotLoadInitialized(false);
+    setLotInitialized(false);
+    setIsInitializingForLot(false);
+    setInitializationError(null);
+    
+    // Shutdown lot-specific initialization
+    try {
+      await detectionService.shutdownLotSpecificInitialization();
+    } catch (error) {
+      console.warn('Error during lot-specific shutdown:', error);
+    }
     
     searchParams.delete('lotId');
     searchParams.delete('mode');
@@ -443,20 +505,17 @@ export default function AppDetection() {
 
   // UPDATED: Enhanced lot detection with proper success trigger
   const handleLotDetection = useCallback(async () => {
-    console.log('🎯 Lot detection requested...', {
+    console.log('Lot detection requested...', {
       selectedLotId,
       hasCurrentLot: !!lotManagement.currentLot,
       cameraId: cameraManagement.cameraId,
-      targetLabel
+      targetLabel,
+      lotInitialized
     });
 
-    if (selectedLotId && !lotManagement.currentLot) {
-      console.log('📋 Loading lot before detection...');
-      const loadResult = await loadSelectedLot();
-      if (!loadResult.success) {
-        lotManagement.showSnackbar(`Cannot detect: ${loadResult.error}`, 'error');
-        return;
-      }
+    if (!lotInitialized) {
+      lotManagement.showSnackbar('Detection system not initialized for this lot. Please wait.', 'error');
+      return;
     }
 
     if (!selectedLotId || !cameraManagement.cameraId || !targetLabel) {
@@ -467,41 +526,41 @@ export default function AppDetection() {
     try {
       detectionSystem.setDetectionInProgress(true);
       
-      console.log(`🎯 Performing detection for lot ${selectedLotId}`);
+      console.log(`Performing detection for lot ${selectedLotId}`);
       
       const result = await detectionHandlers.handleLotWorkflowDetection();
 
       if (result) {
         // CRITICAL: Only trigger stats refresh on successful detection
-        console.log('📊 Detection successful - triggering stats refresh and opening panel');
+        console.log('Detection successful - triggering stats refresh and opening panel');
         triggerStatsRefreshOnSuccess();
         
         // Reload lot data to get updated information
         await loadSelectedLot(true);
         
         if (result.lotCompleted) {
-          lotManagement.showSnackbar('🎉 Lot completed successfully! All requirements met.', 'success');
+          lotManagement.showSnackbar('Lot completed successfully! All requirements met.', 'success');
         } else {
           lotManagement.showSnackbar(
             result.detectionResult?.detected_target 
-              ? '✅ Target detected but lot needs verification. Continue detecting until correct.'
-              : '❌ Target not found. Please adjust the piece and try again.',
+              ? 'Target detected but lot needs verification. Continue detecting until correct.'
+              : 'Target not found. Please adjust the piece and try again.',
             'info'
           );
         }
       } else {
         // Don't trigger refresh on failed detection
-        console.log('📊 Detection failed - no stats refresh needed');
+        console.log('Detection failed - no stats refresh needed');
         lotManagement.showSnackbar('Detection failed. Please try again.', 'error');
       }
     } catch (error) {
-      console.error('❌ Error in lot detection:', error);
+      console.error('Error in lot detection:', error);
       lotManagement.showSnackbar(`Detection failed: ${error.message}`, 'error');
       // Don't trigger refresh on error
     } finally {
       detectionSystem.setDetectionInProgress(false);
     }
-  }, [selectedLotId, cameraManagement.cameraId, targetLabel, lotManagement, detectionSystem, loadSelectedLot, detectionHandlers, triggerStatsRefreshOnSuccess]);
+  }, [selectedLotId, cameraManagement.cameraId, targetLabel, lotManagement, detectionSystem, loadSelectedLot, detectionHandlers, triggerStatsRefreshOnSuccess, lotInitialized]);
 
   // Load initial lots once (only when StreamManager is available)
   useEffect(() => {
@@ -509,7 +568,7 @@ export default function AppDetection() {
     
     const loadInitialLots = async () => {
       if (mounted && !lotsCache.current.isValid && streamManager) {
-        console.log('📋 Loading initial lots...');
+        console.log('Loading initial lots...');
         await fetchExistingLotsEfficient(false);
       }
     };
@@ -521,27 +580,8 @@ export default function AppDetection() {
     };
   }, [streamManager, fetchExistingLotsEfficient]);
 
-  // System initialization effect
-  useEffect(() => {
-    const initialize = async () => {
-      if (detectionSystem.detectionState === DetectionStates.INITIALIZING && 
-          !detectionSystem.initializationAttempted.current) {
-        
-        await initializeDetectionSystem(
-          detectionSystem.initializationAttempted,
-          detectionSystem.setInitializationError,
-          detectionSystem.performInitialHealthCheck,
-          detectionSystem.startStatsMonitoring
-        );
-      }
-    };
-
-    initialize();
-    
-    return () => {
-      detectionSystem.stopMonitoring();
-    };
-  }, [detectionSystem.detectionState]);
+  // REMOVED: Old system initialization effect - no longer needed
+  // The system only initializes when a lot is selected
 
   // Enhanced cleanup
   useEffect(() => {
@@ -565,27 +605,6 @@ export default function AppDetection() {
     };
   }, [detectionSystem.detectionState, detectionSystem.stopMonitoring, detectionSystem.cleanupRef]);
 
-  // Health check state transitions
-  useEffect(() => {
-    const handleStateTransition = async () => {
-      if (detectionSystem.detectionState === DetectionStates.READY) {
-        const serviceStatus = detectionService.getDetailedStatus();
-        
-        if (!detectionSystem.healthCheckPerformed.current.postShutdown && 
-            !serviceStatus.hasPerformedPostShutdownCheck) {
-          console.log("🩺 Triggering post-shutdown health check...");
-          await detectionSystem.performPostShutdownHealthCheck();
-        } else if (!detectionSystem.healthCheckPerformed.current.initial && 
-                   !serviceStatus.hasPerformedInitialHealthCheck) {
-          console.log("🩺 Triggering initial health check...");
-          await detectionSystem.performInitialHealthCheck();
-        }
-      }
-    };
-
-    handleStateTransition();    
-  }, [detectionSystem.detectionState]);
-
   // Enhanced camera detection
   const handleDetectCameras = useCallback(async () => {
     await cameraManagement.handleDetectCameras(lotManagement.showSnackbar);
@@ -600,25 +619,28 @@ export default function AppDetection() {
     }
   }, [cameraManagement, lotManagement, detectionSystem, lotWorkflowActive]);
   
-  const retryInitialization = createRetryInitialization(
-    detectionSystem.initializationAttempted,
-    detectionSystem.setInitializationError,
-    detectionSystem.healthCheckPerformed
-  );
+  // NEW: Handle retry initialization for lot
+  const handleRetryLotInitialization = useCallback(async () => {
+    if (selectedLotId && targetLabel) {
+      setInitializationError(null);
+      await initializeDetectionForLot(selectedLotId, targetLabel);
+    }
+  }, [selectedLotId, targetLabel, initializeDetectionForLot]);
+
   const stateInfo = getStateInfo(detectionSystem.detectionState, detectionSystem.currentStreamingType);
   const modeInfo = getModeDisplayInfo(detectionSystem.currentStreamingType);
   const isBasicMode = detectionSystem.currentStreamingType === 'basic';
   const isDetectionRunning = detectionSystem.detectionState === DetectionStates.RUNNING;
   
-  // Only show LotWorkflowPanel in basic mode
-  const showLotWorkflowPanel = lotWorkflowActive && selectedLotId && isBasicMode;
-  const showLotFormInSidebar = !isDetectionRunning && detectionSystem.detectionState === DetectionStates.READY && !showLotWorkflowPanel;
+  // Only show LotWorkflowPanel in basic mode and when lot is initialized
+  const showLotWorkflowPanel = lotWorkflowActive && selectedLotId && isBasicMode && lotInitialized;
+  const showLotFormInSidebar = !isDetectionRunning && !showLotWorkflowPanel;
   const showPerformancePanel = true;
   const showStatsPanel = true;
 
   // Debug logging
   useEffect(() => {
-    console.log('🔍 Component state debug:', {
+    console.log('Component state debug:', {
       selectedLotId,
       lotWorkflowActive,
       hasCurrentLot: !!lotManagement.currentLot,
@@ -632,9 +654,13 @@ export default function AppDetection() {
       streamManagerAvailable: !!streamManager,
       isBasicMode,
       showLotWorkflowPanel,
-      isStreamFrozen: detectionSystem.isStreamFrozen
+      isStreamFrozen: detectionSystem.isStreamFrozen,
+      // NEW: Lot initialization state
+      isInitializingForLot,
+      lotInitialized,
+      initializationError
     });
-  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager, isBasicMode, showLotWorkflowPanel, detectionSystem.isStreamFrozen]);
+  }, [selectedLotId, lotWorkflowActive, lotManagement.currentLot, detectionSystem.detectionState, detectionSystem.currentStreamingType, targetLabel, isLotLoading, lotLoadInitialized, streamManager, isBasicMode, showLotWorkflowPanel, detectionSystem.isStreamFrozen, isInitializingForLot, lotInitialized, initializationError]);
 
 return (
   <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
@@ -655,7 +681,7 @@ return (
       DetectionStates={DetectionStates}
     />
 
-    {/* UPDATED: Detection Statistics Panel with isStreamFrozen prop */}
+    {/* Detection Statistics Panel */}
     {showStatsPanel && (
       <Box sx={{ mb: 2 }}>
         <DetectionStatsPanel
@@ -664,13 +690,13 @@ return (
           isDetectionActive={isDetectionRunning}
           onStartDetection={lotWorkflowActive ? handleStartLotWorkflow : detectionHandlers.handleStartDetection}
           currentLotId={selectedLotId}
-          detectionCompleted={lastSuccessfulDetection} // Only pass successful detection trigger
-          isStreamFrozen={detectionSystem.isStreamFrozen} // ADDED: Pass stream frozen state
+          detectionCompleted={lastSuccessfulDetection}
+          isStreamFrozen={detectionSystem.isStreamFrozen}
         />
       </Box>
     )}
 
-    {/* Keep only the Loading indicator for lot loading */}
+    {/* NEW: Lot initialization status alerts */}
     {isLotLoading && (
       <Alert 
         severity="info" 
@@ -681,17 +707,39 @@ return (
       </Alert>
     )}
 
-    {/* Keep only the System Status Alerts for initialization/shutdown */}
-    {detectionSystem.detectionState === DetectionStates.INITIALIZING && (
+    {isInitializingForLot && (
       <Alert 
         severity="info" 
         sx={{ mb: 2, display: 'flex', alignItems: 'center' }}
         icon={<CircularProgress size={20} />}
       >
-        Initializing adaptive detection system... Analyzing system capabilities.
+        Initializing detection system for piece: {targetLabel}... This may take a moment as the model is being loaded.
       </Alert>
     )}
 
+    {initializationError && (
+      <Alert severity="error" sx={{ mb: 2 }}>
+        Failed to initialize detection system for {targetLabel}: {initializationError}
+        <Box sx={{ mt: 1 }}>
+          <Button 
+            variant="outlined" 
+            size="small" 
+            onClick={handleRetryLotInitialization}
+            disabled={isInitializingForLot}
+          >
+            {isInitializingForLot ? 'Initializing...' : 'Retry Initialization'}
+          </Button>
+        </Box>
+      </Alert>
+    )}
+
+    {lotInitialized && lotManagement.currentLot && (
+      <Alert severity="success" sx={{ mb: 2 }}>
+        Detection system ready for {targetLabel}! You can now start detection.
+      </Alert>
+    )}
+
+    {/* Keep only the System Status Alerts for general system issues */}
     {detectionSystem.detectionState === DetectionStates.SHUTTING_DOWN && (
       <Alert 
         severity="warning" 
@@ -702,29 +750,10 @@ return (
       </Alert>
     )}
 
-    {/* Keep only the Error and Health Alerts - these are critical */}
-    {detectionSystem.initializationError && (
-      <Alert severity="error" sx={{ mb: 2 }}>
-        Adaptive system initialization failed: {detectionSystem.initializationError}
-        <Box sx={{ mt: 1 }}>
-          <Button 
-            variant="outlined" 
-            size="small" 
-            onClick={retryInitialization}
-            disabled={detectionSystem.detectionState === DetectionStates.INITIALIZING || 
-                     detectionSystem.detectionState === DetectionStates.SHUTTING_DOWN}
-          >
-            {detectionSystem.detectionState === DetectionStates.INITIALIZING ? 'Initializing...' : 'Retry Initialization'}
-          </Button>
-        </Box>
-        <br />
-        <small>If the issue persists, try refreshing the page or contact support.</small>
-      </Alert>
-    )}
-    
+    {/* Keep health alerts - these are still important */}
     {!detectionSystem.systemHealth.overall && 
      detectionSystem.detectionState === DetectionStates.READY && 
-     !detectionSystem.initializationError && (
+     !initializationError && (
       <Alert severity="warning" sx={{ mb: 2 }}>
         System health check indicates issues in {detectionSystem.currentStreamingType} mode. Detection may not work optimally.
         <br />
@@ -768,7 +797,7 @@ return (
                 cameras={cameraManagement.cameras}
                 onDetectCameras={handleDetectCameras}
                 isDetecting={cameraManagement.isDetecting}
-                isSystemReady={stateInfo.canOperate && detectionSystem.detectionState === DetectionStates.READY}
+                isSystemReady={lotInitialized && lotManagement.currentLot && detectionSystem.detectionState === DetectionStates.READY}
                 systemHealth={detectionSystem.systemHealth}
                 detectionOptions={detectionOptions}
                 onDetectionOptionsChange={detectionHandlers.handleDetectionOptionsChange}
@@ -784,13 +813,13 @@ return (
                 onStopDetection={lotWorkflowActive ? handleStopLotWorkflow : detectionHandlers.handleStopDetection}
                 cameraId={cameraManagement.cameraId}
                 targetLabel={targetLabel}
-                isSystemReady={stateInfo.canOperate}
+                isSystemReady={lotInitialized && lotManagement.currentLot}
                 detectionOptions={detectionOptions}
                 detectionState={detectionSystem.detectionState}
                 lotWorkflowActive={lotWorkflowActive}
                 selectedLotId={selectedLotId}
                 currentLot={lotManagement.currentLot}
-                navigateOnStop ={lotWorkflowActive ? handleStopLotWorkflow : detectionHandlers.handleStopDetection}
+                navigateOnStop={lotWorkflowActive ? handleStopLotWorkflow : detectionHandlers.handleStopDetection}
               />
             </Stack>
           </Box>

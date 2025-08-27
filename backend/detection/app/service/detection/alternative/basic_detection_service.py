@@ -1,4 +1,4 @@
-# improved_basic_detection_service.py - Enhanced lot validation logic
+# improved_basic_detection_service.py - Enhanced lot validation logic with lot context support
 
 import cv2
 import logging
@@ -18,10 +18,10 @@ from detection.app.db.models.detectionSession import DetectionSession
 from detection.app.schema.lotResponse import LotResponse, DetectionResponse, LotValidationResult
 from detection.app.schema.lotRequest import DetectionRequest, LotCreationRequest
 from detection.app.service.video_streaming_client import VideoStreamingClient
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 # Custom JSON encoder for datetime objects
 class DateTimeEncoder(json.JSONEncoder):
@@ -31,11 +31,19 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 class BasicDetectionProcessor:
-    """Detection processor with enhanced lot validation logic"""
+    """Detection processor with enhanced lot validation logic and lot context support"""
     
     def __init__(self):
         self.detection_system = None
         self.is_initialized = False
+        
+        # NEW: Lot context tracking
+        self.current_lot_id = None
+        self.current_piece_label = None
+        self.current_lot_info = None
+        self.is_initialized_for_lot = False
+        self.lot_model_loaded = False
+        
         self.stats = {
             'detections_performed': 0,
             'targets_detected': 0,
@@ -48,23 +56,126 @@ class BasicDetectionProcessor:
         }
         self.video_client = VideoStreamingClient()
     
-    async def initialize(self):
-        """Initialize detection system"""
+    @property 
+    def current_lot_context(self):
+        """Get current lot context information"""
+        return {
+            'lot_id': self.current_lot_id,
+            'piece_label': self.current_piece_label,
+            'lot_name': self.current_lot_info.lot_name if self.current_lot_info else None,
+            'expected_pieces': self.current_lot_info.expected_piece_number if self.current_lot_info else None,
+            'is_initialized_for_lot': self.is_initialized_for_lot,
+            'lot_model_loaded': self.lot_model_loaded
+        }
+    
+    async def initialize(self, target_piece_label: Optional[str] = None):
+        """
+        Initialize basic detection system with optional target piece label
+        
+        Args:
+            target_piece_label: Optional piece label to initialize the model for
+        """
         try:
             if not self.is_initialized:
-                logger.info("🚀 Initializing enhanced detection system...")
+                logger.info("🚀 Initializing basic detection system...")
+                
+                if target_piece_label:
+                    logger.info(f"🎯 Initializing with target piece: {target_piece_label}")
+                else:
+                    logger.info("⚠️ Initializing without specific target piece (generic model)")
+                    # For backward compatibility, use a default piece label if none provided
+                    # You might want to set this to a common piece label in your system
+                    target_piece_label = "default"  # or None if your system supports generic models
                 
                 loop = asyncio.get_event_loop()
                 self.detection_system = await loop.run_in_executor(
-                    None, DetectionSystem
+                    None, DetectionSystem, 0.5, target_piece_label  # confidence_threshold, target_piece_label
                 )
                 
                 self.is_initialized = True
-                logger.info(f"✅ Enhanced detection system initialized on device: {self.detection_system.device}")
+                logger.info(f"✅ Basic detection system initialized on device: {self.detection_system.device}")
+            else:
+                logger.info("ℹ️ Basic detection system already initialized")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize enhanced detection system: {e}")
+            logger.error(f"❌ Failed to initialize basic detection system: {e}")
+            self.clear_lot_context()  # Clear any partial context on failure
             raise
+
+    async def initialize_with_lot_context(self, lot_id: int, piece_label: str, db: Session):
+        """Initialize detection system with specific lot context"""
+        try:
+            logger.info(f"🎯 Initializing detection system for lot {lot_id} with piece: {piece_label}")
+            
+            # Get lot information from database
+            lot_info = self.get_detection_lot(lot_id, db)
+            if not lot_info:
+                raise ValueError(f"Lot {lot_id} not found in database")
+            
+            # Initialize basic system first WITH the piece label
+            await self.initialize(target_piece_label=piece_label)
+            
+            # Check if we need to switch contexts
+            if (self.current_lot_id != lot_id or 
+                self.current_piece_label != piece_label or 
+                not self.is_initialized_for_lot):
+                
+                logger.info(f"🔄 Switching lot context from {self.current_lot_id}({self.current_piece_label}) to {lot_id}({piece_label})")
+                
+                # Update lot context
+                self.current_lot_id = lot_id
+                self.current_piece_label = piece_label  
+                self.current_lot_info = lot_info
+                
+                # Switch model to the specific piece if detection system supports it
+                if hasattr(self.detection_system, 'switch_model_for_piece'):
+                    try:
+                        model_switch_success = self.detection_system.switch_model_for_piece(piece_label)
+                        if model_switch_success:
+                            self.lot_model_loaded = True
+                            logger.info(f"✅ Model successfully switched to piece: {piece_label}")
+                        else:
+                            logger.warning(f"⚠️ Model switch failed for piece: {piece_label}")
+                            self.lot_model_loaded = False
+                    except Exception as model_error:
+                        logger.warning(f"⚠️ Error switching model for piece {piece_label}: {model_error}")
+                        self.lot_model_loaded = False
+                else:
+                    # Detection system doesn't support model switching, use current model
+                    logger.info("ℹ️ Detection system doesn't support model switching, using current model")
+                    self.lot_model_loaded = True
+                
+                self.is_initialized_for_lot = True
+                
+            logger.info(f"✅ Detection system initialized for lot {lot_id} - piece: {piece_label}")
+            
+            return {
+                'success': True,
+                'message': f'Detection system ready for lot {lot_id} with piece: {piece_label}',
+                'lot_context': self.current_lot_context
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize with lot context: {e}")
+            # Clear context on failure
+            self.clear_lot_context()
+            raise
+    
+    def clear_lot_context(self):
+        """Clear current lot context"""
+        logger.info("🧹 Clearing lot context")
+        self.current_lot_id = None
+        self.current_piece_label = None
+        self.current_lot_info = None
+        self.is_initialized_for_lot = False
+        self.lot_model_loaded = False
+    
+    def is_initialized_for_current_lot(self, lot_id: int, piece_label: str) -> bool:
+        """Check if system is initialized for the specified lot and piece"""
+        return (self.is_initialized_for_lot and
+                self.current_lot_id == lot_id and
+                self.current_piece_label == piece_label and
+                self.lot_model_loaded)
     
     def validate_lot_against_detection(self, lot_info: LotResponse, detection_results: Dict[str, Any]) -> LotValidationResult:
         """
@@ -81,14 +192,14 @@ class BasicDetectionProcessor:
         
         # Get expected values from lot
         expected_count = lot_info.expected_piece_number
-        expected_label = "target"  # Assuming target label matches lot expectation
+        expected_label = self.current_piece_label or "target"  # Use current piece context
         
         # Validation logic
         is_valid = True
         
         # 1. Check if target label was detected
         if not detected_target:
-            errors.append(f"Expected target label not detected")
+            errors.append(f"Expected target label '{expected_label}' not detected")
             is_valid = False
         
         # 2. Check piece count matches exactly
@@ -131,11 +242,11 @@ class BasicDetectionProcessor:
             confidence_score=confidence
         )
         
-        # Log validation result
+        # Log validation result with lot context
         if is_valid:
-            logger.info(f"✅ Lot validation PASSED: {correct_pieces_count}/{expected_count} correct pieces, no incorrect pieces")
+            logger.info(f"✅ Lot {lot_info.lot_id} validation PASSED: {correct_pieces_count}/{expected_count} correct pieces for {expected_label}")
         else:
-            logger.warning(f"❌ Lot validation FAILED: {', '.join(errors)}")
+            logger.warning(f"❌ Lot {lot_info.lot_id} validation FAILED for {expected_label}: {', '.join(errors)}")
         
         return validation_result
     
@@ -148,18 +259,16 @@ class BasicDetectionProcessor:
                 expected_piece_id=lot_request.expected_piece_id,
                 expected_piece_number=lot_request.expected_piece_number,
                 is_target_match=False
-                # Don't set created_at explicitly - let the database handle it with server_default=func.now()
             )
             
             db.add(new_lot)
             db.commit()
-            db.refresh(new_lot)  # This will populate the created_at field from the database
+            db.refresh(new_lot)
             
             self.stats['lots_created'] += 1
             
-            logger.info(f"📦 Created detection lot {new_lot.id}: '{lot_request.lot_name}' expecting piece {lot_request.expected_piece_number}")
+            logger.info(f"📦 Created detection lot {new_lot.id}: '{lot_request.lot_name}' expecting {lot_request.expected_piece_number} pieces")
             
-            # Use the class method to properly convert dates to strings
             return LotResponse.from_db_model(new_lot, total_sessions=0, successful_detections=0)
                 
         except Exception as e:
@@ -180,7 +289,6 @@ class BasicDetectionProcessor:
             total_sessions = len(lot.detection_sessions)
             successful_detections = sum(1 for session in lot.detection_sessions if session.is_target_match)
             
-            # Use the class method to properly convert dates to strings
             return LotResponse.from_db_model(lot, total_sessions, successful_detections)
                 
         except Exception as e:
@@ -198,7 +306,6 @@ class BasicDetectionProcessor:
             
             # Update lot
             lot.is_target_match = is_match
-            # Set completed_at to current UTC time if marking as match, otherwise None
             lot.completed_at = datetime.utcnow() if is_match else None
             
             db.commit()
@@ -231,9 +338,8 @@ class BasicDetectionProcessor:
                 misplaced_pieces_count=validation_result.actual_incorrect_count,
                 total_pieces_detected=validation_result.actual_correct_count + validation_result.actual_incorrect_count,
                 confidence_score=validation_result.confidence_score,
-                is_target_match=validation_result.is_valid,  # Based on validation, not just detection
+                is_target_match=validation_result.is_valid,
                 detection_rate=detection_rate
-                # Don't set created_at explicitly - let the database handle it
             )
             
             db.add(session)
@@ -258,18 +364,25 @@ class BasicDetectionProcessor:
         validation_errors = []
         
         try:
+            # Ensure basic initialization
             if not self.is_initialized:
                 await self.initialize()
             
-            logger.info(f"🔍 Starting enhanced lot-tracked detection for camera {request.camera_id}, target: '{request.target_label}'")
+            logger.info(f"🔍 Starting lot-tracked detection for camera {request.camera_id}, target: '{request.target_label}'")
             
-            # Validate lot exists if lot_id provided
+            # Validate lot exists and initialize for lot context if lot_id provided
             lot_info = None
             if request.lot_id:
                 lot_info = self.get_detection_lot(request.lot_id, db)
                 if not lot_info:
                     raise Exception(f"Detection lot {request.lot_id} not found")
-                logger.info(f"📦 Using lot {request.lot_id}: '{lot_info.lot_name}' expecting {lot_info.expected_piece_number} pieces")
+                
+                # Initialize with lot context if not already initialized for this lot/piece
+                if not self.is_initialized_for_current_lot(request.lot_id, request.target_label):
+                    logger.info(f"🎯 Initializing for lot context: lot {request.lot_id}, piece {request.target_label}")
+                    await self.initialize_with_lot_context(request.lot_id, request.target_label, db)
+                
+                logger.info(f"📦 Using lot {request.lot_id}: '{lot_info.lot_name}' expecting {lot_info.expected_piece_number} pieces of {request.target_label}")
             
             # Freeze the stream
             freeze_success = await self.video_client.freeze_stream(request.camera_id)
@@ -281,12 +394,11 @@ class BasicDetectionProcessor:
             if frame is None:
                 raise Exception(f"Could not get current frame from camera {request.camera_id}")
             
-            # REMOVED PROBLEMATIC RESIZING - Let DetectionSystem handle it properly
-            # The original DetectionSystem (paste 1) works perfectly without forced resizing
+            # Ensure frame is contiguous
             if not frame.flags['C_CONTIGUOUS']:
                 frame = np.ascontiguousarray(frame)
             
-            # Perform detection - DetectionSystem will handle sizing internally
+            # Perform detection using the lot-aware detection system
             logger.info(f"🎯 Running detection on frame from camera {request.camera_id} - Original size: {frame.shape}")
             loop = asyncio.get_event_loop()
             detection_results = await loop.run_in_executor(
@@ -295,12 +407,6 @@ class BasicDetectionProcessor:
                 frame, 
                 request.target_label
             )
-            
-            # Debug: Log the detection results structure
-            logger.info(f"🔍 Detection results type: {type(detection_results)}")
-            if isinstance(detection_results, tuple):
-                logger.info(f"🔍 Detection results length: {len(detection_results)}")
-                logger.info(f"🔍 Detection results values: {detection_results[1:] if len(detection_results) > 1 else 'No additional values'}")
             
             # Parse detection results with better error handling
             if isinstance(detection_results, tuple) and len(detection_results) >= 6:
@@ -311,14 +417,12 @@ class BasicDetectionProcessor:
                 correct_pieces_count = detection_results[4]
                 confidence = detection_results[5]
                 
-                # Additional logging for debugging
-                logger.info(f"🔍 Parsed results - detected_target: {detected_target}, "
-                        f"correct_pieces_count: {correct_pieces_count}, "
-                        f"non_target_count: {non_target_count}, "
-                        f"total_pieces_detected: {total_pieces_detected}, "
+                logger.info(f"🔍 Detection results - target: {detected_target}, "
+                        f"correct: {correct_pieces_count}, "
+                        f"incorrect: {non_target_count}, "
+                        f"total: {total_pieces_detected}, "
                         f"confidence: {confidence}")
             else:
-                # Fallback if tuple structure is unexpected
                 logger.warning(f"❌ Unexpected detection results structure: {detection_results}")
                 processed_frame = detection_results[0] if isinstance(detection_results, tuple) else detection_results
                 detected_target = False
@@ -335,9 +439,6 @@ class BasicDetectionProcessor:
                 'correct_pieces_count': correct_pieces_count,
                 'confidence': confidence
             }
-            
-            # Log detection session data for debugging
-            logger.info(f"🔍 Detection session data: {detection_session_data}")
             
             # Perform lot validation if lot_id provided
             is_target_match = False
@@ -412,12 +513,12 @@ class BasicDetectionProcessor:
                 validation_errors=validation_errors
             )
             
-            logger.info(f"✅ Enhanced lot-tracked detection completed for camera {request.camera_id} in {processing_time:.2f}ms")
+            logger.info(f"✅ Lot-tracked detection completed for camera {request.camera_id} in {processing_time:.2f}ms")
             return response
             
         except Exception as e:
             processing_time = (time.time() - start_time) * 1000
-            logger.error(f"❌ Error in enhanced lot-tracked detection for camera {request.camera_id}: {e}")
+            logger.error(f"❌ Error in lot-tracked detection for camera {request.camera_id}: {e}")
             
             return DetectionResponse(
                 camera_id=request.camera_id,
@@ -465,16 +566,26 @@ class BasicDetectionProcessor:
         return await self.video_client.unfreeze_stream(camera_id)
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get enhanced detection statistics"""
-        return {
+        """Get enhanced detection statistics including lot context"""
+        base_stats = {
             'is_initialized': self.is_initialized,
             'device': str(self.detection_system.device) if self.detection_system else "unknown",
             **self.stats
         }
+        
+        # Add lot context information
+        lot_context_stats = {
+            'current_lot_context': self.current_lot_context,
+            'is_initialized_for_lot': self.is_initialized_for_lot,
+            'lot_model_loaded': self.lot_model_loaded
+        }
+        
+        return {**base_stats, **lot_context_stats}
     
     async def cleanup(self):
-        """Cleanup resources"""
+        """Cleanup resources and clear lot context"""
         await self.video_client.close()
+        self.clear_lot_context()
         
     def get_all_detection_lots(self, db: Session) -> List[LotResponse]:
         """Get all detection lots with their statistics and proper date handling"""
@@ -490,7 +601,6 @@ class BasicDetectionProcessor:
                     DetectionSession.is_target_match == True
                 ).count()
                 
-                # Use the class method to properly convert dates to strings
                 lot_responses.append(LotResponse.from_db_model(lot, total_sessions, successful_detections))
             
             return lot_responses

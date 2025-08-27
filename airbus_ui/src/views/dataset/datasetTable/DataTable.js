@@ -19,6 +19,10 @@ import {
   CircularProgress,
   Menu,
   MenuItem,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
 } from "@mui/material";
 import {
   Delete, 
@@ -44,7 +48,7 @@ export default function DataTable({
   onSelectAll = () => {},
   onSelect = () => {},
   onView = () => {},
-  onDelete = () => {},
+  onDelete = () => {}, // This will now be the bulk delete function
   onTrain = () => {},
   trainingInProgress = false,
   trainingData = null,
@@ -61,6 +65,11 @@ export default function DataTable({
 }) {
   const [trainingMenuAnchor, setTrainingMenuAnchor] = useState(null);
   const [currentTrainingGroup, setCurrentTrainingGroup] = useState(null);
+  
+  // DELETE CONFIRMATION DIALOG STATE
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteType, setDeleteType] = useState(''); // 'single' or 'group'
 
   // Group datasets by first 4 characters of label
   const groupedDatasets = useMemo(() => {
@@ -113,113 +122,121 @@ export default function DataTable({
     return groups;
   }, [datasets]);
 
-    const handleTrainingMenuClick = useCallback((event, group) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setTrainingMenuAnchor(event.currentTarget);
-      setCurrentTrainingGroup(group);
-    }, []);
-
-    const handleTrainingMenuClose = useCallback(() => {
-      setTrainingMenuAnchor(null);
-      setCurrentTrainingGroup(null);
-    }, []);
-
-    // Check if a group is currently being trained
-    const isGroupBeingTrained = useCallback((group) => {
-      if (!trainingInProgress || !trainingData?.piece_labels) return false;
-      return group.pieces.some(piece => 
-        trainingData.piece_labels.includes(piece.label)
-      );
-    }, [trainingInProgress, trainingData]);
-
-    // Get training progress for current session
-    const getTrainingProgress = useCallback(() => {
-      if (trainingData?.progress_percentage) {
-        return Math.round(trainingData.progress_percentage);
-      }
-      return 0;
-    }, [trainingData]);
-
-    // FIXED: Enhanced handleTrainGroup with better debugging and error handling
-    // ALSO UPDATE handleTrainGroup in DataTable.js to properly handle the return value:
-const handleTrainGroup = useCallback(async (event, group) => {
-  console.log('=== DEBUG handleTrainGroup START ===');
-  
-  if (event) {
+  const handleTrainingMenuClick = useCallback((event, group) => {
     event.preventDefault();
     event.stopPropagation();
-  }
+    setTrainingMenuAnchor(event.currentTarget);
+    setCurrentTrainingGroup(group);
+  }, []);
 
-  console.log('Step A: Event handling completed');
-  console.log('Step B: onBatchTrain type:', typeof onBatchTrain);
-  console.log('Step C: onBatchTrain function:', onBatchTrain);
+  const handleTrainingMenuClose = useCallback(() => {
+    setTrainingMenuAnchor(null);
+    setCurrentTrainingGroup(null);
+  }, []);
 
-  if (!onBatchTrain) {
-    console.error('Step D: onBatchTrain is null/undefined');
-    alert('Training function not available');
-    return;
-  }
+  // Check if a group is currently being trained
+  const isGroupBeingTrained = useCallback((group) => {
+    if (!trainingInProgress || !trainingData?.piece_labels) return false;
+    return group.pieces.some(piece => 
+      trainingData.piece_labels.includes(piece.label)
+    );
+  }, [trainingInProgress, trainingData]);
 
-  if (typeof onBatchTrain !== 'function') {
-    console.error('Step D: onBatchTrain is not a function:', typeof onBatchTrain);
-    alert('Invalid training function');
-    return;
-  }
-
-  console.log('Step E: onBatchTrain validation passed');
-
-  if (!group || !group.pieces) {
-    console.error('Step F: Invalid group:', group);
-    alert('Invalid group data');
-    return;
-  }
-
-  const piecesToTrain = group.pieces.filter(piece => 
-    piece.is_annotated && !piece.is_yolo_trained
-  );
-  
-  console.log('Step G: Pieces to train count:', piecesToTrain.length);
-  
-  if (piecesToTrain.length === 0) {
-    console.log('Step H: No trainable pieces');
-    alert('No pieces ready for training');
-    return;
-  }
-
-  if (trainingInProgress) {
-    console.log('Step I: Training already in progress');
-    alert('Training already in progress');
-    return;
-  }
-
-  console.log('Step J: All validation passed, calling onBatchTrain...');
-  try {
-    const pieceLabels = piecesToTrain.map(piece => piece.label);
-    console.log('About to call onBatchTrain with:', pieceLabels);
-    
-    // CRITICAL: Make sure you await AND return the result
-    const result = await onBatchTrain(pieceLabels);
-    console.log('Result from onBatchTrain:', result);
-    
-    // Handle the result
-    if (result && result.success) {
-      console.log('Training succeeded');
-    } else {
-      console.log('Training failed:', result ? result.error : 'No result');
-      alert(`Training failed: ${result ? result.error : 'Unknown error'}`);
+  // Get training progress for current session
+  const getTrainingProgress = useCallback(() => {
+    if (trainingData?.progress_percentage) {
+      return Math.round(trainingData.progress_percentage);
     }
-    
-    return result; // Return the result if needed
-    
-  } catch (error) {
-    console.error('Exception in handleTrainGroup:', error);
-    alert(`Error: ${error.message}`);
-    return { success: false, error: error.message };
-  }
-}, [onBatchTrain, trainingInProgress]);
+    return 0;
+  }, [trainingData]);
 
-  // Group training action button with improved event handling
+  // ENHANCED: handleTrainGroup with TrainingStatusComponent integration
+  const handleTrainGroup = useCallback(async (event, group) => {
+    console.log('=== DEBUG handleTrainGroup START ===');
+    
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    console.log('Step A: Event handling completed');
+    console.log('Step B: onBatchTrain type:', typeof onBatchTrain);
+
+    if (!onBatchTrain || typeof onBatchTrain !== 'function') {
+      console.error('Step D: onBatchTrain is invalid');
+      alert('Training function not available');
+      return;
+    }
+
+    console.log('Step E: onBatchTrain validation passed');
+
+    if (!group || !group.pieces) {
+      console.error('Step F: Invalid group:', group);
+      alert('Invalid group data');
+      return;
+    }
+
+    const piecesToTrain = group.pieces.filter(piece => 
+      piece.is_annotated && !piece.is_yolo_trained
+    );
+    
+    console.log('Step G: Pieces to train count:', piecesToTrain.length);
+    
+    if (piecesToTrain.length === 0) {
+      console.log('Step H: No trainable pieces');
+      alert('No pieces ready for training');
+      return;
+    }
+
+    if (trainingInProgress) {
+      console.log('Step I: Training already in progress');
+      alert('Training already in progress');
+      return;
+    }
+
+    console.log('Step J: All validation passed, calling onBatchTrain...');
+    try {
+      const pieceLabels = piecesToTrain.map(piece => piece.label);
+      console.log('About to call onBatchTrain with:', pieceLabels);
+      
+      // Call the batch training function
+      const result = await onBatchTrain(pieceLabels);
+      console.log('Result from onBatchTrain:', result);
+      
+      // Handle the result
+      if (result && result.success) {
+        console.log('Training succeeded - TrainingStatusComponent will be shown automatically');
+        // The TrainingStatusComponent will automatically show up when training starts
+        // because the parent component's training state will be updated
+      } else {
+        console.log('Training failed:', result ? result.error : 'No result');
+        alert(`Training failed: ${result ? result.error : 'Unknown error'}`);
+      }
+      
+      return result;
+      
+    } catch (error) {
+      console.error('Exception in handleTrainGroup:', error);
+      alert(`Error: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }, [onBatchTrain, trainingInProgress]);
+
+
+  const handleDeleteSinglePiece = useCallback((piece) => {
+    console.log('Delete single piece:', piece.label);
+    console.log('Using bulk delete for single piece datatable.js:', piece);
+    onDelete(piece); 
+  }, [onDelete]);
+
+  const handleDeleteGroup = useCallback((group) => {
+    console.log('Delete group using bulk delete:', group.pieces.map(p => p.label));
+    // Call the bulk delete function with all piece labels from the group
+    const pieceLabels = group.pieces.map(piece => piece.label);
+    onDelete(pieceLabels);
+  }, [onDelete]);
+
+  // Group training action button
   const renderGroupTrainingButton = useCallback((group) => {
     const isCurrentlyTraining = isGroupBeingTrained(group);
     const trainableCount = group.pieces.filter(p => p.is_annotated && !p.is_yolo_trained).length;
@@ -270,7 +287,7 @@ const handleTrainGroup = useCallback(async (event, group) => {
 
     if (trainableCount === 0) {
       return (
-        <Tooltip title="No pieces ready for training (must be annotated and not already trained)">
+        <Tooltip title="No pieces ready for training">
           <Button 
             size="small"
             variant="outlined"
@@ -288,7 +305,6 @@ const handleTrainGroup = useCallback(async (event, group) => {
       );
     }
 
-    // If other training is in progress, disable this button
     if (trainingInProgress && !isCurrentlyTraining) {
       return (
         <Tooltip title="Another training session is active">
@@ -309,16 +325,14 @@ const handleTrainGroup = useCallback(async (event, group) => {
       );
     }
 
-    // FIXED: Active training button with proper event handling
     return (
       <Tooltip title={`Train ${trainableCount} pieces in this group`}>
         <Button 
           onClick={(event) => {
-            console.log('🔴 Train Group button clicked!');
+            console.log('Train Group button clicked!');
             handleTrainGroup(event, group);
           }}
           onMouseDown={(event) => {
-            // Prevent accordion expansion on mouse down
             event.stopPropagation();
           }}
           size="small"
@@ -334,7 +348,6 @@ const handleTrainGroup = useCallback(async (event, group) => {
               bgcolor: "rgba(102, 126, 234, 0.04)",
               borderColor: "#667eea"
             },
-            // Add higher z-index to ensure button is clickable
             zIndex: 2,
             position: 'relative'
           }}
@@ -345,7 +358,7 @@ const handleTrainGroup = useCallback(async (event, group) => {
     );
   }, [isGroupBeingTrained, trainingInProgress, handleTrainGroup]);
 
-  // FIXED: GroupHeader with improved button positioning and event handling
+  // GroupHeader component
   const GroupHeader = useCallback(({ group }) => (
     <Box sx={{ 
       display: 'flex', 
@@ -392,20 +405,18 @@ const handleTrainGroup = useCallback(async (event, group) => {
         </Box>
       </Box>
       
-      {/* FIXED: Button container with proper event handling */}
       <Box 
         sx={{ 
           display: 'flex', 
           alignItems: 'center', 
           gap: 2,
-          // Prevent accordion expansion when clicking in this area
           '& > *': {
             position: 'relative',
             zIndex: 2
           }
         }}
-        onClick={(e) => e.stopPropagation()} // Prevent accordion toggle
-        onMouseDown={(e) => e.stopPropagation()} // Prevent accordion toggle
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 100 }}>
           <Typography variant="caption" color="text.secondary">Annotation</Typography>
@@ -470,7 +481,6 @@ const handleTrainGroup = useCallback(async (event, group) => {
     </Box>
   ), [isGroupBeingTrained, renderGroupTrainingButton, handleTrainingMenuClick, trainingInProgress]);
 
-  // Add safety check for datasets
   if (!datasets || !Array.isArray(datasets) || datasets.length === 0) {
     return (
       <ModernCard elevation={0}>
@@ -567,7 +577,6 @@ const handleTrainGroup = useCallback(async (event, group) => {
           <AccordionSummary 
             expandIcon={<ExpandMore />}
             sx={{
-              // Ensure the expand icon works but buttons don't interfere
               '& .MuiAccordionSummary-content': {
                 margin: '12px 0',
               },
@@ -731,19 +740,37 @@ const handleTrainGroup = useCallback(async (event, group) => {
                           {formatDate(piece.created_at)}
                         </Typography>
                       </TableCell>
-                      
+                                            
                       <TableCell align="center">
                         <Box display="flex" justifyContent="center" gap={0.5}>
-                          <ActionButton variant="view" onClick={() => onView(piece)}>
-                            <Visibility fontSize="small" />
-                          </ActionButton>
-                          <ActionButton 
-                            variant="delete" 
-                            onClick={() => onDelete(piece)}
-                            disabled={isPieceBeingTrained}
-                          >
-                            <Delete fontSize="small" />
-                          </ActionButton>
+                          <Tooltip title="View piece details">
+                            <ActionButton variant="view" onClick={() => onView(piece)}>
+                              <Visibility fontSize="small" />
+                            </ActionButton>
+                          </Tooltip>
+                          
+                          {/* FIXED: Wrap disabled delete button in span for Tooltip */}
+                          <Tooltip title={isPieceBeingTrained ? "Cannot delete during training" : "Delete piece"}>
+                            {isPieceBeingTrained ? (
+                              <span>
+                                <ActionButton 
+                                  variant="delete" 
+                                  onClick={() => handleDeleteSinglePiece(piece)}
+                                  disabled={isPieceBeingTrained}
+                                >
+                                  <Delete fontSize="small" />
+                                </ActionButton>
+                              </span>
+                            ) : (
+                              <ActionButton 
+                                variant="delete" 
+                                onClick={() => handleDeleteSinglePiece(piece)}
+                                disabled={isPieceBeingTrained}
+                              >
+                                <Delete fontSize="small" />
+                              </ActionButton>
+                            )}
+                          </Tooltip>
                         </Box>
                       </TableCell>
                     </TableRow>
@@ -794,6 +821,17 @@ const handleTrainGroup = useCallback(async (event, group) => {
             <MenuItem 
               onClick={(e) => {
                 e.stopPropagation();
+                handleDeleteGroup(currentTrainingGroup);
+                handleTrainingMenuClose();
+              }} 
+              disabled={trainingInProgress}
+            >
+              <Delete sx={{ mr: 1 }} fontSize="small" />
+              Delete This Group
+            </MenuItem>
+            <MenuItem 
+              onClick={(e) => {
+                e.stopPropagation();
                 if (typeof onBatchTrain === 'function') {
                   const allNonTrained = currentTrainingGroup.pieces
                     .filter(p => !p.is_yolo_trained)
@@ -810,6 +848,7 @@ const handleTrainGroup = useCallback(async (event, group) => {
           </>
         )}
       </Menu>
+
     </ModernCard>
   );
 }

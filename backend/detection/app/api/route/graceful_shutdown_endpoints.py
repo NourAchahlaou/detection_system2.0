@@ -1,4 +1,4 @@
-# graceful_shutdown_endpoints.py - ENHANCED VERSION with Identification Support
+# enhanced_graceful_shutdown_endpoints.py - Updated with Basic Detection lot context support
 import asyncio
 import logging
 from datetime import datetime
@@ -20,20 +20,22 @@ from detection.app.api.route.detection_redis_router import _processor_initialize
 @detection_shutdown_router.post("/graceful")
 async def graceful_shutdown_detection():
     """
-    ENHANCED: Complete shutdown of all detection AND identification components
+    ENHANCED: Complete shutdown of all detection AND identification components + basic detection
     """
     global _processor_initialized
     
     try:
         from detection.app.service.detection.optimized_detection_service import detection_processor
         from detection.app.service.identification.identification_detection_service import piece_identification_processor
+        from detection.app.service.detection.alternative.basic_detection_service import basic_detection_processor
         
-        logger.info("🛑 Initiating COMPLETE system shutdown (detection + identification)...")
+        logger.info("🛑 Initiating COMPLETE system shutdown (detection + identification + basic detection)...")
         
         shutdown_results = {
             "detection_service": {"status": "not_attempted"},
             "redis_processor": {"status": "not_attempted"}, 
             "identification_service": {"status": "not_attempted"},
+            "basic_detection_service": {"status": "not_attempted"},
             "initialization_reset": {"status": "not_attempted"}
         }
         
@@ -122,7 +124,7 @@ async def graceful_shutdown_detection():
             async with _initialization_lock:
                 _processor_initialized = False
         
-        # Step 3: NEW - Shutdown identification service
+        # Step 3: Shutdown identification service
         logger.info("📍 Step 3: Shutting down identification service...")
         try:
             if piece_identification_processor.is_initialized:
@@ -170,10 +172,65 @@ async def graceful_shutdown_detection():
             except:
                 pass
         
-        # Step 4: Enhanced cleanup and state reset (existing logic)
-        logger.info("📍 Step 4: Resetting initialization state and cleanup...")
+        # Step 4: NEW - Shutdown basic detection service with lot context
+        logger.info("📍 Step 4: Shutting down basic detection service...")
         try:
-            # Reset detection processor attributes (existing logic)
+            if basic_detection_processor.is_initialized:
+                logger.info("🔧 Shutting down basic detection processor...")
+                
+                # Get pre-shutdown stats and lot context
+                basic_stats = basic_detection_processor.get_stats()
+                detections_performed = basic_stats.get('detections_performed', 0)
+                lots_created = basic_stats.get('lots_created', 0)
+                current_lot_context = basic_stats.get('current_lot_context', {})
+                
+                logger.info(f"📊 Basic detection stats: {detections_performed} detections, {lots_created} lots created")
+                if current_lot_context.get('lot_id'):
+                    logger.info(f"📋 Current lot context: {current_lot_context}")
+                
+                # Cleanup basic detection resources
+                await basic_detection_processor.cleanup()
+                
+                # Reset basic detection state INCLUDING lot context
+                basic_detection_processor.is_initialized = False
+                basic_detection_processor.detection_system = None
+                basic_detection_processor.clear_lot_context()  # Clear lot context
+                
+                # Reset initialization flags
+                basic_detection_processor.is_initialized_for_lot = False
+                basic_detection_processor.lot_model_loaded = False
+                
+                shutdown_results["basic_detection_service"] = {
+                    "status": "completed",
+                    "detections_performed": detections_performed,
+                    "lots_created": lots_created,
+                    "lot_context_cleared": current_lot_context,
+                    "message": "Basic detection service shutdown completed successfully"
+                }
+                logger.info("✅ Basic detection processor shutdown completed")
+            else:
+                shutdown_results["basic_detection_service"] = {
+                    "status": "already_stopped",
+                    "message": "Basic detection service was not initialized"
+                }
+        except Exception as e:
+            logger.error(f"Error in basic detection service shutdown: {e}")
+            shutdown_results["basic_detection_service"] = {
+                "status": "error",
+                "error": str(e)
+            }
+            # Force reset basic detection state
+            try:
+                basic_detection_processor.is_initialized = False
+                basic_detection_processor.detection_system = None
+                basic_detection_processor.clear_lot_context()
+            except:
+                pass
+        
+        # Step 5: Enhanced cleanup and state reset
+        logger.info("📍 Step 5: Resetting initialization state and cleanup...")
+        try:
+            # Reset detection processor attributes
             try:
                 detection_processor.detection_system = None
                 detection_processor.device = None
@@ -231,16 +288,17 @@ async def graceful_shutdown_detection():
             for result in shutdown_results.values()
         )
         
-        logger.info("✅ Complete system shutdown finished (detection + identification)")
+        logger.info("✅ Complete system shutdown finished (detection + identification + basic detection)")
         
         return JSONResponse(
             status_code=200,
             content={
                 "status": "shutdown_complete" if all_completed else "shutdown_partial",
-                "message": "Complete system shutdown finished (detection + identification)",
-                "services_shutdown": ["detection", "redis_processor", "identification", "initialization_reset"],
+                "message": "Complete system shutdown finished (detection + identification + basic detection)",
+                "services_shutdown": ["detection", "redis_processor", "identification", "basic_detection", "initialization_reset"],
                 "processor_initialized": False,
                 "identification_initialized": False,
+                "basic_detection_initialized": False,
                 "results": shutdown_results,
                 "timestamp": datetime.now().isoformat()
             }
@@ -253,6 +311,8 @@ async def graceful_shutdown_detection():
             async with _initialization_lock:
                 _processor_initialized = False
             piece_identification_processor.is_initialized = False
+            basic_detection_processor.is_initialized = False
+            basic_detection_processor.clear_lot_context()
         except:
             pass
         
@@ -261,12 +321,90 @@ async def graceful_shutdown_detection():
             detail=f"Critical error during complete shutdown: {str(e)}"
         )
 
+@detection_shutdown_router.post("/basic-detection-only")
+async def shutdown_basic_detection_only():
+    """
+    NEW: Shutdown only the basic detection service with lot context, leaving other services running
+    """
+    try:
+        from detection.app.service.detection.alternative.basic_detection_service import basic_detection_processor
+        
+        logger.info("🛑 Shutting down basic detection service only...")
+        
+        if basic_detection_processor.is_initialized:
+            # Get stats before shutdown including lot context
+            stats = basic_detection_processor.get_stats()
+            detections_performed = stats.get('detections_performed', 0)
+            lots_created = stats.get('lots_created', 0)
+            lots_completed = stats.get('lots_completed', 0)
+            current_lot_context = stats.get('current_lot_context', {})
+            
+            logger.info(f"📊 Pre-shutdown stats: {detections_performed} detections, {lots_created} lots created, {lots_completed} completed")
+            
+            # Log current lot context if exists
+            if current_lot_context.get('lot_id'):
+                logger.info(f"📋 Clearing lot context: Lot {current_lot_context.get('lot_id')} - {current_lot_context.get('piece_label')}")
+            
+            # Cleanup basic detection resources
+            await basic_detection_processor.cleanup()
+            
+            # Reset state INCLUDING lot context
+            basic_detection_processor.is_initialized = False
+            basic_detection_processor.detection_system = None
+            basic_detection_processor.clear_lot_context()  # Clear lot context
+            
+            # Reset lot-specific initialization flags
+            basic_detection_processor.is_initialized_for_lot = False
+            basic_detection_processor.lot_model_loaded = False
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "basic_detection_shutdown_complete",
+                    "message": "Basic detection service shutdown completed",
+                    "detections_performed": detections_performed,
+                    "lots_created": lots_created,
+                    "lots_completed": lots_completed,
+                    "lot_context_cleared": current_lot_context,
+                    "other_services": "still_running",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "basic_detection_already_stopped",
+                    "message": "Basic detection service was not running",
+                    "other_services": "unaffected",
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"❌ Error shutting down basic detection service: {e}")
+        # Force reset including lot context
+        try:
+            basic_detection_processor.is_initialized = False
+            basic_detection_processor.detection_system = None
+            basic_detection_processor.clear_lot_context()
+            basic_detection_processor.is_initialized_for_lot = False
+            basic_detection_processor.lot_model_loaded = False
+        except:
+            pass
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Basic detection shutdown failed: {str(e)}"
+        )
+
 @detection_shutdown_router.get("/status")
 async def get_shutdown_status():
-    """Enhanced status check for both detection and identification services"""
+    """Enhanced status check for detection, identification, and basic detection services"""
     try:
         from detection.app.service.detection.optimized_detection_service import detection_processor
         from detection.app.service.identification.identification_detection_service import piece_identification_processor
+        from detection.app.service.detection.alternative.basic_detection_service import basic_detection_processor
         
         global _processor_initialized
         
@@ -298,26 +436,61 @@ async def get_shutdown_status():
         except Exception as e:
             identification_status = {"initialized": False, "error": str(e)}
         
+        # Check basic detection service status
+        basic_detection_status = {}
+        try:
+            basic_stats = basic_detection_processor.get_stats()
+            current_lot_context = basic_stats.get('current_lot_context', {})
+            
+            basic_detection_status = {
+                "initialized": basic_stats.get('is_initialized', False),
+                "detections_performed": basic_stats.get('detections_performed', 0),
+                "lots_created": basic_stats.get('lots_created', 0),
+                "lots_completed": basic_stats.get('lots_completed', 0),
+                "device": basic_stats.get('device', 'unknown'),
+                "lot_context": {
+                    "has_active_lot": bool(current_lot_context.get('lot_id')),
+                    "lot_id": current_lot_context.get('lot_id'),
+                    "piece_label": current_lot_context.get('piece_label'),
+                    "lot_name": current_lot_context.get('lot_name'),
+                    "is_initialized_for_lot": current_lot_context.get('is_initialized_for_lot', False)
+                }
+            }
+        except Exception as e:
+            basic_detection_status = {"initialized": False, "error": str(e)}
+        
         # Calculate estimated shutdown time
         queue_depth = detection_status.get('queue_depth', 0)
-        estimated_shutdown_seconds = min(queue_depth * 2 + 5, 35)  # +5 for identification cleanup
+        estimated_shutdown_seconds = min(queue_depth * 2 + 10, 45)  # +10 for basic detection + identification cleanup
         
         can_shutdown = True  # Can always attempt shutdown
         
-        overall_status = "mixed"
-        if detection_status.get('initialized') or identification_status.get('initialized'):
-            overall_status = "services_running"
-        else:
+        # Determine overall status
+        services_running = []
+        if detection_status.get('initialized'):
+            services_running.append("detection")
+        if identification_status.get('initialized'):
+            services_running.append("identification")
+        if basic_detection_status.get('initialized'):
+            services_running.append("basic_detection")
+        
+        if len(services_running) == 0:
             overall_status = "all_stopped"
+        elif len(services_running) == 3:
+            overall_status = "all_services_running"
+        else:
+            overall_status = f"partial_running_{len(services_running)}_of_3"
         
         return JSONResponse(
             status_code=200,
             content={
                 "status": overall_status,
                 "can_shutdown": can_shutdown,
+                "services_running": services_running,
                 "services": {
                     "detection": detection_status,
-                    "identification": identification_status
+                    "identification": identification_status,
+                    "basic_detection": basic_detection_status
                 },
                 "estimated_shutdown_time_seconds": estimated_shutdown_seconds,
                 "message": f"System status: {overall_status}",
@@ -332,7 +505,7 @@ async def get_shutdown_status():
             detail=f"Error getting shutdown status: {str(e)}"
         )
 
-# NEW: Identification-only shutdown endpoint
+# Existing identification-only shutdown endpoint
 @detection_shutdown_router.post("/identification-only")
 async def shutdown_identification_only():
     """
@@ -354,14 +527,14 @@ async def shutdown_identification_only():
             
             # Reset state - INCLUDING group-specific state
             piece_identification_processor.is_initialized = False
-            piece_identification_processor.is_group_loaded = False  # NEW: Reset group loading state
-            piece_identification_processor.current_group_name = None  # NEW: Clear current group
+            piece_identification_processor.is_group_loaded = False
+            piece_identification_processor.current_group_name = None
             piece_identification_processor.detection_system = None
             piece_identification_processor._label_cache.clear()
             piece_identification_processor._frame_cache.clear()
             
             # Clear group from stats
-            piece_identification_processor.stats['current_group'] = None  # NEW: Clear group in stats
+            piece_identification_processor.stats['current_group'] = None
             
             return JSONResponse(
                 status_code=200,
@@ -369,8 +542,8 @@ async def shutdown_identification_only():
                     "status": "identification_shutdown_complete",
                     "message": "Identification service shutdown completed",
                     "identifications_performed": identifications_performed,
-                    "previous_group": current_group,  # NEW: Show which group was cleared
-                    "detection_service": "still_running",
+                    "previous_group": current_group,
+                    "other_services": "still_running",
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -380,7 +553,7 @@ async def shutdown_identification_only():
                 content={
                     "status": "identification_already_stopped",
                     "message": "Identification service was not running",
-                    "detection_service": "unaffected",
+                    "other_services": "unaffected",
                     "timestamp": datetime.now().isoformat()
                 }
             )
@@ -390,10 +563,10 @@ async def shutdown_identification_only():
         # Force reset including group state
         try:
             piece_identification_processor.is_initialized = False
-            piece_identification_processor.is_group_loaded = False  # NEW: Force reset
-            piece_identification_processor.current_group_name = None  # NEW: Force clear
+            piece_identification_processor.is_group_loaded = False
+            piece_identification_processor.current_group_name = None
             piece_identification_processor.detection_system = None
-            piece_identification_processor.stats['current_group'] = None  # NEW: Clear stats
+            piece_identification_processor.stats['current_group'] = None
         except:
             pass
         

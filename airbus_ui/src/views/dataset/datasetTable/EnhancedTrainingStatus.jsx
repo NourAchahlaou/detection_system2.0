@@ -28,7 +28,7 @@ import {
   PlayArrow,
   Stop,
   Pause,
-  Resume,
+  RestartAlt as Resume,
   ExpandMore,
   History,
   Analytics,
@@ -38,7 +38,7 @@ import {
   Schedule,
   Computer,
 } from '@mui/icons-material';
-import { datasetService } from '../services/datasetService';
+import { datasetService } from '../datasetService';
 
 const TrainingStatusComponent = ({ onTrainingStateChange }) => {
   const [trainingStatus, setTrainingStatus] = useState(null);

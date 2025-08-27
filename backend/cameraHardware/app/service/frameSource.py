@@ -127,7 +127,7 @@ class FrameSource:
             if not self.basler_camera.IsGrabbing():
                 raise SystemError("Basler camera is not grabbing.")
             
-            grab_result = self.basler_camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
+            grab_result = self.basler_camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
             if grab_result.GrabSucceeded():
                 frame = self.converter.Convert(grab_result).GetArray()
                 grab_result.Release()

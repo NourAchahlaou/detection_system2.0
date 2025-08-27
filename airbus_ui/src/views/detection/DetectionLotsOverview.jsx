@@ -1,4 +1,4 @@
-// DetectionLotsOverview.jsx - FIXED: Proper navigation and piece label display
+// DetectionLotsOverview.jsx - UPDATED: Proper navigation for lot-based initialization
 import React, { useState, useEffect, useCallback } from "react";
 import { 
   Box, 
@@ -42,7 +42,7 @@ import { useNavigate } from "react-router-dom";
 import { detectionService } from "./service/DetectionService"; // Update this path
 import DetectionLotForm from "./components/DetectionLotForm"; // Import your form component
 
-// Styled components following your theme (keeping original styling)
+// Styled components (keeping original styling)
 const Container = styled("div")(({ theme }) => ({
   margin: "30px",
   [theme.breakpoints.down("sm")]: { margin: "16px" },
@@ -223,6 +223,23 @@ const HeaderActions = styled(Box)({
   marginTop: "16px",
 });
 
+// NEW: Initialization status chip
+const InitializationStatusChip = styled(Chip)(({ status }) => ({
+  fontSize: "0.7rem",
+  fontWeight: "600",
+  height: "20px",
+  backgroundColor: status === 'ready' 
+    ? "rgba(76, 175, 80, 0.15)"
+    : status === 'initializing'
+    ? "rgba(33, 150, 243, 0.15)"
+    : "rgba(158, 158, 158, 0.15)",
+  color: status === 'ready' 
+    ? "#4caf50"
+    : status === 'initializing'
+    ? "#2196f3"
+    : "#9e9e9e",
+}));
+
 function TabPanel({ children, value, index }) {
   return (
     <div hidden={value !== index}>
@@ -244,9 +261,17 @@ export default function DetectionLotsOverview() {
     notStarted: 0
   });
   
-  // NEW: Piece labels cache
+  // Piece labels cache
   const [pieceLabels, setPieceLabels] = useState(new Map());
   const [loadingLabels, setLoadingLabels] = useState(new Set());
+  
+  // NEW: System initialization status
+  const [systemStatus, setSystemStatus] = useState({
+    isReady: false,
+    currentLotId: null,
+    currentPieceLabel: null,
+    isInitializedForLot: false
+  });
   
   // Form state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -267,6 +292,20 @@ export default function DetectionLotsOverview() {
 
   useEffect(() => {
     fetchAllLots();
+    updateSystemStatus();
+  }, []);
+
+  // NEW: Update system status
+  const updateSystemStatus = useCallback(() => {
+    const detailedStatus = detectionService.getDetailedStatus();
+    const lotContext = detectionService.getCurrentLotContext();
+    
+    setSystemStatus({
+      isReady: detailedStatus.isReady,
+      currentLotId: lotContext.lotId,
+      currentPieceLabel: lotContext.pieceLabel,
+      isInitializedForLot: lotContext.isInitialized
+    });
   }, []);
 
   const showSnackbar = (message, severity = 'success') => {
@@ -281,7 +320,7 @@ export default function DetectionLotsOverview() {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
 
-  // NEW: Function to fetch piece label by ID
+  // Function to fetch piece label by ID
   const fetchPieceLabel = useCallback(async (pieceId) => {
     if (pieceLabels.has(pieceId) || loadingLabels.has(pieceId)) {
       return pieceLabels.get(pieceId);
@@ -294,7 +333,6 @@ export default function DetectionLotsOverview() {
       
       if (response.ok) {
         const label = await response.text();
-        // Remove quotes if the API returns a quoted string
         const cleanLabel = label.replace(/^"|"$/g, '');
         
         setPieceLabels(prev => new Map(prev).set(pieceId, cleanLabel));
@@ -316,14 +354,13 @@ export default function DetectionLotsOverview() {
         return newSet;
       });
       
-      // Return fallback label
       const fallback = `Piece ${pieceId}`;
       setPieceLabels(prev => new Map(prev).set(pieceId, fallback));
       return fallback;
     }
   }, [pieceLabels, loadingLabels]);
 
-  // NEW: Function to get piece label with loading state
+  // Function to get piece label with loading state
   const getPieceLabel = useCallback((pieceId) => {
     if (pieceLabels.has(pieceId)) {
       return pieceLabels.get(pieceId);
@@ -335,7 +372,7 @@ export default function DetectionLotsOverview() {
     
     // Trigger fetch
     fetchPieceLabel(pieceId);
-    return `Piece ${pieceId}`; // Fallback while loading
+    return `Piece ${pieceId}`;
   }, [pieceLabels, loadingLabels, fetchPieceLabel]);
 
   const fetchAllLots = async () => {
@@ -343,10 +380,7 @@ export default function DetectionLotsOverview() {
       setLoading(true);
       setError(null);
       
-      // Ensure detection service is initialized
-      await detectionService.ensureInitialized();
-      
-      // Fetch lots using the real service
+      // Get lots using the real service
       const response = await detectionService.streamManager.getAllDetectionLots();
       
       if (response.success) {
@@ -356,7 +390,7 @@ export default function DetectionLotsOverview() {
         
         setAllLots(lotsData);
         
-        // NEW: Fetch piece labels for all unique piece IDs
+        // Fetch piece labels for all unique piece IDs
         const uniquePieceIds = [...new Set(lotsData.map(lot => lot.expected_piece_id))];
         console.log("Fetching labels for piece IDs:", uniquePieceIds);
         
@@ -398,6 +432,7 @@ export default function DetectionLotsOverview() {
     setRefreshing(true);
     try {
       await fetchAllLots();
+      updateSystemStatus();
     } catch (error) {
       showSnackbar(`Error refreshing: ${error.message}`, 'error');
     } finally {
@@ -409,9 +444,20 @@ export default function DetectionLotsOverview() {
     setTabValue(newValue);
   };
 
+  // UPDATED: Enhanced lot click handler
   const handleLotClick = (lot) => {
-    // Navigate to lot details or detection interface
+    console.log(`Navigating to detection with lot ${lot.lot_id}`);
+    
+    // Navigate to detection interface with lot ID
+    // The detection system will handle lot-specific initialization
     navigate(`/detection?lotId=${lot.lot_id}`);
+    
+    // Show informative message
+    const pieceLabel = getPieceLabel(lot.expected_piece_id);
+    showSnackbar(
+      `Selected lot "${lot.lot_name}" for piece ${pieceLabel}. Detection system will initialize for this specific piece.`, 
+      'info'
+    );
   };
 
   const handleMenuOpen = (event, lot) => {
@@ -430,7 +476,6 @@ export default function DetectionLotsOverview() {
       try {
         const sessions = await detectionService.streamManager.getLotDetectionSessions(selectedLot.lot_id);
         console.log('Lot sessions:', sessions);
-        // Navigate to detailed view or show modal
         navigate(`/detection/lot/${selectedLot.lot_id}/sessions`);
         showSnackbar(`Viewing ${sessions.totalSessions} sessions for lot ${sessions.lotName}`);
       } catch (error) {
@@ -441,12 +486,18 @@ export default function DetectionLotsOverview() {
     handleMenuClose();
   };
 
-  // FIXED: Only navigate to detection page, don't start detection
+  // UPDATED: Enhanced selection handler
   const handleSelectForDetection = () => {
     if (selectedLot) {
-      // Navigate to detection interface with pre-selected lot (no mode parameter)
+      const pieceLabel = getPieceLabel(selectedLot.expected_piece_id);
+      
+      // Navigate to detection interface with lot ID
       navigate(`/detection?lotId=${selectedLot.lot_id}`);
-      showSnackbar(`Selected lot ${selectedLot.lot_name} for detection. Please choose your camera and start detection.`);
+      
+      showSnackbar(
+        `Selected lot "${selectedLot.lot_name}" for detection. System will initialize for piece: ${pieceLabel}`,
+        'info'
+      );
     }
     handleMenuClose();
   };
@@ -480,7 +531,6 @@ export default function DetectionLotsOverview() {
 
   const handleEditLot = async () => {
     if (selectedLot) {
-      // Navigate to edit page or open edit modal
       navigate(`/detection/lot/${selectedLot.lot_id}/edit`);
     }
     handleMenuClose();
@@ -530,6 +580,41 @@ export default function DetectionLotsOverview() {
     }
   };
 
+  // NEW: Get initialization status for a lot
+  const getInitializationStatus = (lot) => {
+    if (systemStatus.isInitializedForLot && systemStatus.currentLotId === lot.lot_id) {
+      return {
+        status: 'ready',
+        label: `Ready for ${systemStatus.currentPieceLabel}`,
+        chip: <InitializationStatusChip 
+          status="ready" 
+          label="System Ready" 
+          size="small" 
+        />
+      };
+    } else if (systemStatus.currentLotId === lot.lot_id) {
+      return {
+        status: 'initializing',
+        label: 'Initializing...',
+        chip: <InitializationStatusChip 
+          status="initializing" 
+          label="Initializing" 
+          size="small" 
+        />
+      };
+    } else {
+      return {
+        status: 'not-initialized',
+        label: 'Not initialized',
+        chip: <InitializationStatusChip 
+          status="not-initialized" 
+          label="Not Initialized" 
+          size="small" 
+        />
+      };
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString();
@@ -537,7 +622,7 @@ export default function DetectionLotsOverview() {
 
   const renderLotCard = (lot) => {
     const statusInfo = getStatusInfo(lot);
-    // FIXED: Use piece label instead of piece ID
+    const initStatus = getInitializationStatus(lot);
     const pieceLabel = getPieceLabel(lot.expected_piece_id);
     
     return (
@@ -556,11 +641,16 @@ export default function DetectionLotsOverview() {
                     {pieceLabel}
                   </Typography>
                 </Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                   <Numbers sx={{ fontSize: 14, color: "#667eea" }} />
                   <Typography variant="caption" sx={{ color: "#666", fontWeight: "500" }}>
                     Expected: {lot.expected_piece_number}
                   </Typography>
+                </Box>
+                
+                {/* NEW: Initialization status */}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  {initStatus.chip}
                 </Box>
               </Box>
             </Box>
@@ -614,12 +704,12 @@ export default function DetectionLotsOverview() {
                 startIcon={<PlayArrow />}
                 onClick={(e) => {
                   e.stopPropagation();
-                  // FIXED: Only navigate, don't start detection
+                  const pieceLabel = getPieceLabel(lot.expected_piece_id);
                   navigate(`/detection?lotId=${lot.lot_id}`);
-                  showSnackbar(`Selected lot ${lot.lot_name} for detection. Please choose your camera and start detection.`);
+                  showSnackbar(`Initializing detection system for lot "${lot.lot_name}" with piece: ${pieceLabel}. Please wait for initialization to complete.`, 'info');
                 }}
               >
-                Select for Detection
+                Initialize & Detect
               </ActionButton>
               
               <ActionButton
@@ -699,6 +789,13 @@ export default function DetectionLotsOverview() {
         <Typography variant="h4" sx={{ color: '#333', fontWeight: '700', mb: 2 }}>
           Detection Lots Management
         </Typography>
+        
+        {/* NEW: System status info */}
+        {systemStatus.isInitializedForLot && (
+          <Alert severity="success" sx={{ mb: 2, textAlign: 'left' }}>
+            Detection system is currently initialized for lot {systemStatus.currentLotId} with piece: {systemStatus.currentPieceLabel}
+          </Alert>
+        )}
         
         <Box sx={{ 
           display: 'flex', 
@@ -859,7 +956,7 @@ export default function DetectionLotsOverview() {
           vertical: 'bottom',
           horizontal: 'right',
         }}
-transformOrigin={{
+        transformOrigin={{
           vertical: 'top',
           horizontal: 'right',
         }}
@@ -870,7 +967,7 @@ transformOrigin={{
         </MenuItem>
         <MenuItem onClick={handleSelectForDetection}>
           <PlayArrow sx={{ mr: 1, fontSize: 20 }} />
-          Use for Detection
+          Initialize & Detect
         </MenuItem>
         <MenuItem onClick={handleEditLot}>
           <Edit sx={{ mr: 1, fontSize: 20 }} />
@@ -898,7 +995,6 @@ transformOrigin={{
         onRefreshLots={handleRefresh}
         isSubmitting={isSubmitting}
         existingLots={allLots}
-        // Default values for form
         cameraId={1}
         targetLabel="default"
         detectionOptions={{
@@ -914,18 +1010,17 @@ transformOrigin={{
         open={snackbar.open}
         autoHideDuration={6000}
         onClose={closeSnackbar}
-        message={snackbar.message}
-        action={
-          <Button color="inherit" size="small" onClick={closeSnackbar}>
-            Close
-          </Button>
-          }
-        sx={{
-          '& .MuiSnackbarContent-root': {
-            backgroundColor: snackbar.severity === 'error' ? '#f44336' : '#4caf50'
-          }
-        }}
-      />
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={closeSnackbar}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 }

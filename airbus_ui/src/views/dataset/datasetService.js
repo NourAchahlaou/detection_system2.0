@@ -99,16 +99,55 @@ export const datasetService = {
   },
 
   // Delete a specific piece by label
-  deletePieceByLabel: async (pieceLabel) => {
-    try {
-      const response = await api.delete(`/api/artifact_keeper/datasetManager/pieces/${pieceLabel}`);
-      console.log(response.data.message || "Piece deleted successfully");
-      return response.data;
-    } catch (error) {
-      console.error("Error deleting piece:", error.response?.data?.detail || error.message);
-      throw error;
+  // deletePieceByLabel: async (pieceLabel) => {
+  //   try {
+  //     const response = await api.delete(`/api/artifact_keeper/datasetManager/pieces/${pieceLabel}`);
+  //     console.log(response.data.message || "Piece deleted successfully");
+  //     return response.data;
+  //   } catch (error) {
+  //     console.error("Error deleting piece:", error.response?.data?.detail || error.message);
+  //     throw error;
+  //   }
+  // },
+// FIXED: deleteBatchOfPieces in datasetService.js
+deleteBatchOfPieces: async (pieceLabels) => {
+  console.log("Deleting batch of pieces:", pieceLabels);
+  
+  try {
+    // FIXED: Validate and clean input
+    if (!Array.isArray(pieceLabels)) {
+      throw new Error('pieceLabels must be an array');
     }
-  },
+    
+    // FIXED: Flatten any nested arrays and ensure we have strings
+    const cleanLabels = pieceLabels.flat().filter(label => 
+      typeof label === 'string' && label.trim() !== ''
+    );
+    
+    if (cleanLabels.length === 0) {
+      throw new Error('No valid piece labels provided');
+    }
+    
+    console.log("Clean labels for deletion:", cleanLabels);
+    
+    const response = await api.delete(
+      "/api/artifact_keeper/datasetManager/pieces/batch",
+      {
+        data: { piece_labels: cleanLabels }  // Send clean array of strings
+      }
+    );
+
+    console.log(response.data.message || "Batch of pieces deleted successfully");
+    return response.data;
+  } catch (error) {
+    console.error(
+      "Error deleting batch of pieces:",
+      error.response?.data?.detail || error.message
+    );
+    throw error;  
+  }
+},
+
 
   // Delete all pieces
   deleteAllPieces: async () => {
@@ -349,5 +388,49 @@ getTrainingSessions: async (params = {}) => {
       console.error("Error checking training health:", error.response?.data?.detail || error.message);
       throw error;
     }
+  },
+  pauseTraining: async () => {
+  try {
+    const response = await api.post("/api/training/training/pause");
+    console.log(response.data.message || "Training paused successfully");
+    return response.data;
+  } catch (error) {
+    console.error("Error pausing training:", error.response?.data?.detail || error.message);
+    throw error;
   }
+},
+
+// Resume a training session
+resumeTrainingSession: async (sessionId) => {
+  try {
+    const response = await api.post(`/api/training/training/resume/${sessionId}`);
+    console.log(response.data.message || "Training session resumed successfully");
+    return response.data;
+  } catch (error) {
+    console.error("Error resuming training session:", error.response?.data?.detail || error.message);
+    throw error;
+  }
+},
+
+// Get resumable training sessions
+getResumableSessions: async () => {
+  try {
+    const response = await api.get("/api/training/training/resumable");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching resumable sessions:", error.response?.data?.detail || error.message);
+    throw error;
+  }
+},
+
+// Enhanced getTrainingStatus with logs option
+getTrainingStatus: async (includeLogs = false) => {
+  try {
+    const response = await api.get(`/api/training/training/status?include_logs=${includeLogs}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching training status:", error.response?.data?.detail || error.message);
+    throw error;
+  }
+}
 };
