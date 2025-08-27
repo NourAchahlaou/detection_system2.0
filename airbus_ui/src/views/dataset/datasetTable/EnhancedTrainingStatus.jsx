@@ -44,26 +44,13 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
   const [trainingStatus, setTrainingStatus] = useState(null);
   const [trainingSessions, setTrainingSessions] = useState([]);
   const [resumableSessions, setResumableSessions] = useState([]);
+  // Add state to persist session info even when training is paused
+  const [persistedSessionInfo, setPersistedSessionInfo] = useState(null);
   const [showSessionsDialog, setShowSessionsDialog] = useState(false);
   const [showLogsDialog, setShowLogsDialog] = useState(false);
   const [trainingLogs, setTrainingLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
-
-  // Fetch training status
-  const fetchTrainingStatus = async () => {
-    try {
-      const response = await datasetService.getTrainingStatus(true);
-      setTrainingStatus(response.data);
-      
-      // Notify parent component about training state
-      if (onTrainingStateChange) {
-        onTrainingStateChange(response.data?.is_training || false);
-      }
-    } catch (error) {
-      console.error('Error fetching training status:', error);
-    }
-  };
 
   // Fetch training sessions
   const fetchTrainingSessions = async () => {
@@ -85,6 +72,39 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     }
   };
 
+  // Manual refresh function for buttons
+  const refreshTrainingData = async () => {
+    try {
+      const [statusResponse, sessionsResponse, resumableResponse] = await Promise.all([
+        datasetService.getTrainingStatus(true),
+        datasetService.getTrainingSessions({ limit: 10 }),
+        datasetService.getResumableSessions()
+      ]);
+
+      const newStatus = statusResponse.data;
+      const sessions = sessionsResponse.data?.sessions || [];
+      const resumable = resumableResponse.data?.resumable_sessions || [];
+
+      setTrainingStatus(newStatus);
+      setTrainingSessions(sessions);
+      setResumableSessions(resumable);
+
+      if (newStatus?.session_info) {
+        setPersistedSessionInfo(newStatus.session_info);
+      }
+
+      if (onTrainingStateChange) {
+        const currentPersistedInfo = newStatus?.session_info || persistedSessionInfo;
+        const hasActiveSession = newStatus?.is_training || 
+          (currentPersistedInfo && !currentPersistedInfo.completed_at && resumable.length > 0);
+        
+        onTrainingStateChange(hasActiveSession);
+      }
+    } catch (error) {
+      console.error('Error refreshing training data:', error);
+    }
+  };
+
   // Fetch training logs
   const fetchTrainingLogs = async () => {
     try {
@@ -100,7 +120,18 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     setLoading(true);
     try {
       await datasetService.stopTraining();
-      await fetchTrainingStatus();
+      
+      // Clear persisted session info when explicitly stopping
+      setPersistedSessionInfo(null);
+      
+      // Refresh all data
+      await refreshTrainingData();
+      
+      // Notify parent that training is no longer active
+      if (onTrainingStateChange) {
+        console.log('Notifying parent after stop - no active sessions');
+        onTrainingStateChange(false);
+      }
     } catch (error) {
       console.error('Error stopping training:', error);
     } finally {
@@ -113,7 +144,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     setLoading(true);
     try {
       await datasetService.pauseTraining();
-      await fetchTrainingStatus();
+      await refreshTrainingData();
     } catch (error) {
       console.error('Error pausing training:', error);
     } finally {
@@ -125,9 +156,13 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
   const handleResumeSession = async (sessionId) => {
     setLoading(true);
     try {
+      // If no specific sessionId provided, try to resume the most recent resumable session
+      if (!sessionId && resumableSessions.length > 0) {
+        sessionId = resumableSessions[0].id;
+      }
+      
       await datasetService.resumeTrainingSession(sessionId);
-      await fetchTrainingStatus();
-      await fetchResumableSessions();
+      await refreshTrainingData();
     } catch (error) {
       console.error('Error resuming training session:', error);
     } finally {
@@ -135,7 +170,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
     }
   };
 
-  // Get status color and text
+  // Get status info with improved logic
   const getStatusInfo = () => {
     if (!trainingStatus) return { color: 'default', text: 'Unknown', icon: null };
     
@@ -145,11 +180,23 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
         text: 'Training in Progress', 
         icon: <PlayArrow fontSize="small" />
       };
-    } else if (trainingStatus.session_info) {
+    } else if (persistedSessionInfo && !persistedSessionInfo.completed_at) {
       return { 
         color: 'warning', 
-        text: 'Paused/Stopped', 
+        text: 'Paused', 
         icon: <Pause fontSize="small" />
+      };
+    } else if (resumableSessions.length > 0) {
+      return { 
+        color: 'info', 
+        text: 'Resumable Session Available', 
+        icon: <Resume fontSize="small" />
+      };
+    } else if (trainingStatus.session_info || persistedSessionInfo) {
+      return { 
+        color: 'info', 
+        text: 'Session Available', 
+        icon: <Schedule fontSize="small" />
       };
     } else {
       return { 
@@ -171,17 +218,66 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
 
   // Auto-refresh training status
   useEffect(() => {
-    fetchTrainingStatus();
-    fetchTrainingSessions();
-    fetchResumableSessions();
+    let isMounted = true;
 
-    const interval = setInterval(() => {
-      fetchTrainingStatus();
-    }, 5000); // Refresh every 5 seconds
+    const fetchAllData = async () => {
+      try {
+        // Fetch all data in sequence to avoid race conditions
+        const [statusResponse, sessionsResponse, resumableResponse] = await Promise.all([
+          datasetService.getTrainingStatus(true),
+          datasetService.getTrainingSessions({ limit: 10 }),
+          datasetService.getResumableSessions()
+        ]);
 
-    return () => clearInterval(interval);
-  }, []);
+        if (!isMounted) return;
 
+        const newStatus = statusResponse.data;
+        const sessions = sessionsResponse.data?.sessions || [];
+        const resumable = resumableResponse.data?.resumable_sessions || [];
+
+        // Update all states
+        setTrainingStatus(newStatus);
+        setTrainingSessions(sessions);
+        setResumableSessions(resumable);
+
+        // Handle session persistence
+        if (newStatus?.session_info) {
+          setPersistedSessionInfo(newStatus.session_info);
+        }
+
+        // Notify parent component with current data
+        if (onTrainingStateChange) {
+          const currentPersistedInfo = newStatus?.session_info || persistedSessionInfo;
+          
+          const hasActiveSession = newStatus?.is_training || 
+            (currentPersistedInfo && !currentPersistedInfo.completed_at && resumable.length > 0);
+          
+          console.log('Notifying parent - hasActiveSession:', hasActiveSession, {
+            isTraining: newStatus?.is_training,
+            hasPersistedInfo: !!currentPersistedInfo,
+            resumableSessions: resumable.length
+          });
+          
+          onTrainingStateChange(hasActiveSession);
+        }
+      } catch (error) {
+        console.error('Error fetching training data:', error);
+      }
+    };
+
+    // Initial fetch
+    fetchAllData();
+
+    const interval = setInterval(fetchAllData, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [persistedSessionInfo, onTrainingStateChange]);
+
+  // Use persisted session info or current session info
+  const currentSessionInfo = trainingStatus?.session_info || persistedSessionInfo;
   const statusInfo = getStatusInfo();
 
   return (
@@ -203,7 +299,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
           
           <Box display="flex" gap={1}>
             <Tooltip title="Refresh Status">
-              <IconButton onClick={fetchTrainingStatus} size="small">
+              <IconButton onClick={refreshTrainingData} size="small">
                 <Refresh fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -218,7 +314,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
               </IconButton>
             </Tooltip>
             
-            {trainingStatus?.is_training && (
+            {(trainingStatus?.is_training || currentSessionInfo) && (
               <Tooltip title="View Logs">
                 <IconButton 
                   onClick={() => {
@@ -235,27 +331,33 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
           </Box>
         </Box>
 
-        {trainingStatus?.session_info && (
+        {/* Use currentSessionInfo instead of trainingStatus.session_info */}
+        {currentSessionInfo && (
           <Accordion expanded={expanded} onChange={(e, isExpanded) => setExpanded(isExpanded)}>
             <AccordionSummary expandIcon={<ExpandMore />}>
               <Box display="flex" alignItems="center" width="100%" gap={2}>
                 <Typography variant="body2" fontWeight="600">
-                  {trainingStatus.session_info.session_name}
+                  {currentSessionInfo.session_name}
                 </Typography>
-                {trainingStatus.is_training && (
+                {trainingStatus?.is_training && (
                   <Box display="flex" alignItems="center" gap={1} flexGrow={1}>
                     <Typography variant="caption" color="text.secondary">
-                      Epoch {trainingStatus.session_info.current_epoch} / {trainingStatus.session_info.epochs}
+                      Epoch {currentSessionInfo.current_epoch} / {currentSessionInfo.epochs}
                     </Typography>
                     <LinearProgress 
                       variant="determinate" 
-                      value={trainingStatus.session_info.progress_percentage || 0}
+                      value={currentSessionInfo.progress_percentage || 0}
                       sx={{ flexGrow: 1, height: 6, borderRadius: 3 }}
                     />
                     <Typography variant="caption" fontWeight="600" color="primary">
-                      {Math.round(trainingStatus.session_info.progress_percentage || 0)}%
+                      {Math.round(currentSessionInfo.progress_percentage || 0)}%
                     </Typography>
                   </Box>
+                )}
+                {!trainingStatus?.is_training && currentSessionInfo && (
+                  <Typography variant="caption" color="text.secondary">
+                    Last Progress: {Math.round(currentSessionInfo.progress_percentage || 0)}%
+                  </Typography>
                 )}
               </Box>
             </AccordionSummary>
@@ -268,7 +370,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
                       Piece Labels
                     </Typography>
                     <Box display="flex" flexWrap="wrap" gap={0.5} mt={0.5}>
-                      {trainingStatus.session_info.piece_labels?.map((label, index) => (
+                      {currentSessionInfo.piece_labels?.map((label, index) => (
                         <Chip key={index} label={label} size="small" variant="outlined" />
                       ))}
                     </Box>
@@ -282,7 +384,7 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
                         Model Type
                       </Typography>
                       <Typography variant="body2" fontWeight="600">
-                        {trainingStatus.session_info.model_type}
+                        {currentSessionInfo.model_type}
                       </Typography>
                     </Grid>
                     <Grid item xs={6}>
@@ -292,34 +394,42 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
                       <Box display="flex" alignItems="center" gap={0.5}>
                         <Computer fontSize="small" color="action" />
                         <Typography variant="body2">
-                          {trainingStatus.session_info.device_used || 'N/A'}
+                          {currentSessionInfo.device_used || 'N/A'}
                         </Typography>
                       </Box>
                     </Grid>
                   </Grid>
                 </Grid>
 
-                {trainingStatus.session_info.total_images && (
+                {currentSessionInfo.total_images && (
                   <Grid item xs={12}>
                     <Box display="flex" gap={3}>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Total Images</Typography>
                         <Typography variant="body2" fontWeight="600">
-                          {trainingStatus.session_info.total_images}
+                          {currentSessionInfo.total_images}
                         </Typography>
                       </Box>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Validation</Typography>
                         <Typography variant="body2" fontWeight="600">
-                          {trainingStatus.session_info.validation_images || 0}
+                          {currentSessionInfo.validation_images || 0}
                         </Typography>
                       </Box>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Batch Size</Typography>
                         <Typography variant="body2" fontWeight="600">
-                          {trainingStatus.session_info.batch_size}
+                          {currentSessionInfo.batch_size}
                         </Typography>
                       </Box>
+                      {currentSessionInfo.current_epoch && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Current Epoch</Typography>
+                          <Typography variant="body2" fontWeight="600">
+                            {currentSessionInfo.current_epoch} / {currentSessionInfo.epochs}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
                   </Grid>
                 )}
@@ -328,46 +438,49 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
           </Accordion>
         )}
 
-        {/* Control Buttons */}
-        <Box display="flex" gap={1} mt={2}>
-          {trainingStatus?.is_training ? (
-            <>
-              <Button
-                variant="outlined"
-                color="warning"
-                startIcon={<Pause />}
-                onClick={handlePauseTraining}
-                disabled={loading}
-                size="small"
-              >
-                Pause
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<Stop />}
-                onClick={handleStopTraining}
-                disabled={loading}
-                size="small"
-              >
-                Stop
-              </Button>
-            </>
-          ) : (
-            resumableSessions.length > 0 && (
-              <Button
-                variant="outlined"
-                color="success"
-                startIcon={<Resume />}
-                onClick={() => handleResumeSession(resumableSessions[0].id)}
-                disabled={loading}
-                size="small"
-              >
-                Resume Latest
-              </Button>
-            )
-          )}
-        </Box>
+        {/* Control Buttons - Show when we have session info or training is active */}
+        {(trainingStatus?.is_training || currentSessionInfo || resumableSessions.length > 0) && (
+          <Box display="flex" gap={1} mt={2}>
+            {trainingStatus?.is_training ? (
+              <>
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<Pause />}
+                  onClick={handlePauseTraining}
+                  disabled={loading}
+                  size="small"
+                >
+                  Pause
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<Stop />}
+                  onClick={handleStopTraining}
+                  disabled={loading}
+                  size="small"
+                >
+                  Stop
+                </Button>
+              </>
+            ) : (
+              // Show resume button when paused or when resumable sessions exist
+              (currentSessionInfo || resumableSessions.length > 0) && (
+                <Button
+                  variant="outlined"
+                  color="success"
+                  startIcon={<Resume />}
+                  onClick={() => handleResumeSession()}
+                  disabled={loading}
+                  size="small"
+                >
+                  Resume Training
+                </Button>
+              )
+            )}
+          </Box>
+        )}
 
         {/* Resumable Sessions Alert */}
         {resumableSessions.length > 0 && !trainingStatus?.is_training && (
@@ -398,6 +511,64 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
       >
         <DialogTitle>Training Sessions</DialogTitle>
         <DialogContent>
+          {/* Resumable Sessions Section */}
+          {resumableSessions.length > 0 && (
+            <>
+              <Typography variant="h6" gutterBottom color="primary">
+                Resumable Sessions
+              </Typography>
+              <List>
+                {resumableSessions.map((session, index) => (
+                  <React.Fragment key={session.id}>
+                    <ListItem>
+                      <ListItemText
+                        primary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="subtitle2">{session.session_name}</Typography>
+                            <Chip
+                              size="small"
+                              label="Resumable"
+                              color="warning"
+                              icon={<Pause />}
+                            />
+                          </Box>
+                        }
+                        secondary={
+                          <Box>
+                            <Typography variant="caption" display="block">
+                              Started: {new Date(session.started_at).toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" display="block">
+                              Progress: {Math.round(session.progress_percentage || 0)}%
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<Resume />}
+                        onClick={() => {
+                          handleResumeSession(session.id);
+                          setShowSessionsDialog(false);
+                        }}
+                        disabled={loading}
+                      >
+                        Resume
+                      </Button>
+                    </ListItem>
+                    {index < resumableSessions.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+              <Divider sx={{ my: 2 }} />
+            </>
+          )}
+
+          {/* All Sessions Section */}
+          <Typography variant="h6" gutterBottom>
+            Recent Sessions
+          </Typography>
           <List>
             {trainingSessions.map((session, index) => (
               <React.Fragment key={session.id}>
@@ -419,6 +590,16 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
                         <Typography variant="caption" display="block">
                           Started: {new Date(session.started_at).toLocaleString()}
                         </Typography>
+                        {session.completed_at && (
+                          <Typography variant="caption" display="block">
+                            Completed: {new Date(session.completed_at).toLocaleString()}
+                          </Typography>
+                        )}
+                        {session.progress_percentage && (
+                          <Typography variant="caption" display="block">
+                            Progress: {Math.round(session.progress_percentage)}%
+                          </Typography>
+                        )}
                       </Box>
                     }
                   />
@@ -427,7 +608,10 @@ const TrainingStatusComponent = ({ onTrainingStateChange }) => {
                       variant="outlined"
                       size="small"
                       startIcon={<Resume />}
-                      onClick={() => handleResumeSession(session.id)}
+                      onClick={() => {
+                        handleResumeSession(session.id);
+                        setShowSessionsDialog(false);
+                      }}
                       disabled={loading}
                     >
                       Resume

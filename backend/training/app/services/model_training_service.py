@@ -481,24 +481,92 @@ def train_model_group_based(piece_labels: list, db: Session, session_id: int):
         force_cleanup_gpu_memory()
         logger.info("Group-based training process finished and GPU memory cleared.")
 
-def find_existing_group_session(db: Session, group_name: str) -> Optional[TrainingSession]:
-    """Find existing incomplete training session for the same group."""
+def find_existing_group_session(db: Session, group_name: str, piece_labels: List[str]) -> Optional[TrainingSession]:
+    """Find existing incomplete training session for the same group with improved matching."""
     try:
-        # Look for incomplete sessions for this specific group
-        existing_session = db.query(TrainingSession).filter(
+        if not piece_labels:
+            return None
+            
+        # Sort piece labels for consistent comparison
+        sorted_piece_labels = sorted(piece_labels)
+        
+        # Look for incomplete sessions (not training, not completed, current_epoch < total_epochs)
+        incomplete_sessions = db.query(TrainingSession).filter(
             TrainingSession.is_training == False,
             TrainingSession.completed_at.is_(None),
             TrainingSession.current_epoch < TrainingSession.epochs,  # Not completed all epochs
-            TrainingSession.session_name.like(f"%{group_name}%")  # Contains group name
-        ).order_by(TrainingSession.started_at.desc()).first()
+            TrainingSession.current_epoch >= 1  # Changed from > 1 to >= 1
+        ).order_by(TrainingSession.started_at.desc()).all()
         
-        return existing_session
+        logger.info(f"Looking for resumable session for group {group_name} with pieces: {piece_labels}")
+        
+        # Strategy 1: Exact piece label match
+        for session in incomplete_sessions:
+            if not session.piece_labels:
+                continue
+                
+            session_pieces_set = set(session.piece_labels)
+            current_pieces_set = set(piece_labels)
+            
+            if session_pieces_set == current_pieces_set:
+                logger.info(f"Found EXACT match resumable session {session.id} for group {group_name}")
+                return session
+        
+        # Strategy 2: High overlap within same group (if group extraction works)
+        if group_name:  # Only proceed if we have a valid group name
+            try:
+                for session in incomplete_sessions:
+                    if not session.piece_labels:
+                        continue
+                    
+                    # Try to extract groups from session piece labels
+                    session_groups = group_pieces_by_prefix(session.piece_labels)
+                    
+                    # Check if this session contains pieces from the same group
+                    if session_groups and group_name in session_groups:
+                        # Check piece label overlap
+                        session_pieces_set = set(session.piece_labels)
+                        current_pieces_set = set(piece_labels)
+                        
+                        overlap = len(session_pieces_set.intersection(current_pieces_set))
+                        overlap_percentage = overlap / len(current_pieces_set) if current_pieces_set else 0
+                        
+                        logger.info(f"Session {session.id}: overlap = {overlap}/{len(current_pieces_set)} ({overlap_percentage:.2%})")
+                        
+                        # Accept session if there's reasonable overlap (>= 50%) for the same group
+                        if overlap_percentage >= 0.5:
+                            logger.info(f"Found resumable session {session.id} for group {group_name}")
+                            logger.info(f"Session pieces: {session.piece_labels}")
+                            logger.info(f"Current pieces: {piece_labels}")
+                            logger.info(f"Session progress: {session.current_epoch}/{session.epochs} epochs")
+                            return session
+                            
+            except Exception as group_error:
+                logger.warning(f"Group-based matching failed: {str(group_error)}")
+        
+        # Strategy 3: Any overlap (fallback)
+        for session in incomplete_sessions:
+            if not session.piece_labels:
+                continue
+                
+            session_pieces_set = set(session.piece_labels)
+            current_pieces_set = set(piece_labels)
+            
+            overlap = len(session_pieces_set.intersection(current_pieces_set))
+            if overlap > 0:
+                overlap_percentage = overlap / len(current_pieces_set) if current_pieces_set else 0
+                logger.info(f"Found fallback resumable session {session.id} with {overlap_percentage:.1%} overlap")
+                return session
+        
+        logger.info(f"No resumable session found for group {group_name}")
+        return None
+        
     except Exception as e:
         logger.error(f"Error finding existing group session: {str(e)}")
         return None
-
+    
 def train_single_group(group_name: str, piece_labels: List[str], db: Session, session_id: int, device=None):
-    """Train a single group with NaN prevention and stability improvements."""
+    """Train a single group with improved resume detection - FIXED VERSION."""
     model = None
     try:
         training_session = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
@@ -506,38 +574,52 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             logger.error(f"Training session {session_id} not found")
             return
 
-        # Check for existing incomplete session for this group
-        existing_group_session = find_existing_group_session(db, group_name)
+        # ENHANCED: Check for existing incomplete session for this exact group and pieces
+        existing_group_session = find_existing_group_session(db, group_name, piece_labels)
         resume_from_epoch = 1
         is_resume = False
+        should_reuse_session = False
         
-        if existing_group_session and existing_group_session.id != session_id:
-            # Found an existing incomplete session for this group
-            resume_from_epoch = existing_group_session.current_epoch
+        # PRIORITY 1: Check if the CURRENT session itself has progress (direct resume)
+        if (training_session.current_epoch > 1 and 
+            training_session.current_epoch < training_session.epochs and
+            not training_session.completed_at):
+            
+            resume_from_epoch = training_session.current_epoch + 1
             is_resume = True
+            should_reuse_session = True
+            training_session.add_log("INFO", f"Resuming current session from epoch {resume_from_epoch}")
+            logger.info(f"Resuming current session {session_id} from epoch {resume_from_epoch}")
             
-            # Transfer the progress to current session
-            training_session.current_epoch = resume_from_epoch
-            training_session.progress_percentage = (resume_from_epoch / training_session.epochs) * 100
+        # PRIORITY 2: Found a different incomplete session for this group
+        elif (existing_group_session and 
+              existing_group_session.id != session_id and
+              existing_group_session.current_epoch > 1 and
+              existing_group_session.current_epoch < existing_group_session.epochs):
             
-            # Copy relevant training data
-            if existing_group_session.device_used:
-                training_session.device_used = existing_group_session.device_used
-            if existing_group_session.batch_size:
-                training_session.batch_size = existing_group_session.batch_size
-            if existing_group_session.image_size:
-                training_session.image_size = existing_group_session.image_size
-                
-            # Add log about resuming
+            # ENHANCED: Reuse the existing session instead of creating new one
+            resume_from_epoch = existing_group_session.current_epoch + 1 
+            is_resume = True
+            should_reuse_session = True
+            
+            # UPDATE: Transfer current request to the existing session
+            logger.info(f"Found incomplete session {existing_group_session.id} for group {group_name}")
+            logger.info(f"Transferring training to existing session instead of creating new one")
+            
+            # Mark current session as superseded
+            training_session.add_log("INFO", f"Session superseded by existing incomplete session {existing_group_session.id}")
+            training_session.add_log("INFO", f"Existing session will continue from epoch {resume_from_epoch}")
+            
+            # Switch to use the existing session
+            training_session = existing_group_session
+            training_session.is_training = True  # Mark as active
             training_session.add_log("INFO", f"Resuming training for group {group_name} from epoch {resume_from_epoch}")
-            training_session.add_log("INFO", f"Previous session: {existing_group_session.session_name} (ID: {existing_group_session.id})")
-            
-            # Mark old session as superseded
-            existing_group_session.add_log("INFO", f"Session superseded by new session {training_session.session_name}")
+            training_session.add_log("INFO", f"Session reactivated for pieces: {piece_labels}")
             
             safe_commit(db)
-            logger.info(f"Resuming training for group {group_name} from epoch {resume_from_epoch}")
+            
         else:
+            # NEW SESSION: Starting fresh
             training_session.add_log("INFO", f"Starting new training for group {group_name}")
             safe_commit(db)
 
@@ -559,6 +641,7 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         training_path_gpu = os.path.join(gpu_base_path, group_name)
         os.makedirs(training_path_cpu, exist_ok=True)
         os.makedirs(training_path_gpu, exist_ok=True)
+        
         valid_pieces = []
         total_images = 0
         class_mapping = {}
@@ -622,8 +705,12 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
         training_session.add_log("INFO", f"Created data.yaml for group {group_name} with {len(class_names)} classes")
         safe_commit(db)
 
-        # Only do rotation and cropping if starting from epoch 1
-        if resume_from_epoch == 1:
+        # Only do rotation and cropping if starting from epoch 1 OR if dataset doesn't exist
+        dataset_needs_preparation = (resume_from_epoch == 1 or 
+                                   not os.path.exists(os.path.join(dataset_custom_path, "images", "train")) or 
+                                   len(os.listdir(os.path.join(dataset_custom_path, "images", "train"))) == 0)
+        
+        if dataset_needs_preparation:
             # Rotation and augmentation
             logger.info(f"Starting rotation and augmentation for group {group_name}")
             training_session.add_log("INFO", f"Starting rotation and augmentation for group {group_name}")
@@ -642,13 +729,20 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             except Exception as crop_error:
                 training_session.add_log("WARNING", f"Smart cropping failed for group {group_name}: {str(crop_error)}")
         else:
-            training_session.add_log("INFO", f"Skipping rotation and cropping - resuming from epoch {resume_from_epoch}")
+            training_session.add_log("INFO", f"Skipping rotation and cropping - resuming from epoch {resume_from_epoch}, dataset exists")
             
         # Check existing model
         existing_classes = check_existing_classes_in_model(model_save_path)
         new_classes = list(class_mapping.keys())
         
-        if os.path.exists(model_save_path):
+        if os.path.exists(model_save_path) and is_resume:
+            training_session.add_log("INFO", f"Loading existing model for group {group_name} (resuming training)")
+            try:
+                model = YOLO(model_save_path)
+            except Exception as e:
+                training_session.add_log("WARNING", f"Failed to load existing model, creating new one: {e}")
+                model = YOLO("yolov8n.pt")  # Use nano model for better stability
+        elif os.path.exists(model_save_path):
             training_session.add_log("INFO", f"Loading existing model for group {group_name} (incremental learning)")
             try:
                 model = YOLO(model_save_path)
@@ -965,7 +1059,6 @@ def train_single_group(group_name: str, piece_labels: List[str], db: Session, se
             safe_commit(db)
     
     finally:
-        # Cleanup model from memory
         if model:
             del model
         force_cleanup_gpu_memory()

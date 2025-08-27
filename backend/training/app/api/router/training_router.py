@@ -100,8 +100,6 @@ def get_active_training_session(db: Session) -> Optional[TrainingSession]:
     except Exception as e:
         logger.error(f"Unexpected error getting active training session: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
-
-
 def find_existing_training_session(db: Session, piece_labels: List[str]) -> Optional[TrainingSession]:
     """Find existing incomplete training session for the same piece labels with improved logic."""
     try:
@@ -110,32 +108,150 @@ def find_existing_training_session(db: Session, piece_labels: List[str]) -> Opti
             
         sorted_labels = sorted(piece_labels)
         
-        # Extract group from piece labels to find group-based sessions
+        # FIXED: Look for sessions that are truly incomplete
+        # A session is resumable if:
+        # 1. Not currently training (is_training == False)
+        # 2. Has made some progress (current_epoch >= 1)
+        # 3. Hasn't finished all epochs (current_epoch < epochs)
+        # 4. Either completed_at is NULL OR current_epoch < epochs (handles premature completion)
         
-        piece_groups = group_pieces_by_prefix(piece_labels)
+        incomplete_sessions = db.query(TrainingSession).filter(
+            TrainingSession.is_training == False,  # Not currently training
+            TrainingSession.current_epoch >= 1,  # Has started (epoch 1 or more)
+            TrainingSession.current_epoch < TrainingSession.epochs,  # Not finished all epochs
+            # REMOVED the completed_at.is_(None) condition - it's handled by epoch check
+        ).order_by(TrainingSession.started_at.desc()).all()
         
-        # Look for incomplete sessions for any of these groups
-        for group_name in piece_groups.keys():
-            # Find incomplete sessions (not training, not completed, current_epoch < total_epochs)
-            sessions = db.query(TrainingSession).filter(
-                TrainingSession.is_training == False,
-                TrainingSession.completed_at.is_(None),
-                TrainingSession.current_epoch < TrainingSession.epochs,  # Not completed all epochs
-                TrainingSession.session_name.like(f"%{group_name}%")  # Contains group name
-            ).order_by(TrainingSession.started_at.desc()).all()
+        # Additional filtering: Only consider sessions where epochs weren't fully completed
+        truly_incomplete_sessions = []
+        for session in incomplete_sessions:
+            # A session is truly incomplete if it hasn't done all epochs
+            if session.current_epoch < session.epochs:
+                truly_incomplete_sessions.append(session)
+                logger.info(f"Found resumable session {session.id}: {session.current_epoch}/{session.epochs} epochs")
+        
+        logger.info(f"Found {len(truly_incomplete_sessions)} truly incomplete sessions")
+        logger.info(f"Looking for resumable session for pieces: {piece_labels}")
+        
+        if not truly_incomplete_sessions:
+            logger.info("No incomplete sessions found")
+            return None
+        
+        # Strategy 1: Exact piece label match (highest priority)
+        for session in truly_incomplete_sessions:
+            if not session.piece_labels:
+                logger.info(f"Session {session.id}: No piece_labels, skipping")
+                continue
+                
+            session_pieces_set = set(session.piece_labels)
+            current_pieces_set = set(piece_labels)
             
-            for session in sessions:
-                if session.piece_labels:
-                    session_groups = group_pieces_by_prefix(session.piece_labels)
-                    # Check if this session contains the same group
-                    if group_name in session_groups:
-                        return session
+            logger.info(f"Session {session.id}: Comparing {session_pieces_set} vs {current_pieces_set}")
+            
+            if session_pieces_set == current_pieces_set:
+                logger.info(f"Found EXACT match resumable session {session.id}")
+                logger.info(f"Session pieces: {session.piece_labels}")
+                logger.info(f"Current pieces: {piece_labels}")
+                logger.info(f"Session progress: {session.current_epoch}/{session.epochs} epochs")
+                return session
         
+        # Strategy 2: High overlap match (80% or more)
+        for session in truly_incomplete_sessions:
+            if not session.piece_labels:
+                continue
+                
+            session_pieces_set = set(session.piece_labels)
+            current_pieces_set = set(piece_labels)
+            
+            # Check overlap percentage
+            overlap = len(session_pieces_set.intersection(current_pieces_set))
+            if len(current_pieces_set) > 0:
+                overlap_percentage = overlap / len(current_pieces_set)
+                
+                logger.info(f"Session {session.id}: Overlap {overlap}/{len(current_pieces_set)} = {overlap_percentage:.2%}")
+                
+                if overlap_percentage >= 0.8:  # 80% or more overlap
+                    logger.info(f"Found HIGH OVERLAP resumable session {session.id}")
+                    logger.info(f"Overlap: {overlap}/{len(current_pieces_set)} ({overlap_percentage:.2%})")
+                    logger.info(f"Session pieces: {session.piece_labels}")
+                    logger.info(f"Current pieces: {piece_labels}")
+                    logger.info(f"Session progress: {session.current_epoch}/{session.epochs} epochs")
+                    return session
+        
+        # Strategy 3: Group-based matching (only if piece extraction works)
+        try:
+            piece_groups = group_pieces_by_prefix(piece_labels)
+            logger.info(f"Extracted groups from current pieces: {piece_groups}")
+            
+            if piece_groups:  # Only proceed if we successfully extracted groups
+                for group_name in piece_groups.keys():
+                    logger.info(f"Searching for resumable sessions for group: {group_name}")
+                    
+                    for session in truly_incomplete_sessions:
+                        if not session.piece_labels:
+                            continue
+                            
+                        try:
+                            session_groups = group_pieces_by_prefix(session.piece_labels)
+                            logger.info(f"Session {session.id} groups: {session_groups}")
+                            
+                            if not session_groups:
+                                logger.info(f"Session {session.id}: No groups extracted, skipping")
+                                continue
+                                
+                            logger.info(f"Checking session {session.id} with groups: {list(session_groups.keys())}")
+                            
+                            # Check if this session contains pieces from the same group
+                            if group_name in session_groups:
+                                # Check piece label overlap
+                                session_pieces_set = set(session.piece_labels)
+                                current_pieces_set = set(piece_labels)
+                                
+                                # Accept session if there's ANY overlap for the same group
+                                overlap = len(session_pieces_set.intersection(current_pieces_set))
+                                logger.info(f"Session {session.id}: Group {group_name} overlap = {overlap}")
+                                
+                                if overlap > 0:
+                                    logger.info(f"Found GROUP MATCH resumable session {session.id} for group {group_name}")
+                                    logger.info(f"Session pieces: {session.piece_labels}")
+                                    logger.info(f"Current pieces: {piece_labels}")
+                                    logger.info(f"Session progress: {session.current_epoch}/{session.epochs} epochs")
+                                    return session
+                        except Exception as group_error:
+                            logger.warning(f"Error processing session {session.id} for group matching: {str(group_error)}")
+                            continue
+            else:
+                logger.info(f"No groups extracted from piece labels: {piece_labels}")
+        except Exception as group_extraction_error:
+            logger.warning(f"Group extraction failed: {str(group_extraction_error)}")
+        
+        # Strategy 4: Partial match (any overlap, lowest priority)
+        for session in truly_incomplete_sessions:
+            if not session.piece_labels:
+                continue
+                
+            session_pieces_set = set(session.piece_labels)
+            current_pieces_set = set(piece_labels)
+            
+            overlap = len(session_pieces_set.intersection(current_pieces_set))
+            if overlap > 0:
+                overlap_percentage = overlap / len(current_pieces_set) if current_pieces_set else 0
+                logger.info(f"Found PARTIAL MATCH resumable session {session.id}")
+                logger.info(f"Overlap: {overlap}/{len(current_pieces_set)} ({overlap_percentage:.2%})")
+                logger.info(f"Session pieces: {session.piece_labels}")
+                logger.info(f"Current pieces: {piece_labels}")
+                logger.info(f"Session progress: {session.current_epoch}/{session.epochs} epochs")
+                return session
+        
+        logger.info(f"No resumable session found for pieces: {piece_labels}")
         return None
+        
     except Exception as e:
         logger.error(f"Error finding existing training session: {str(e)}")
+        logger.error(f"Exception details: {repr(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
-
 
 def create_training_session(db: Session, piece_labels: List[str]) -> TrainingSession:
     """Create a new training session with comprehensive error handling."""
@@ -175,7 +291,7 @@ def resume_training_session(db: Session, session: TrainingSession, piece_labels:
     try:
         current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
         original_name = session.session_name
-        session.session_name = f"{original_name}_resumed_{current_time}"
+        session.session_name = f"{original_name}"
         
         # Reset training state but keep progress
         session.is_training = False
@@ -205,8 +321,7 @@ def resume_training_session(db: Session, session: TrainingSession, piece_labels:
 @training_router.post("/train")
 async def train_piece_model(request: TrainRequest, db: db_dependency, background_tasks: BackgroundTasks):
     """
-    Start training process for specified piece labels.
-    Enhanced with better error handling and background task management.
+    Start training process for specified piece labels with improved resume detection.
     """
     try:
         logger.info(f"Training request received for pieces: {request.piece_labels}")
@@ -218,13 +333,7 @@ async def train_piece_model(request: TrainRequest, db: db_dependency, background
                 detail="piece_labels cannot be empty"
             )
         
-        if len(request.piece_labels) > 50:  # Reasonable limit
-            raise HTTPException(
-                status_code=422,
-                detail="Too many pieces specified. Maximum 50 pieces allowed per training session."
-            )
-        
-        # Check for active training
+        # Check for active training first
         active_session = get_active_training_session(db)
         if active_session:
             raise HTTPException(
@@ -241,27 +350,36 @@ async def train_piece_model(request: TrainRequest, db: db_dependency, background
                 }
             )
         
-        # Look for resumable session for the same group
+        # IMPROVED: Look for resumable session with better matching
         existing_session = find_existing_training_session(db, request.piece_labels)
         
         if existing_session:
+            # Resume existing session
             training_session = resume_training_session(db, existing_session, request.piece_labels)
             action = "resumed"
             is_resume = True
             start_epoch = training_session.current_epoch
             
-            # Log resume details
-            from training.app.services.model_training_service import group_pieces_by_prefix
+            # Log resume details with more information
             piece_groups = group_pieces_by_prefix(request.piece_labels)
             group_names = list(piece_groups.keys())
             
             logger.info(f"Resuming training for groups {group_names} from epoch {start_epoch}")
+            logger.info(f"Previous session: {existing_session.session_name} (ID: {existing_session.id})")
+            logger.info(f"Progress: {existing_session.progress_percentage:.1f}%")
+            
             training_session.add_log("INFO", f"Resuming training for groups {group_names}")
+            training_session.add_log("INFO", f"Resume from epoch {start_epoch}/{training_session.epochs}")
+            training_session.add_log("INFO", f"Piece labels: {request.piece_labels}")
+            
         else:
+            # Create new session
             training_session = create_training_session(db, request.piece_labels)
             action = "created"
             is_resume = False
             start_epoch = 1
+            
+            logger.info(f"Created new training session: {training_session.session_name}")
         
         # Start training as background task
         background_tasks.add_task(
@@ -923,16 +1041,25 @@ def get_resumable_sessions(db: db_dependency):
     Get list of training sessions that can be resumed with enhanced group-based filtering.
     """
     try:
+        # FIXED: Use same criteria as find_existing_training_session
         # Find sessions that are incomplete (not all epochs finished)
         resumable_sessions = db.query(TrainingSession).filter(
-            TrainingSession.is_training == False,
-            TrainingSession.completed_at.is_(None),
-            TrainingSession.current_epoch < TrainingSession.epochs,  # Not all epochs completed
-            TrainingSession.current_epoch > 1  # Has made some progress
+            TrainingSession.is_training == False,  # Not currently training
+            TrainingSession.current_epoch >= 1,   # Has started (epoch 1 or more)
+            TrainingSession.current_epoch < TrainingSession.epochs,  # Not finished all epochs
+            # REMOVED completed_at condition - let epoch comparison be the authority
         ).order_by(TrainingSession.started_at.desc()).all()
         
-        sessions_data = []
+        # Additional filtering: Only include sessions that truly haven't finished
+        truly_resumable = []
         for session in resumable_sessions:
+            if session.current_epoch < session.epochs:
+                truly_resumable.append(session)
+        
+        logger.info(f"Found {len(truly_resumable)} resumable sessions out of {len(resumable_sessions)} candidates")
+        
+        sessions_data = []
+        for session in truly_resumable:
             session_dict = session.to_dict()
             
             # Calculate resumability metrics
@@ -944,15 +1071,27 @@ def get_resumable_sessions(db: db_dependency):
             from training.app.services.model_training_service import group_pieces_by_prefix
             piece_groups = group_pieces_by_prefix(session.piece_labels or [])
             
+            # Determine actual status
+            actual_status = "resumable"
+            if session.completed_at and session.current_epoch >= session.epochs:
+                actual_status = "completed"
+            elif session.completed_at and session.current_epoch < session.epochs:
+                actual_status = "prematurely_completed"  # This is the issue case
+            
             session_dict.update({
                 "resumability_score": round(progress_score, 1),
                 "epochs_completed": epochs_completed,
                 "epochs_remaining": epochs_remaining,
                 "groups": list(piece_groups.keys()) if piece_groups else [],
                 "can_resume": True,
+                "actual_status": actual_status,
                 "resume_benefits": {
                     "time_saved": f"Skip {epochs_completed} completed epochs",
                     "progress_preserved": f"{progress_score:.1f}% progress maintained"
+                },
+                "debug_info": {
+                    "completed_at_set": session.completed_at is not None,
+                    "epochs_done": f"{session.current_epoch}/{session.epochs}"
                 }
             })
             sessions_data.append(session_dict)
@@ -967,7 +1106,11 @@ def get_resumable_sessions(db: db_dependency):
                 "recommendation": sessions_data[0] if sessions_data else None,
                 "summary": {
                     "total_resumable": len(sessions_data),
-                    "avg_progress": sum(s["resumability_score"] for s in sessions_data) / len(sessions_data) if sessions_data else 0
+                    "avg_progress": sum(s["resumability_score"] for s in sessions_data) / len(sessions_data) if sessions_data else 0,
+                    "debug": {
+                        "candidates_found": len(resumable_sessions),
+                        "truly_resumable": len(truly_resumable)
+                    }
                 }
             },
             message=f"Found {len(sessions_data)} resumable training sessions"
@@ -982,7 +1125,6 @@ def get_resumable_sessions(db: db_dependency):
                 details=str(e)
             )
         )
-
 
 @training_router.get("/group/{group_name}/status")
 def get_group_training_status(group_name: str, db: db_dependency):

@@ -57,8 +57,9 @@ export default function DatasetComponenet({
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState(null);
   
-  // TrainingStatusComponent visibility state
+  // TrainingStatusComponent visibility state - Modified logic for persistence
   const [showTrainingStatus, setShowTrainingStatus] = useState(false);
+  const [hasActiveOrPausedSession, setHasActiveOrPausedSession] = useState(false);
   
   // Training state - removed local training state since it's now passed from parent
   const [trainingProgress, setTrainingProgress] = useState(0);
@@ -195,10 +196,18 @@ export default function DatasetComponenet({
     }
   }, [trainingData]);
 
-  // Show/hide TrainingStatusComponent based on training state
+  // UPDATED: Show/hide TrainingStatusComponent based on training state AND session data
   useEffect(() => {
-    setShowTrainingStatus(trainingInProgress);
-  }, [trainingInProgress]);
+    // Show TrainingStatusComponent if:
+    // 1. Training is currently in progress, OR
+    // 2. There's training data (session info) indicating a paused/resumable session, OR
+    // 3. Component itself indicates there's an active/paused session
+    const shouldShowTrainingStatus = trainingInProgress || 
+      (trainingData && trainingData.session_info && !trainingData.completed_at) ||
+      hasActiveOrPausedSession;
+    
+    setShowTrainingStatus(shouldShowTrainingStatus);
+  }, [trainingInProgress, trainingData, hasActiveOrPausedSession]);
 
   // FIXED: Separate function for fetching additional data (statistics, groups)
   const fetchAdditionalData = useCallback(async () => {
@@ -321,6 +330,7 @@ export default function DatasetComponenet({
         
         // Show TrainingStatusComponent immediately when starting training
         setShowTrainingStatus(true);
+        setHasActiveOrPausedSession(true);
         
         const result = await onBatchTrain(pieceLabels, sequential);
         console.log('Parent returned:', result);
@@ -328,6 +338,7 @@ export default function DatasetComponenet({
         // If training failed, hide the TrainingStatusComponent
         if (result && !result.success) {
           setShowTrainingStatus(false);
+          setHasActiveOrPausedSession(false);
         }
         
         return result;
@@ -354,6 +365,7 @@ export default function DatasetComponenet({
       
       // Show TrainingStatusComponent
       setShowTrainingStatus(true);
+      setHasActiveOrPausedSession(true);
       
       const trainingInfo = {
         status: 'training',
@@ -399,6 +411,7 @@ export default function DatasetComponenet({
     } catch (error) {
       showNotification("Failed to start training for all pieces", "error");
       setShowTrainingStatus(false);
+      setHasActiveOrPausedSession(false);
       
       if (onTrainingCheck) {
         setTimeout(async () => {
@@ -431,6 +444,7 @@ export default function DatasetComponenet({
       onStopTraining();
       // Hide TrainingStatusComponent when stopping
       setShowTrainingStatus(false);
+      setHasActiveOrPausedSession(false);
       return;
     }
 
@@ -447,6 +461,7 @@ export default function DatasetComponenet({
       setTrainingProgress(0);
       setTrainingPieces([]);
       setShowTrainingStatus(false);
+      setHasActiveOrPausedSession(false);
       showNotification("Training stopped successfully", "info");
     } catch (error) {
       showNotification("Failed to stop training", "error");
@@ -592,8 +607,12 @@ export default function DatasetComponenet({
   };
 
   // Handler for TrainingStatusComponent state changes
-  const handleTrainingStateChange = useCallback((isTraining) => {
-    setShowTrainingStatus(isTraining);
+  const handleTrainingStateChange = useCallback((isTrainingOrPaused) => {
+    console.log('Training state change from component:', isTrainingOrPaused);
+    setHasActiveOrPausedSession(isTrainingOrPaused);
+    
+    // Don't automatically hide the component - let the useEffect handle visibility
+    // based on combined state (training + session + component state)
   }, []);
 
   // FIXED: Refresh function that doesn't cause infinite loops
@@ -629,7 +648,7 @@ export default function DatasetComponenet({
 
       <StatisticsPanel statistics={statistics} />
       
-      {/* Show TrainingStatusComponent when training is active */}
+      {/* Show TrainingStatusComponent when training is active OR when there's a paused session */}
       {showTrainingStatus && (
         <TrainingStatusComponent 
           onTrainingStateChange={handleTrainingStateChange}
@@ -688,4 +707,4 @@ export default function DatasetComponenet({
       </Snackbar>
     </Container>
   );
-}
+};
