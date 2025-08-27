@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -28,7 +28,10 @@ import {
   InputAdornment,
   TablePagination,
   Tooltip,
-  CircularProgress
+  CircularProgress,
+  Alert,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import {
   ExpandMore,
@@ -42,11 +45,13 @@ import {
   Schedule,
   Analytics,
   Camera,
-  Visibility
+  Visibility,
+  DateRange
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
+import lotSessionService from './lotSessionService';
 
-// Styled Components
+// Styled Components (keeping all your existing styles)
 const Container = styled(Box)(({ theme }) => ({
   padding: '24px',
   backgroundColor: 'transparent',
@@ -127,7 +132,7 @@ const StatusChip = styled(Chip)(({ variant }) => ({
   }),
 }));
 
-// Mock data generator
+// Mock data generator (keeping your existing logic as fallback)
 const generateMockData = () => {
   const lotGroups = ['PROD_A', 'PROD_B', 'TEST_X', 'QUAL_Y'];
   const cameras = [1, 2, 3, 4];
@@ -157,7 +162,7 @@ const generateMockData = () => {
           cameraId: camera,
           targetPiece: piece,
           detectedPiece: isMatch ? piece : pieces[Math.floor(Math.random() * pieces.length)],
-          confidence: confidence,
+          confidence: confidence * 100, // Convert to percentage
           isTargetMatch: isMatch,
           status: status,
           timestamp: new Date(Date.now() - Math.random() * 86400000 * 7), // Last 7 days
@@ -168,6 +173,12 @@ const generateMockData = () => {
       
       const completedSessions = sessions.filter(s => s.status === 'completed').length;
       const matchingSessions = sessions.filter(s => s.isTargetMatch && s.status === 'completed').length;
+      
+      // Fix: Calculate average confidence properly
+      const completedSessionsWithConfidence = sessions.filter(s => s.status === 'completed');
+      const avgConfidence = completedSessionsWithConfidence.length > 0 
+        ? completedSessionsWithConfidence.reduce((acc, s) => acc + s.confidence, 0) / completedSessionsWithConfidence.length
+        : 0;
       
       lots.push({
         id: lotId,
@@ -180,11 +191,13 @@ const generateMockData = () => {
         completedSessions: completedSessions,
         successfulMatches: matchingSessions,
         successRate: completedSessions > 0 ? (matchingSessions / completedSessions * 100).toFixed(1) : 0,
-        avgConfidence: sessions.filter(s => s.status === 'completed').length > 0 
-          ? (sessions.filter(s => s.status === 'completed').reduce((acc, s) => acc + s.confidence, 0) / sessions.filter(s => s.status === 'completed').length * 100).toFixed(1)
-          : 0,
+        avgConfidence: avgConfidence.toFixed(1),
         createdAt: new Date(Date.now() - Math.random() * 86400000 * 30), // Last 30 days
-        lastActivity: sessions.length > 0 ? new Date(Math.max(...sessions.map(s => s.timestamp.getTime()))) : new Date()
+        lastActivity: sessions.length > 0 ? new Date(Math.max(...sessions.map(s => s.timestamp.getTime()))) : new Date(),
+        // Add lot-level status based on sessions
+        lotStatus: sessions.some(s => s.status === 'running') ? 'running' : 
+                  sessions.some(s => s.status === 'pending') ? 'pending' :
+                  sessions.every(s => s.status === 'completed') ? 'completed' : 'mixed'
       });
     }
   });
@@ -193,53 +206,181 @@ const generateMockData = () => {
 };
 
 export default function LotSessionDatabase() {
-  const [lots] = useState(generateMockData());
-  const [loading, setLoading] = useState(false);
+  // Enhanced state management
+  const [lots, setLots] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [useMockData, setUseMockData] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [expandedLots, setExpandedLots] = useState(new Set());
+  const [dashboardData, setDashboardData] = useState(null);
+  const [statistics, setStatistics] = useState({
+    totalGroups: 0,
+    totalLots: 0,
+    totalSessions: 0,
+    avgSuccessRate: 0,
+    avgConfidence: 0
+    
+  });
   
-  // Filter state
+  // Enhanced filter state - added date range filter
   const [filters, setFilters] = useState({
     search: '',
     group: '',
     status: '',
+    matchFilter: '', // 'match', 'no_match', or ''
     sortBy: 'lastActivity',
     sortOrder: 'desc',
-    dateFrom: '',
-    dateTo: '',
-    minSessions: '',
-    maxSessions: ''
+    createdFrom: '',
+    createdTo: ''
   });
 
-  // Group lots by group
-  const groupedLots = useMemo(() => {
-    const groups = {};
+  // Load data from API
+  const loadDashboardData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     
-    // Filter lots first
-    const filteredLots = lots.filter(lot => {
-      if (filters.search && !lot.lotName.toLowerCase().includes(filters.search.toLowerCase()) && 
-          !lot.expectedPiece.toLowerCase().includes(filters.search.toLowerCase())) {
-        return false;
+    try {
+      // Prepare filters for API call
+      const apiFilters = {};
+      if (filters.group) apiFilters.groupFilter = filters.group;
+      if (filters.search) apiFilters.search = filters.search;
+      if (filters.status) apiFilters.statusFilter = filters.status;
+
+      const response = await lotSessionService.getDashboardData(apiFilters);
+      
+      if (response.success) {
+        setDashboardData(response);
+        setStatistics(lotSessionService.processStatistics(response));
+        
+        // Convert API data to component format
+        const processedGroups = lotSessionService.processGroupedData(response);
+        const allLots = Object.values(processedGroups).flatMap(group => 
+          group.lots.map(lot => ({
+            ...lot,
+            completedSessions: lot.successfulSessions || 0,
+            successfulMatches: lot.successfulSessions || 0,
+            successRate: lot.sessionSuccessRate || 0,
+            // Fix: Properly handle confidence values from API
+            avgConfidence: lot.lotMatchConfidence ? parseFloat(lot.lotMatchConfidence).toFixed(1) : '0.0',
+            createdAt: lot.createdAt,
+            lastActivity: lot.lastActivity,
+            // Determine lot-level status from sessions
+            lotStatus: (lot.sessions || []).some(s => s.status === 'running') ? 'running' : 
+                      (lot.sessions || []).some(s => s.status === 'pending') ? 'pending' :
+                      (lot.sessions || []).every(s => s.status === 'completed') ? 'completed' : 'mixed',
+            sessions: (lot.sessions || []).map(session => ({
+              ...session,
+              // Ensure confidence is properly formatted
+              confidence: session.confidence ? parseFloat(session.confidence) : 0,
+              timestamp: session.timestamp
+            }))
+          }))
+        );
+        
+        setLots(allLots);
+        setUseMockData(false);
+      } else {
+        throw new Error('Failed to load dashboard data');
+      }
+    } catch (err) {
+      console.warn('Failed to load real data, using mock data:', err);
+      setError('Failed to load real data. Using demo data.');
+      setLots(generateMockData());
+      setUseMockData(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []); // Removed dependencies to prevent API calls on every filter change
+
+  // Initial data load
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Get available groups for filter dropdown
+  const availableGroups = useMemo(() => {
+    return [...new Set(lots.map(lot => lot.group))].sort();
+  }, [lots]);
+
+  // Get available lot-level statuses for filter dropdown
+  const availableStatuses = useMemo(() => {
+    const statuses = new Set();
+    lots.forEach(lot => {
+      // Add the lot-level status
+      statuses.add(lot.lotStatus || 'unknown');
+    });
+    return [...statuses].sort();
+  }, [lots]);
+
+  // Fixed filtering logic - added date range filtering
+  const filteredLots = useMemo(() => {
+    return lots.filter(lot => {
+      // Search filter - search in lot name, lot ID, and expected piece
+      if (filters.search) {
+        const searchTerm = filters.search.toLowerCase();
+        const matchesLotName = lot.lotName.toLowerCase().includes(searchTerm);
+        const matchesExpectedPiece = lot.expectedPiece.toLowerCase().includes(searchTerm);
+        const matchesLotId = lot.id.toLowerCase().includes(searchTerm);
+        
+        if (!matchesLotName && !matchesExpectedPiece && !matchesLotId) {
+          return false;
+        }
       }
       
+      // Group filter - exact match on group name
       if (filters.group && lot.group !== filters.group) {
         return false;
       }
       
-      if (filters.minSessions && lot.totalSessions < parseInt(filters.minSessions)) {
+      // Status filter - check lot-level status
+      if (filters.status && lot.lotStatus !== filters.status) {
         return false;
       }
       
-      if (filters.maxSessions && lot.totalSessions > parseInt(filters.maxSessions)) {
-        return false;
+      // Match filter - check if lot has matching or non-matching sessions
+      if (filters.matchFilter) {
+        const completedSessions = lot.sessions?.filter(session => session.status === 'completed') || [];
+        const hasMatches = completedSessions.some(session => session.isTargetMatch);
+        const hasNoMatches = completedSessions.some(session => !session.isTargetMatch);
+        
+        if (filters.matchFilter === 'match' && !hasMatches) {
+          return false;
+        }
+        
+        if (filters.matchFilter === 'no_match' && !hasNoMatches) {
+          return false;
+        }
+      }
+      
+      // Date range filter - check created_at
+      if (filters.createdFrom) {
+        const createdFromDate = new Date(filters.createdFrom);
+        const lotCreatedDate = new Date(lot.createdAt);
+        if (lotCreatedDate < createdFromDate) {
+          return false;
+        }
+      }
+      
+      if (filters.createdTo) {
+        const createdToDate = new Date(filters.createdTo);
+        createdToDate.setHours(23, 59, 59, 999); // End of day
+        const lotCreatedDate = new Date(lot.createdAt);
+        if (lotCreatedDate > createdToDate) {
+          return false;
+        }
       }
       
       return true;
     });
+  }, [lots, filters]);
 
-    // Group filtered lots
+  // Enhanced group lots with proper filtering
+  const groupedLots = useMemo(() => {
+    const groups = {};
+    
     filteredLots.forEach(lot => {
       if (!groups[lot.group]) {
         groups[lot.group] = {
@@ -262,30 +403,37 @@ export default function LotSessionDatabase() {
       }
     });
 
-    // Calculate averages for each group
+    // Calculate group averages
     Object.values(groups).forEach(group => {
       if (group.lots.length > 0) {
         group.avgSuccessRate = (group.lots.reduce((acc, lot) => acc + parseFloat(lot.successRate), 0) / group.lots.length).toFixed(1);
+        
+        // FIXED: Include all lots in confidence calculation, not just those with >0 confidence
         group.avgConfidence = (group.lots.reduce((acc, lot) => acc + parseFloat(lot.avgConfidence), 0) / group.lots.length).toFixed(1);
       }
     });
     
     return groups;
-  }, [lots, filters]);
+  }, [filteredLots]);
 
-  // Statistics
-  const statistics = useMemo(() => {
+  // FIXED: Update statistics based on filtered data with proper confidence and active groups calculation
+  const finalStatistics = useMemo(() => {
+    // FIXED: Calculate confidence for all lots, not just those with >0 confidence
+    const avgConfidence = filteredLots.length > 0 
+      ? (filteredLots.reduce((acc, lot) => acc + parseFloat(lot.avgConfidence), 0) / filteredLots.length).toFixed(1)
+      : '0.0';
+      
+
+      
     return {
       totalGroups: Object.keys(groupedLots).length,
-      totalLots: lots.length,
-      totalSessions: lots.reduce((acc, lot) => acc + lot.totalSessions, 0),
-      avgSuccessRate: lots.length > 0 ? (lots.reduce((acc, lot) => acc + parseFloat(lot.successRate), 0) / lots.length).toFixed(1) : 0,
-      avgConfidence: lots.length > 0 ? (lots.reduce((acc, lot) => acc + parseFloat(lot.avgConfidence), 0) / lots.length).toFixed(1) : 0,
-      activeGroups: Object.values(groupedLots).filter(group => 
-        group.lots.some(lot => lot.sessions.some(session => session.status === 'running'))
-      ).length
+      totalLots: filteredLots.length,
+      totalSessions: filteredLots.reduce((acc, lot) => acc + lot.totalSessions, 0),
+      avgSuccessRate: filteredLots.length > 0 ? (filteredLots.reduce((acc, lot) => acc + parseFloat(lot.successRate), 0) / filteredLots.length).toFixed(1) : 0,
+      avgConfidence: avgConfidence,
+     
     };
-  }, [lots, groupedLots]);
+  }, [filteredLots, groupedLots]);
 
   const handleFilterChange = useCallback((field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -297,15 +445,21 @@ export default function LotSessionDatabase() {
       search: '',
       group: '',
       status: '',
+      matchFilter: '',
       sortBy: 'lastActivity',
       sortOrder: 'desc',
-      dateFrom: '',
-      dateTo: '',
-      minSessions: '',
-      maxSessions: ''
+      createdFrom: '',
+      createdTo: ''
     });
     setPage(0);
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    if (lotSessionService?.clearCache) {
+      lotSessionService.clearCache();
+    }
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   const handleLotExpand = useCallback((lotId) => {
     setExpandedLots(prev => {
@@ -320,13 +474,34 @@ export default function LotSessionDatabase() {
   }, []);
 
   const formatDate = useCallback((date) => {
-    return date.toLocaleDateString('en-US', {
+    if (!date) return 'N/A';
+    
+    let dateObj;
+    if (typeof date === 'string') {
+      dateObj = new Date(date);
+    } else if (date instanceof Date) {
+      dateObj = date;
+    } else {
+      return 'Invalid Date';
+    }
+    
+    if (isNaN(dateObj.getTime())) {
+      return 'Invalid Date';
+    }
+    
+    return dateObj.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     });
+  }, []);
+
+  const formatDateForInput = useCallback((date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toISOString().split('T')[0];
   }, []);
 
   const getSessionStatusIcon = (status) => {
@@ -339,13 +514,31 @@ export default function LotSessionDatabase() {
     }
   };
 
+  if (loading) {
+    return (
+      <Container>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+          <CircularProgress size={50} />
+          <Typography variant="h6" sx={{ ml: 2 }}>Loading dashboard data...</Typography>
+        </Box>
+      </Container>
+    );
+  }
+
   return (
     <Container>
+      {/* Error Alert */}
+      {error && (
+        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
       {/* Header */}
       <HeaderBox>
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 600, color: '#333', mb: 1 }}>
-            Lot Session Database
+            Lot Session Database {useMockData && '(Demo Mode)'}
           </Typography>
           <Typography variant="body1" color="text.secondary">
             Monitor and analyze detection lot sessions grouped by production lines
@@ -364,9 +557,10 @@ export default function LotSessionDatabase() {
           
           <Button
             startIcon={<Refresh />}
-            onClick={() => setLoading(!loading)}
+            onClick={handleRefresh}
             variant="outlined"
             sx={{ textTransform: "none" }}
+            disabled={loading}
           >
             Refresh
           </Button>
@@ -379,7 +573,7 @@ export default function LotSessionDatabase() {
           <StatsCard>
             <CardContent sx={{ textAlign: 'center', py: 3 }}>
               <Typography variant="h3" sx={{ color: '#667eea', fontWeight: 'bold', mb: 1 }}>
-                {statistics.totalGroups}
+                {finalStatistics.totalGroups}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Production Groups
@@ -392,7 +586,7 @@ export default function LotSessionDatabase() {
           <StatsCard>
             <CardContent sx={{ textAlign: 'center', py: 3 }}>
               <Typography variant="h3" sx={{ color: '#667eea', fontWeight: 'bold', mb: 1 }}>
-                {statistics.totalLots}
+                {finalStatistics.totalLots}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Total Lots
@@ -405,7 +599,7 @@ export default function LotSessionDatabase() {
           <StatsCard>
             <CardContent sx={{ textAlign: 'center', py: 3 }}>
               <Typography variant="h3" sx={{ color: '#667eea', fontWeight: 'bold', mb: 1 }}>
-                {statistics.totalSessions}
+                {finalStatistics.totalSessions}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Total Sessions
@@ -418,7 +612,7 @@ export default function LotSessionDatabase() {
           <StatsCard>
             <CardContent sx={{ textAlign: 'center', py: 3 }}>
               <Typography variant="h3" sx={{ color: '#4caf50', fontWeight: 'bold', mb: 1 }}>
-                {statistics.avgSuccessRate}%
+                {finalStatistics.avgSuccessRate}%
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Avg Success Rate
@@ -431,7 +625,7 @@ export default function LotSessionDatabase() {
           <StatsCard>
             <CardContent sx={{ textAlign: 'center', py: 3 }}>
               <Typography variant="h3" sx={{ color: '#ff9800', fontWeight: 'bold', mb: 1 }}>
-                {statistics.avgConfidence}%
+                {finalStatistics.avgConfidence}%
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Avg Confidence
@@ -440,21 +634,10 @@ export default function LotSessionDatabase() {
           </StatsCard>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={2}>
-          <StatsCard>
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <Typography variant="h3" sx={{ color: '#f44336', fontWeight: 'bold', mb: 1 }}>
-                {statistics.activeGroups}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Active Groups
-              </Typography>
-            </CardContent>
-          </StatsCard>
-        </Grid>
+
       </Grid>
 
-      {/* Filters Panel */}
+      {/* Enhanced Filters Panel with Date Range */}
       <Collapse in={showFilters}>
         <FilterCard>
           <CardContent>
@@ -462,7 +645,7 @@ export default function LotSessionDatabase() {
               Search & Filter Options
             </Typography>
             <Grid container spacing={3}>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
                   label="Search"
@@ -479,7 +662,7 @@ export default function LotSessionDatabase() {
                 />
               </Grid>
               
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <FormControl fullWidth>
                   <InputLabel>Production Group</InputLabel>
                   <Select
@@ -488,25 +671,87 @@ export default function LotSessionDatabase() {
                     label="Production Group"
                   >
                     <MenuItem value="">All Groups</MenuItem>
-                    {Object.keys(groupedLots).map(group => (
+                    {availableGroups.map(group => (
                       <MenuItem key={group} value={group}>{group}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth>
+                  <InputLabel>Lot Status</InputLabel>
+                  <Select
+                    value={filters.status}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                    label="Lot Status"
+                  >
+                    <MenuItem value="">All Statuses</MenuItem>
+                    {availableStatuses.map(status => (
+                      <MenuItem key={status} value={status}>
+                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth>
+                  <InputLabel>Match Status</InputLabel>
+                  <Select
+                    value={filters.matchFilter}
+                    onChange={(e) => handleFilterChange('matchFilter', e.target.value)}
+                    label="Match Status"
+                  >
+                    <MenuItem value="">All Matches</MenuItem>
+                    <MenuItem value="match">Has Matches</MenuItem>
+                    <MenuItem value="no_match">Has No Matches</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
-                  label="Min Sessions"
-                  type="number"
-                  value={filters.minSessions}
-                  onChange={(e) => handleFilterChange('minSessions', e.target.value)}
-                  placeholder="Minimum session count"
+                  label="Created From"
+                  type="date"
+                  value={filters.createdFrom}
+                  onChange={(e) => handleFilterChange('createdFrom', e.target.value)}
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <DateRange />
+                      </InputAdornment>
+                    ),
+                  }}
                 />
               </Grid>
 
-              <Grid item xs={12}>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Created To"
+                  type="date"
+                  value={filters.createdTo}
+                  onChange={(e) => handleFilterChange('createdTo', e.target.value)}
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <DateRange />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
                 <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
                   <Button
                     startIcon={<Clear />}
@@ -657,12 +902,12 @@ export default function LotSessionDatabase() {
                               </TableCell>
                               
                               <TableCell>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Camera fontSize="small" color="action" />
-                                  <Typography variant="body2">
-                                    Camera {session.cameraId}
-                                  </Typography>
-                                </Box>
+                                <Chip
+                                  icon={<Camera />}
+                                  label={`Cam ${session.cameraId}`}
+                                  size="small"
+                                  sx={{ bgcolor: '#e3f2fd', color: '#1976d2' }}
+                                />
                               </TableCell>
                               
                               <TableCell>
@@ -692,7 +937,7 @@ export default function LotSessionDatabase() {
                               
                               <TableCell>
                                 <Typography variant="body2" fontWeight="600" color="#ff9800">
-                                  {(session.confidence * 100).toFixed(1)}%
+                                  {(session.confidence || 0).toFixed(1)}%
                                 </Typography>
                               </TableCell>
                               
@@ -729,6 +974,29 @@ export default function LotSessionDatabase() {
         </GroupAccordion>
       ))}
 
+      {/* Empty State */}
+      {Object.keys(groupedLots).length === 0 && (
+        <Card sx={{ textAlign: 'center', py: 8, border: '1px solid rgba(102, 126, 234, 0.1)' }}>
+          <CardContent>
+            <Analytics sx={{ fontSize: 64, color: '#ccc', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" gutterBottom>
+              No lots found
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Try adjusting your filters or refresh the data
+            </Typography>
+            <Button
+              variant="outlined"
+              onClick={handleClearFilters}
+              startIcon={<Clear />}
+              sx={{ textTransform: 'none' }}
+            >
+              Clear Filters
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Pagination */}
       <TablePagination
         component="div"
@@ -743,7 +1011,7 @@ export default function LotSessionDatabase() {
         rowsPerPageOptions={[5, 10, 25, 50]}
         sx={{
           mt: 3,
-          bgcolor: 'white',
+          bgcolor: 'rgba(102, 126, 234, 0.02)',
           borderRadius: '12px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
           "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
