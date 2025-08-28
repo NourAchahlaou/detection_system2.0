@@ -393,7 +393,7 @@ def _update_data_yaml_after_piece_deletion(extracted_label: str, deleted_piece_l
         
         # Create new mapping with sequential numbering (0, 1, 2, ...)
         remaining_pieces = list(current_names.values())
-        new_names = {str(i): piece for i, piece in enumerate(remaining_pieces)}
+        new_names = {i: piece for i, piece in enumerate(remaining_pieces)}
         
         # Create mapping from old class IDs to new class IDs for annotation file updates
         old_to_new_mapping = {}
