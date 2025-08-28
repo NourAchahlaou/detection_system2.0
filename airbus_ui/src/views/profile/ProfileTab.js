@@ -268,12 +268,6 @@ export default function ProfileTab() {
           
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6} md={3}>
-              <Typography variant="caption" color="text.secondary">Employee ID</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {profileData.employee_id || 'N/A'}
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
               <Typography variant="caption" color="text.secondary">Work Area</Typography>
               <Typography variant="body2" fontWeight="medium">
                 {profileData.work_area || 'N/A'}

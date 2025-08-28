@@ -117,11 +117,11 @@ export default function SideCard() {
     
     // For now, just return the work area as is
     // You can enhance this to parse more complex work area strings
-    return { main: workArea, section: 'Section 5' }; // Keeping section static for now
+    return { main: workArea}; // Keeping section static for now
   };
 
   const { level: accessLevel, description: accessDescription } = parseAccessLevel(profileData.access_level);
-  const { main: workAreaMain, section: workAreaSection } = parseWorkArea(profileData.work_area);
+  const { main: workAreaMain } = parseWorkArea(profileData.work_area);
   const fullName = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim() || 'Unknown User';
 
   return (
@@ -276,20 +276,6 @@ export default function SideCard() {
                 py: 0.5
               }}
             />
-            {workAreaSection && (
-              <Chip 
-                label={workAreaSection} 
-                variant="outlined" 
-                size="medium" 
-                color="primary"
-                sx={{ 
-                  fontSize: '0.8rem',
-                  fontWeight: 500,
-                  borderRadius: 1.5,
-                  py: 0.5
-                }}
-              />
-            )}
           </Box>
           
         </Box>

@@ -30,6 +30,28 @@ services:
       timeout: 3s
       retries: 5
 
+  # 🆕 RabbitMQ for Event-Driven Architecture
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: airvision_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: airvision
+      RABBITMQ_DEFAULT_PASS: airvision123
+      RABBITMQ_DEFAULT_VHOST: airvision
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    networks:
+      - airvision-net
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
   databasePostgres:
     image: postgres:15
     container_name: postgres
@@ -48,13 +70,40 @@ services:
     ports:
       - "5433:5432"
 
-  # 3️⃣ Backend microservices
+  # 🆕 Activity Service for Event Processing
+  activity_service:
+    container_name: activity_service
+    depends_on:
+      base_image:
+        condition: service_completed_successfully
+      databasePostgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    build:
+      context: ./backend/activity_service
+      dockerfile: Dockerfile
+    env_file:
+      - ./.env
+    ports:
+      - "8008:8000"
+    networks:
+      - airvision-net
+    volumes:
+      - ./backend/activity_service/app:/usr/srv/activity_service/app
+      - ./.env:/usr/srv/.env
+    environment:
+      - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
+
+  # 3️⃣ Backend microservices (updated with RabbitMQ dependency)
   user_management:
     container_name: userManagementMicroservice
     depends_on:
       base_image:
         condition: service_completed_successfully
       databasePostgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     build:
       context: ./backend/user_management
@@ -68,6 +117,8 @@ services:
     volumes:
       - ./backend/user_management/app:/usr/srv/user_management/app
       - ./.env:/usr/srv/.env
+    environment:
+      - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
 
   artifact_keeper:
     container_name: artifact_keeper
@@ -75,6 +126,8 @@ services:
       base_image:
         condition: service_completed_successfully
       databasePostgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     build:
       context: ./backend/artifact_keeper
@@ -96,6 +149,7 @@ services:
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
       - DATASET_BACKUP_PATH=/app/shared/backup
+      - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
 
   annotation:
     container_name: annotationMicroservice
@@ -106,6 +160,8 @@ services:
         condition: service_healthy
       artifact_keeper:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     build:
       context: ./backend/annotation
       dockerfile: Dockerfile
@@ -124,6 +180,7 @@ services:
     user: "1001:1001"
     environment:
       - DATASET_BASE_PATH=/app/shared/dataset
+      - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
 
   training:
       container_name: trainingMicroservice
@@ -134,6 +191,8 @@ services:
           condition: service_healthy
         artifact_keeper:
           condition: service_started
+        rabbitmq:
+          condition: service_healthy
       build:
         context: ./backend/training
         dockerfile: Dockerfile
@@ -159,6 +218,7 @@ services:
         - MODELS_BASE_PATH=/app/shared/models
         - NVIDIA_VISIBLE_DEVICES=all
         - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+        - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
       # GPU Configuration
       deploy:
         resources:
@@ -167,8 +227,7 @@ services:
               - driver: nvidia
                 count: all
                 capabilities: [gpu]
-      # Alternative for older docker-compose versions:
-      # runtime: nvidia
+
   detection:
     container_name: detectionMicroservice
     depends_on:
@@ -177,6 +236,8 @@ services:
       databasePostgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     build:
       context: ./backend/detection
@@ -197,6 +258,7 @@ services:
     environment:
       - MODELS_BASE_PATH=/app/shared/models
       - REDIS_URL=redis://airvision_redis:6379
+      - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
 
   video_streaming:
     container_name: video_streaming
@@ -206,6 +268,8 @@ services:
       databasePostgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     build:
       context: ./backend/video_streaming
@@ -223,6 +287,7 @@ services:
       - ./.env:/usr/srv/.env
     environment:
       - REDIS_URL=redis://airvision_redis:6379
+      - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
 
   # 4️⃣ Frontend
   airbus_ui:
@@ -263,6 +328,7 @@ services:
       - annotation
       - databasePostgres
       - detection
+      - activity_service
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -274,6 +340,7 @@ networks:
 volumes:
   user_postgres_data:
   redis_data:
+  rabbitmq_data:  # 🆕 RabbitMQ data persistence
   dataset:
     driver: local
     driver_opts:

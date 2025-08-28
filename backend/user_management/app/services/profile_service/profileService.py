@@ -93,8 +93,8 @@ async def get_user_profile_tab_info(user_id: int, session: Session) -> ProfileTa
         
         # Access & Credentials
         employee_id=f"T-{user.airbus_id}" if user.airbus_id else "N/A",
-        work_area="Assembly Line B",  # This could be made dynamic later
-        badge_number=f"AIR-{user.airbus_id + 1000}" if user.airbus_id else "N/A",
+        work_area="Quality area",  # This could be made dynamic later
+        badge_number=f"AIRBUS-{user.airbus_id}" if user.airbus_id else "N/A",
         access_level=f"{access_level} ({access_description})",
         
         # Additional info for calculations
