@@ -8,8 +8,8 @@ import {
   Divider,
   Card,
   CardContent,
-  
-  alpha
+  alpha,
+  CircularProgress
 } from '@mui/material';
 import { 
   Schedule as ClockIcon, 
@@ -19,8 +19,111 @@ import {
   Email as EmailIcon,
 
 } from '@mui/icons-material';
+import profileService from './services/profileService'; // Adjust path as needed
 
 export default function SideCard() {
+  // State for profile data
+  const [profileData, setProfileData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  // Fetch profile data
+  const fetchProfileData = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await profileService.getProfileTabInfo();
+      setProfileData(data);
+    } catch (error) {
+      console.error('Error fetching profile data for side card:', error);
+      // You might want to show a toast notification here
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load profile data on component mount
+  React.useEffect(() => {
+    fetchProfileData();
+  }, [fetchProfileData]);
+
+  // Loading state
+  if (loading) {
+    return (
+      <Card 
+        elevation={2} 
+        variant="outlined" 
+        sx={{ 
+          height: '100%',
+          display: 'flex', 
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          borderRadius: 2,
+          overflow: 'auto',
+          border: '1px solid',
+          borderColor: 'divider',
+          backgroundColor: (theme) => theme.palette.mode === 'dark' ? alpha(theme.palette.background.paper, 0.8) : alpha(theme.palette.background.paper, 1),
+        }}
+      >
+        <CircularProgress />
+        <Typography variant="body2" sx={{ mt: 2 }} color="text.secondary">
+          Loading profile...
+        </Typography>
+      </Card>
+    );
+  }
+
+  // Error state or no data
+  if (!profileData) {
+    return (
+      <Card 
+        elevation={2} 
+        variant="outlined" 
+        sx={{ 
+          height: '100%',
+          display: 'flex', 
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          borderRadius: 2,
+          overflow: 'auto',
+          border: '1px solid',
+          borderColor: 'divider',
+          backgroundColor: (theme) => theme.palette.mode === 'dark' ? alpha(theme.palette.background.paper, 0.8) : alpha(theme.palette.background.paper, 1),
+        }}
+      >
+        <Typography variant="body2" color="text.secondary">
+          Unable to load profile data
+        </Typography>
+      </Card>
+    );
+  }
+
+  // Parse access level to extract level number and description
+  const parseAccessLevel = (accessLevel) => {
+    if (!accessLevel) return { level: 'N/A', description: 'No access level set' };
+    
+    // Example: "Level 2 (Standard Technician)" -> { level: "Level 2", description: "Standard Technician" }
+    const match = accessLevel.match(/^(Level \d+)\s*\((.+)\)$/);
+    if (match) {
+      return { level: match[1], description: match[2] };
+    }
+    
+    return { level: accessLevel, description: 'Access granted' };
+  };
+
+  // Parse work area to extract main area and section
+  const parseWorkArea = (workArea) => {
+    if (!workArea) return { main: 'No work area assigned', section: null };
+    
+    // For now, just return the work area as is
+    // You can enhance this to parse more complex work area strings
+    return { main: workArea, section: 'Section 5' }; // Keeping section static for now
+  };
+
+  const { level: accessLevel, description: accessDescription } = parseAccessLevel(profileData.access_level);
+  const { main: workAreaMain, section: workAreaSection } = parseWorkArea(profileData.work_area);
+  const fullName = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim() || 'Unknown User';
+
   return (
     <Card 
       elevation={2} 
@@ -53,9 +156,10 @@ export default function SideCard() {
           position: 'relative',
           mb: 1
         }}>
-
           
-          <Typography variant="h5" fontWeight="700" sx={{ mb: 0.5 }}>Achahlaou Nour</Typography>
+          <Typography variant="h5" fontWeight="700" sx={{ mb: 0.5 }}>
+            {fullName}
+          </Typography>
           
           <Box sx={{ 
             display: 'flex', 
@@ -67,7 +171,7 @@ export default function SideCard() {
           }}>
             <Chip 
               icon={<CameraIcon fontSize="small" />} 
-              label="Technician" 
+              label={profileData.role || 'No role assigned'} 
               color="primary" 
               sx={{
                 px: 1,
@@ -79,12 +183,14 @@ export default function SideCard() {
             
             <Chip
               sx={{ 
-                bgcolor: (theme) => alpha(theme.palette.success.main, 0.1),
-                color: 'success.dark',
+                bgcolor: (theme) => profileData.current_status === 'Online' 
+                  ? alpha(theme.palette.success.main, 0.1)
+                  : alpha(theme.palette.grey[500], 0.1),
+                color: profileData.current_status === 'Online' ? 'success.dark' : 'text.secondary',
                 fontWeight: 600,
                 borderRadius: 1.5,
                 '& .MuiChip-icon': {
-                  color: 'success.main'
+                  color: profileData.current_status === 'Online' ? 'success.main' : 'grey.500'
                 }
               }}
               icon={
@@ -92,12 +198,11 @@ export default function SideCard() {
                   width: 8, 
                   height: 8, 
                   borderRadius: '50%', 
-                  bgcolor: 'success.main',
+                  bgcolor: profileData.current_status === 'Online' ? 'success.main' : 'grey.500',
                   display: 'inline-block'
                 }}/>
               }
-              iconColor="success"
-              label="Active Now"
+              label={profileData.current_status === 'Online' ? 'Active Now' : 'Offline'}
               size="small"
             />
           </Box>
@@ -108,19 +213,6 @@ export default function SideCard() {
         {/* User Info Section */}
         <Box sx={{ width: '100%' }}>
           <Stack spacing={2} sx={{ fontSize: '0.875rem' }}>
-          {/* TODO : i'll go back to it later  */}
-            {/* <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              pb: 1
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <ClockIcon fontSize="small" sx={{ mr: 1.5, color: 'primary.main', fontSize: '1.1rem' }} />
-                <Typography variant="body2" color="text.secondary" fontWeight={500}>Working Hours</Typography>
-              </Box>
-              <Typography variant="body2" fontWeight={600} sx={{ color: 'text.primary' }}>07h 45min</Typography>
-            </Box> */}
             
             <Box sx={{ 
               display: 'flex', 
@@ -139,12 +231,10 @@ export default function SideCard() {
                   textOverflow: 'ellipsis'
                 }}
               >
-                nour.achahlaou@airbus.com
+                {profileData.email || 'No email available'}
               </Typography>
             </Box>
             
-      
-
             <Box sx={{ 
               display: 'flex', 
               alignItems: 'center', 
@@ -153,54 +243,12 @@ export default function SideCard() {
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <BellIcon fontSize="small" sx={{ mr: 1.5, color: 'primary.main', fontSize: '1.1rem' }} />
-                <Typography variant="body2" color="text.secondary" fontWeight={500}>Alerts</Typography>
-              </Box>
-              <Chip
-                label="3"
-                color="error"
-                size="small"
-                sx={{ 
-                  fontWeight: 'bold',
-                  borderRadius: 1,
-                  minWidth: '28px'
-                }}
-              />
-            </Box>
-          </Stack>
-        </Box>
-        
-        <Divider sx={{ width: '100%' }} />
-        
-        {/* Access Level Section */}
-        <Box sx={{ width: '100%' }}>
-          <Typography 
-            variant="subtitle1" 
-            fontWeight={600} 
-            color="text.primary"
-            sx={{ mb: 1.5 }}
-          >
-            Access Level
-          </Typography>
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 2, 
-            alignItems: 'center', 
-            bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
-            p: 1.5,
-            borderRadius: 1.5
-          }}>
-            <Avatar sx={{ 
-              width: 38, 
-              height: 38, 
-              bgcolor: 'primary.main'
-            }}>
-              <ShieldIcon sx={{ fontSize: '1.2rem' }} />
-            </Avatar>
-            <Box>
-              <Typography variant="body1" fontWeight={600} color="text.primary">Level 2</Typography>
-              <Typography variant="body2" color="text.secondary">Standard Technician</Typography>
+                <Typography variant="body2" color="text.secondary">
+                {accessDescription}
+              </Typography>
             </Box>
           </Box>
+          </Stack>
         </Box>
         
         <Divider sx={{ width: '100%' }} />
@@ -217,7 +265,7 @@ export default function SideCard() {
           </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
             <Chip 
-              label="Assembly Line B" 
+              label={workAreaMain} 
               variant="outlined" 
               size="medium" 
               color="primary"
@@ -228,19 +276,22 @@ export default function SideCard() {
                 py: 0.5
               }}
             />
-            <Chip 
-              label="Section 5" 
-              variant="outlined" 
-              size="medium" 
-              color="primary"
-              sx={{ 
-                fontSize: '0.8rem',
-                fontWeight: 500,
-                borderRadius: 1.5,
-                py: 0.5
-              }}
-            />
+            {workAreaSection && (
+              <Chip 
+                label={workAreaSection} 
+                variant="outlined" 
+                size="medium" 
+                color="primary"
+                sx={{ 
+                  fontSize: '0.8rem',
+                  fontWeight: 500,
+                  borderRadius: 1.5,
+                  py: 0.5
+                }}
+              />
+            )}
           </Box>
+          
         </Box>
       </CardContent>
     </Card>
