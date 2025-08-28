@@ -764,24 +764,17 @@ def delete_pieces_batch(piece_labels: List[str], db: Session) -> Dict[str, Any]:
                     # List all possible folder paths that need to be deleted
                     folder_paths = [
                         # Original piece folder (check both possible structures)
-                        os.path.join(dataset_base_path, 'piece', 'piece', extracted_label, piece_label),
-                        os.path.join(dataset_base_path, 'piece', extracted_label, piece_label),
+                        os.path.join(dataset_base_path, 'piece', 'piece', extracted_label, piece_label,"images"),
+                     
                         
                         # Dataset custom folders for the specific piece
-                        os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'labels', 'valid', piece_label),
                         os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'images', 'valid', piece_label),
-                        os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'labels', 'train', piece_label),
                         os.path.join(dataset_base_path, 'dataset_custom', extracted_label, 'images', 'train', piece_label),
                         
                         # Cropped dataset folders
-                        os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'valid', piece_label),
                         os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'images', 'valid', piece_label),
-                        os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'labels', 'train', piece_label),
                         os.path.join(dataset_base_path, 'dataset_custom', f"{extracted_label}_cropped", 'images', 'train', piece_label),
-                        
-                        # Additional possible locations (add more if you know other patterns)
-                        os.path.join(dataset_base_path, 'images', extracted_label, piece_label),
-                        os.path.join(dataset_base_path, 'labels', extracted_label, piece_label),
+
                     ]
                     
                     deleted_folders = []

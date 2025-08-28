@@ -407,6 +407,58 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
     print(f"Created YOLO structure at: {piece_path}")
     print(f"Labels will be saved to: {labels_save_folder}")
 
+    # FIRST: Update or create the group-specific data.yaml to get the correct class ID
+    group_data_yaml_path = os.path.join(dataset_base_path, "piece", "piece", piece_group, "data.yaml")
+    
+    # Load existing group data if it exists
+    if os.path.exists(group_data_yaml_path):
+        with open(group_data_yaml_path, 'r') as yaml_file:
+            group_data_yaml = yaml.safe_load(yaml_file)
+            print(f"Existing group data_yaml loaded for {piece_group}: {group_data_yaml}")
+    else:
+        # Create new group-specific data.yaml with relative paths for YOLO training
+        group_data_yaml = {
+            'names': {},
+            'nc': 0,
+            'path': os.path.join(dataset_base_path, "piece", "piece", piece_group),
+            'train': '*/images/train',
+            'val': '*/images/valid'
+        }
+        print(f"No existing group data_yaml found for {piece_group}. Creating new.")
+
+    # Find or assign the group-specific class ID for this piece
+    group_class_id = None
+    for gid, label in group_data_yaml.get('names', {}).items():
+        if label == piece_label:
+            group_class_id = gid
+            break
+    
+    # If not found, assign a new ID
+    if group_class_id is None:
+        existing_ids = list(group_data_yaml.get('names', {}).keys())
+        next_group_id = 0
+        while next_group_id in existing_ids:
+            next_group_id += 1
+        
+        group_class_id = next_group_id
+        group_data_yaml['names'][group_class_id] = piece_label
+        group_data_yaml['nc'] = len(group_data_yaml['names'])
+        
+        print(f"Assigned new class ID {group_class_id} to {piece_label} in group {piece_group}")
+        
+        # Create directories if needed and save the updated YAML
+        os.makedirs(os.path.dirname(group_data_yaml_path), exist_ok=True)
+        
+        try:
+            with open(group_data_yaml_path, 'w') as yaml_file:
+                yaml.dump(group_data_yaml, yaml_file, default_flow_style=False)
+            print(f"Updated group data.yaml file at: {group_data_yaml_path}")
+            print(f"Current group {piece_group} classes: {group_data_yaml['names']}")
+        except IOError as e:
+            print(f"Warning: Failed to write group data.yaml: {e}")
+    else:
+        print(f"Found existing class ID {group_class_id} for {piece_label} in group {piece_group}")
+
     # Collect unique class IDs and labels from annotations
     processed_images = set()
     annotated_image_ids = []  # Track which images we've annotated
@@ -462,24 +514,12 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         # Set the file path for saving the annotation in YOLO structure
         file_path = os.path.join(labels_save_folder, annotationTXT_name)
 
-        # Get the group-specific class ID for this piece
-        group_data_yaml_path = os.path.join(dataset_base_path, "piece", "piece", piece_group, "data.yaml")
-        group_class_id = 0  # Default to 0
-        
-        if os.path.exists(group_data_yaml_path):
-            try:
-                with open(group_data_yaml_path, 'r') as yaml_file:
-                    group_data = yaml.safe_load(yaml_file)
-                    # Find the group-specific ID for this piece_label
-                    for gid, label in group_data.get('names', {}).items():
-                        if label == piece_label:
-                            group_class_id = gid
-                            break
-            except Exception as e:
-                print(f"Warning: Could not read group data.yaml: {e}")
+        # NOW use the correct group_class_id that was determined above
+        print(f"Using class ID {group_class_id} for piece {piece_label}")
 
         # Prepare annotation in YOLO format with group-specific class ID
         annotationTXT = f"{group_class_id} {x_center_normalized} {y_center_normalized} {width_normalized} {height_normalized}\n"
+        print(f"YOLO annotation line: {annotationTXT.strip()}")
 
         # Save the annotation inside a text file
         try:
@@ -549,9 +589,6 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
                     print("Successfully updated piece annotation status")
                 else:
                     print("Warning: Failed to update piece annotation status via API")
-                
-                # Update group-specific data.yaml
-                update_group_data_yaml(dataset_base_path, piece_group, piece_label, piece.class_data_id)
             else:
                 print(f"Piece not fully annotated yet. {remaining_unannotated} images remaining.")
         else:
@@ -569,7 +606,8 @@ def save_annotations_to_db(db: Session, piece_label: str, save_folder: str):
         "yolo_structure": piece_path,
         "piece_group": piece_group,
         "updated_images": update_successes,
-        "total_images": len(annotated_image_ids)
+        "total_images": len(annotated_image_ids),
+        "class_id_used": group_class_id
     }
 
 def delete_annotation_service(annotation_id: int, db: Session) -> Dict[str, Any]:

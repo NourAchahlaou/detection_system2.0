@@ -3,7 +3,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from annotation.app.db.session import get_db
+from annotation.app.db.session import get_session as get_db
 from annotation.app.services.delete_annotation import (
     delete_annotation_service,
     delete_all_annotations_for_piece,
