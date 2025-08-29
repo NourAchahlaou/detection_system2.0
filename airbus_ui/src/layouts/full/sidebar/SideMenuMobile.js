@@ -3,15 +3,35 @@ import PropTypes from 'prop-types';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import OptionsMenu from './OptionsMenu';
-
 import Divider from '@mui/material/Divider';
 import Drawer, { drawerClasses } from '@mui/material/Drawer';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-
 import MenuContent from './MenuContent';
+import { ProfileService } from '../../../views/profile/services/AccountService';
+
+const profileService = new ProfileService();
 
 function SideMenuMobile({ open, toggleDrawer }) {
+  const [profile, setProfile] = React.useState(null);
+
+  React.useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const result = await profileService.getBasicUserInfo();
+        if (result.success) {
+          setProfile(result.profile);
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      }
+    };
+
+    if (open) {
+      fetchProfile();
+    }
+  }, [open]);
+
   return (
     <Drawer
       anchor="left"
@@ -21,8 +41,7 @@ function SideMenuMobile({ open, toggleDrawer }) {
         zIndex: (theme) => theme.zIndex.drawer + 1,
         [`& .${drawerClasses.paper}`]: {
           backgroundImage: 'none',
-          
-          width : 240,
+          width: 240,
         },
       }}
     >
@@ -85,10 +104,10 @@ function SideMenuMobile({ open, toggleDrawer }) {
         /> */}
         <Box sx={{ mr: 'auto' }}>
           <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: '16px' }}>
-            Riley Carter
+            {profile?.name || 'Loading...'}
           </Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            riley@email.com
+            {profile?.email || 'Loading...'}
           </Typography>
         </Box>
         <OptionsMenu />
@@ -103,6 +122,7 @@ SideMenuMobile.propTypes = {
 };
 
 export default SideMenuMobile;
+
 export function CustomIcon() {
   return (
     <Box
@@ -127,10 +147,9 @@ export function CustomIcon() {
           height: '80%',
           objectFit: 'contain',
           display: 'block', //
-           // Makes black to white
+          // Makes black to white
         }}
       />
-
     </Box>
   );
 }

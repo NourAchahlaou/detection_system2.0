@@ -42,27 +42,12 @@ const menuSections = [
       { text: 'Lot Session', icon: <HistoryRoundedIcon />, to: '/lotSessionViewer' },
     ],
   },
-  {
-    title: 'Reports & Traceability',
-    items: [
-      { text: 'Generate Reports', icon: <DescriptionRoundedIcon />, to: '/reports' },
-      { text: 'Traceability Logs', icon: <HistoryRoundedIcon />, to: '/traceability' },
-    ],
-  },
-
-  {
-    title: 'Admin Panel',
-    items: [
-      { text: 'User Management', icon: <AdminPanelSettingsRoundedIcon />, to: '/admin/users' },
-      { text: 'System Logs', icon: <BugReportRoundedIcon />, to: '/admin/logs' },
-      { text: 'Model Management', icon: <ModelTrainingRoundedIcon />, to: '/admin/models' },
-    ],
-  },
+  
 ];
 
 const MenuContent = () => {
   return (
-    <Stack sx={{ flexGrow: 1, p: 1, justifyContent: 'space-between' }}>
+    <Stack sx={{ flexGrow: 1, p: 1}}>
       {menuSections.map((section, idx) => (
         <List
           key={idx}

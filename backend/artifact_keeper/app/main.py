@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from artifact_keeper.app.api.router import camera, health, dataset, captureImage,datasetManager,system_spec
+from artifact_keeper.app.api.router import camera, health, dataset, captureImage,datasetManager,system_spec,pieceStatisticsRouter
 from fastapi.middleware.cors import CORSMiddleware
 from artifact_keeper.app.db.session import get_session
 
@@ -15,6 +15,7 @@ def create_application():
     application.include_router(captureImage.captureImage_router)
     application.include_router(datasetManager.datasetManager_router)    
     application.include_router(system_spec.system_router)
+    application.include_router(pieceStatisticsRouter.router)
     return application
 
 app = create_application()

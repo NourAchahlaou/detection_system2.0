@@ -197,3 +197,39 @@ async def fetch_user_detail(pk, session):
     if user:
         return user
     raise HTTPException(status_code=400, detail="User does not exists.")
+
+async def logout_user(token: str, session):
+    """
+    Logout user by invalidating their current access token
+    """
+    try:
+        payload = get_token_payload(token, settings.JWT_SECRET, settings.JWT_ALGORITHM)
+        if not payload:
+            raise HTTPException(status_code=400, detail="Invalid token.")
+        
+        user_token_id = str_decode(payload.get('r'))
+        user_id = str_decode(payload.get('sub'))
+        access_key = payload.get('a')
+        
+        user_token = session.query(UserToken).filter(
+            UserToken.access_key == access_key,
+            UserToken.id == user_token_id,
+            UserToken.user_id == user_id,
+            UserToken.expires_at > datetime.utcnow()
+        ).first()
+        
+        if not user_token:
+            raise HTTPException(status_code=400, detail="Invalid or expired token.")
+        
+        # Expire the token by setting expires_at to current time
+        user_token.expires_at = datetime.utcnow()
+        session.add(user_token)
+        session.commit()
+        
+        return {"message": "Successfully logged out."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error during logout: {str(e)}")
+        raise HTTPException(status_code=500, detail="Logout failed.")

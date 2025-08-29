@@ -37,14 +37,14 @@ export default function Header() {
         <NavbarBreadcrumbs />
       </Stack>
 
-      <Stack direction="row" sx={{ gap: 1 }}>
+      {/* <Stack direction="row" sx={{ gap: 1 }}>
         <Search />
         <CustomDatePicker />
         <MenuButton showBadge aria-label="Open notifications">
           <NotificationsRoundedIcon />
         </MenuButton>
         <ColorModeIconDropdown />
-      </Stack>
+      </Stack> */}
     </Stack>
   );
 }

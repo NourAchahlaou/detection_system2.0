@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { styled } from '@mui/material/styles';
 import Divider, { dividerClasses } from '@mui/material/Divider';
 import Menu from '@mui/material/Menu';
@@ -9,21 +10,81 @@ import ListItemText from '@mui/material/ListItemText';
 import ListItemIcon, { listItemIconClasses } from '@mui/material/ListItemIcon';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
 import MenuButton from './MenuButton';
+import api from '../../../utils/UseAxios'; // Adjust the path as needed
+import { useAuth } from '../../../context/AuthContext'; // Adjust the path as needed
 
 const MenuItem = styled(MuiMenuItem)({
   margin: '2px 0',
 });
 
 export default function OptionsMenu() {
+  const navigate = useNavigate();
+  const { logout } = useAuth(); // Get logout function from auth context
   const [anchorEl, setAnchorEl] = React.useState(null);
+  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
+  const [snackbar, setSnackbar] = React.useState({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+
   const open = Boolean(anchorEl);
+
   const handleClick = (event) => {
     setAnchorEl(event.currentTarget);
   };
+
   const handleClose = () => {
     setAnchorEl(null);
   };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  };
+
+  const handleProfileClick = () => {
+    handleClose();
+    navigate('/profile');
+  };
+
+  const handleLogout = async () => {
+    handleClose();
+    setIsLoggingOut(true);
+
+    try {
+      // Call the logout API endpoint
+      await api.post('/api/users/users/logout');
+      
+      // Call the logout function from auth context to clear tokens
+      logout();
+      
+      setSnackbar({
+        open: true,
+        message: 'Successfully logged out.',
+        severity: 'success'
+      });
+
+      // Navigate to login page after a short delay
+
+
+    } catch (error) {
+      console.error('Logout failed:', error);
+      
+      const errorMessage = error.response?.data?.detail || 'Logout failed';
+      
+      setSnackbar({
+        open: true,
+        message: `Error: ${errorMessage}`,
+        severity: 'error'
+      });
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   return (
     <React.Fragment>
       <MenuButton
@@ -38,7 +99,6 @@ export default function OptionsMenu() {
         id="menu"
         open={open}
         onClose={handleClose}
-        onClick={handleClose}
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         sx={{
@@ -53,14 +113,11 @@ export default function OptionsMenu() {
           },
         }}
       >
-        <MenuItem onClick={handleClose}>Profile</MenuItem>
-        <MenuItem onClick={handleClose}>My account</MenuItem>
-        <Divider />
-        <MenuItem onClick={handleClose}>Add another account</MenuItem>
-        <MenuItem onClick={handleClose}>Settings</MenuItem>
+        <MenuItem onClick={handleProfileClick}>Profile</MenuItem>
         <Divider />
         <MenuItem
-          onClick={handleClose}
+          onClick={handleLogout}
+          disabled={isLoggingOut}
           sx={{
             [`& .${listItemIconClasses.root}`]: {
               ml: 'auto',
@@ -68,12 +125,30 @@ export default function OptionsMenu() {
             },
           }}
         >
-          <ListItemText>Logout</ListItemText>
+          <ListItemText>
+            {isLoggingOut ? 'Logging out...' : 'Logout'}
+          </ListItemText>
           <ListItemIcon>
             <LogoutRoundedIcon fontSize="small" />
           </ListItemIcon>
         </MenuItem>
       </Menu>
+
+      {/* Snackbar for notifications */}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleCloseSnackbar} 
+          severity={snackbar.severity} 
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </React.Fragment>
   );
 }

@@ -1,23 +1,34 @@
 import * as React from 'react';
-import { 
-  Box, 
-  Typography, 
-  Button, 
-  Grid, 
-  Card, 
-  CardContent, 
+import {
+  Box,
+  Typography,
+  Button,
+  Grid,
+  Card,
+  CardContent,
   Divider,
   Tooltip,
   alpha,
   CircularProgress,
   Snackbar,
-  Alert
+  Alert,
+  Chip,
+  Stack,
+  IconButton
 } from '@mui/material';
-import { 
+import {
   Edit as EditIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Analytics as AnalyticsIcon,
+  Schedule as ScheduleIcon,
+  TrendingUp as TrendingUpIcon,
+  Weekend as WeekendIcon
 } from '@mui/icons-material';
-import profileService from './services/profileService'; // Adjust path as needed
+import { ProfileService } from './services/AccountService';
+import ProfileUpdateDialog from './ProfileUpdateDialog';
+
+// Initialize the service
+const profileService = new ProfileService();
 
 export default function ProfileTab() {
   // State for profile data
@@ -29,13 +40,16 @@ export default function ProfileTab() {
     message: '',
     severity: 'info'
   });
+  
+  // State for the update dialog
+  const [updateDialogOpen, setUpdateDialogOpen] = React.useState(false);
 
   // Generate sample contribution data for the graph (keeping this as static for now)
   const generateContributionData = () => {
     const weeks = 52;
     const days = 7;
     const data = [];
-    
+   
     for (let i = 0; i < weeks; i++) {
       const week = [];
       for (let j = 0; j < days; j++) {
@@ -45,12 +59,12 @@ export default function ProfileTab() {
       }
       data.push(week);
     }
-    
+   
     return data;
   };
-  
+ 
   const contributionData = React.useMemo(() => generateContributionData(), []);
-  
+ 
   // Calculate total contributions
   const totalContributions = React.useMemo(() => {
     return contributionData.flat().reduce((sum, value) => sum + value, 0);
@@ -69,16 +83,43 @@ export default function ProfileTab() {
   const handleCloseNotification = () => {
     setNotification({
       ...notification,
-      open: false 
+      open: false
     });
   };
 
-  // Fetch profile data
+  // Fetch profile data using ProfileService
   const fetchProfileData = React.useCallback(async () => {
     try {
       setLoading(true);
-      const data = await profileService.getProfileTabInfo();
-      setProfileData(data);
+      
+      const result = await profileService.getUserProfile();
+      
+      if (result.success) {
+        // Transform the backend data to match your existing component structure
+        const transformedData = {
+          name: result.profile.name || 'N/A',
+          first_name: result.profile.name ? result.profile.name.split(' ')[0] : 'N/A',
+          last_name: result.profile.name ? result.profile.name.split(' ').slice(1).join(' ') : 'N/A',
+          email: result.profile.email || 'N/A',
+          role: result.profile.role || 'N/A',
+          airbus_id: result.profile.airbus_id || 'N/A',
+          current_status: result.profile.is_active ? 'Online' : 'Offline',
+          // Keep existing fields that don't have backend equivalents
+          shift_start: 'N/A',
+          shift_end: 'N/A',
+          total_hours_this_week: '0h 0min',
+          work_area: 'N/A',
+          badge_number: 'N/A',
+          access_level: 'Standard',
+          // Add backend-specific data for potential future use
+          _original: result.profile
+        };
+        
+        setProfileData(transformedData);
+      } else {
+        throw new Error(result.message || 'Failed to load profile data');
+      }
+      
     } catch (error) {
       console.error('Error fetching profile data:', error);
       showNotification(error.message || 'Failed to load profile data', 'error');
@@ -91,9 +132,33 @@ export default function ProfileTab() {
   const handleRefresh = async () => {
     try {
       setRefreshing(true);
-      const data = await profileService.getProfileTabInfo();
-      setProfileData(data);
-      showNotification('Profile data refreshed successfully', 'success');
+      
+      const result = await profileService.refreshProfile();
+      
+      if (result.success) {
+        // Transform the refreshed data
+        const transformedData = {
+          first_name: result.profile.name ? result.profile.name.split(' ')[0] : 'N/A',
+          last_name: result.profile.name ? result.profile.name.split(' ').slice(1).join(' ') : 'N/A',
+          email: result.profile.email || 'N/A',
+          role: result.profile.role || 'N/A',
+          airbus_id: result.profile.airbus_id || 'N/A',
+          current_status: result.profile.is_active ? 'Online' : 'Offline',
+          shift_start: 'N/A',
+          shift_end: 'N/A',
+          total_hours_this_week: '0h 0min',
+          work_area: 'N/A',
+          badge_number: 'N/A',
+          access_level: 'Standard',
+          _original: result.profile
+        };
+        
+        setProfileData(transformedData);
+        showNotification('Profile data refreshed successfully', 'success');
+      } else {
+        throw new Error(result.message || 'Failed to refresh profile data');
+      }
+      
     } catch (error) {
       console.error('Error refreshing profile data:', error);
       showNotification(error.message || 'Failed to refresh profile data', 'error');
@@ -102,11 +167,62 @@ export default function ProfileTab() {
     }
   };
 
+  // Handle profile update from dialog
+  const handleProfileUpdate = React.useCallback((updatedData) => {
+    if (updatedData === null) {
+      // Profile was deleted
+      showNotification('Profile deleted successfully. Redirecting...', 'info');
+      // You might want to redirect to login or home page here
+      return;
+    }
+
+    if (updatedData) {
+      // Transform the updated data to match component structure
+      const transformedData = {
+        first_name: updatedData.name ? updatedData.name.split(' ')[0] : 'N/A',
+        last_name: updatedData.name ? updatedData.name.split(' ').slice(1).join(' ') : 'N/A',
+        email: updatedData.email || 'N/A',
+        role: updatedData.role || 'N/A',
+        airbus_id: updatedData.airbus_id || 'N/A',
+        current_status: updatedData.is_active ? 'Online' : 'Offline',
+        shift_start: profileData?.shift_start || 'N/A',
+        shift_end: profileData?.shift_end || 'N/A',
+        total_hours_this_week: profileData?.total_hours_this_week || '0h 0min',
+        work_area: profileData?.work_area || 'N/A',
+        badge_number: profileData?.badge_number || 'N/A',
+        access_level: profileData?.access_level || 'Standard',
+        _original: updatedData
+      };
+      
+      setProfileData(transformedData);
+      showNotification('Profile updated successfully', 'success');
+    }
+    
+    setUpdateDialogOpen(false);
+  }, [showNotification, profileData]);
+
+  // Open update dialog handler
+  const handleOpenUpdateDialog = () => {
+    setUpdateDialogOpen(true);
+  };
+
+  // Close update dialog handler
+  const handleCloseUpdateDialog = () => {
+    setUpdateDialogOpen(false);
+  };
+
   // Load profile data on component mount
   React.useEffect(() => {
     fetchProfileData();
   }, [fetchProfileData]);
-  
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      profileService.cleanup();
+    };
+  }, []);
+ 
   // Get color based on contribution value
   const getContributionColor = (value, theme) => {
     if (value === 0) return theme.palette.grey[100];
@@ -159,8 +275,8 @@ export default function ProfileTab() {
         <Typography variant="h6" color="error" gutterBottom>
           Failed to load profile data
         </Typography>
-        <Button 
-          variant="outlined" 
+        <Button
+          variant="outlined"
           onClick={fetchProfileData}
           startIcon={<RefreshIcon />}
         >
@@ -169,7 +285,7 @@ export default function ProfileTab() {
       </Card>
     );
   }
-  
+ 
   return (
     <>
       <Card
@@ -186,14 +302,27 @@ export default function ProfileTab() {
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" fontWeight="medium">Personal Information</Typography>
-            <Button 
-              variant="text" 
-              color="primary" 
-              size="small"
-              startIcon={<EditIcon fontSize="small" />}
-            >
-              Edit Profile
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="text"
+                color="primary"
+                size="small"
+                startIcon={<RefreshIcon fontSize="small" />}
+                onClick={handleRefresh}
+                disabled={refreshing}
+              >
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
+              <Button
+                variant="text"
+                color="primary"
+                size="small"
+                startIcon={<EditIcon fontSize="small" />}
+                onClick={handleOpenUpdateDialog}
+              >
+                Edit Profile
+              </Button>
+            </Box>
           </Box>
           
           <Grid container spacing={2}>
@@ -221,18 +350,7 @@ export default function ProfileTab() {
                 {profileData.role || 'N/A'}
               </Typography>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Typography variant="caption" color="text.secondary">Shift Start</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {profileData.shift_start || 'N/A'}
-              </Typography>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Typography variant="caption" color="text.secondary">Shift End</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {profileData.shift_end || 'N/A'}
-              </Typography>
-            </Grid>
+
             <Grid item xs={12} sm={6} md={3}>
               <Typography variant="caption" color="text.secondary">Current Status</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -252,12 +370,6 @@ export default function ProfileTab() {
                 </Typography>
               </Box>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Typography variant="caption" color="text.secondary">Total Hours This Week</Typography>
-              <Typography variant="body2" fontWeight="medium">
-                {profileData.total_hours_this_week || '0h 0min'}
-              </Typography>
-            </Grid>
           </Grid>
           
           <Divider sx={{ my: 2 }} />
@@ -270,13 +382,13 @@ export default function ProfileTab() {
             <Grid item xs={12} sm={6} md={3}>
               <Typography variant="caption" color="text.secondary">Work Area</Typography>
               <Typography variant="body2" fontWeight="medium">
-                {profileData.work_area || 'N/A'}
+                Quality Control
               </Typography>
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <Typography variant="caption" color="text.secondary">Badge Number</Typography>
+              <Typography variant="caption" color="text.secondary">Airbus ID</Typography>
               <Typography variant="body2" fontWeight="medium">
-                {profileData.badge_number || 'N/A'}
+                {profileData.airbus_id || 'N/A'}
               </Typography>
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
@@ -288,19 +400,9 @@ export default function ProfileTab() {
           </Grid>
           
           <Divider sx={{ my: 2 }} />
-          
+{/*           
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" fontWeight="medium">{totalContributions} contributions in the last year</Typography>
-            <Button 
-              variant="text" 
-              color="primary"
-              size="small" 
-              startIcon={<RefreshIcon fontSize="small" />}
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
-              {refreshing ? 'Refreshing...' : 'Refresh'}
-            </Button>
           </Box>
           
           <Card
@@ -359,9 +461,9 @@ export default function ProfileTab() {
                 </Box>
                 <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>More</Typography>
               </Box>
-            </Box>
+            </Box> */}
             
-            <Box sx={{ 
+            {/* <Box sx={{ 
               display: 'flex', 
               flexWrap: 'wrap',
               gap: 0,
@@ -394,11 +496,19 @@ export default function ProfileTab() {
                     </Tooltip>
                   ))}
                 </Box>
-              ))}
-            </Box>
+            //   ))} 
+            // </Box>*/}
           </Card>
         </CardContent>
       </Card>
+
+      {/* Profile Update Dialog */}
+      <ProfileUpdateDialog
+        open={updateDialogOpen}
+        onClose={handleCloseUpdateDialog}
+        onProfileUpdate={handleProfileUpdate}
+        profileData={profileData}
+      />
 
       {/* Notification Snackbar */}
       <Snackbar 

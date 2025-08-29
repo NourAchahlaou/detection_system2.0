@@ -77,3 +77,12 @@ async def fetch_user(current_user = Depends(get_current_user)):
 @auth_router.get("/{pk}", status_code=status.HTTP_200_OK, response_model=UserResponse)
 async def get_user_info(pk, session: Session = Depends(get_session), current_user = Depends(get_current_user)):
     return await user.fetch_user_detail(pk, session)
+
+
+@auth_router.post("/logout", status_code=status.HTTP_200_OK)
+async def logout_user_route(
+    token: str = Depends(oauth2_scheme),
+    session: Session = Depends(get_session)
+):
+    await user.logout_user(token, session)
+    return JSONResponse({"message": "Successfully logged out."})

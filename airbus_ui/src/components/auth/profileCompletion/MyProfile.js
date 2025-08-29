@@ -555,7 +555,7 @@ function MyProfile() {
                           <MenuItem value="" disabled>Select your role</MenuItem>
                           <MenuItem value="AUDITOR">Auditor</MenuItem>
                           <MenuItem value="TECHNICIAN">Technician</MenuItem>
-                          <MenuItem value="ADMIN">Admin</MenuItem>
+                          
                         </Select>
                         {liveCompletionData.missing_fields.includes('Role') && (
                           <Typography variant="caption" color="error">Required field</Typography>
