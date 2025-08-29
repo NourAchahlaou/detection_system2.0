@@ -497,8 +497,8 @@ export default function ProfileTab() {
                   ))}
                 </Box>
             //   ))} 
-            // </Box>*/}
-          </Card>
+            // </Box>
+          </Card>*/}
         </CardContent>
       </Card>
 
