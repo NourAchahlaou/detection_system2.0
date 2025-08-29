@@ -76,24 +76,23 @@ export default function MainDashboard() {
               sx={{ borderBottom: 1, borderColor: 'divider' }}
             >
               <Tab icon={<UserIcon fontSize="small" />} iconPosition="start" label="Profile" />
-              <Tab icon={<CalendarIcon fontSize="small" />} iconPosition="start" label="Shift History" />
-              <Tab icon={<CameraIcon fontSize="small" />} iconPosition="start" label="Activities" />
+              {/* <Tab icon={<CalendarIcon fontSize="small" />} iconPosition="start" label="Shift History" />
+              <Tab icon={<CameraIcon fontSize="small" />} iconPosition="start" label="Activities" /> */}
             </Tabs>
             
             {/* Profile Tab Panel */}
             <TabPanel value={activeTab} index={0}>
               <ProfileTab />
             </TabPanel>
-            
-            {/* Shift History Tab Panel */}
+{/*             
+           
             <TabPanel value={activeTab} index={1}>
               <ShiftHistoryTab />
             </TabPanel>
             
-            {/* Activities Tab Panel */}
             <TabPanel value={activeTab} index={2}>
               <ActivitiesTab />
-            </TabPanel>
+            </TabPanel> */}
           </Box>
         </Grid>
       </Grid>
