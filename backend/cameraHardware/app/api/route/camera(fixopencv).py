@@ -16,12 +16,6 @@ from app.response.piece_image import (
 from app.service.camera_manager import CameraManager
 from app.service.circuitBreaker import CircuitBreaker
 from app.response.circuitBreaker import CircuitBreakerStatusResponse
-import time
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Create circuit breakers with more appropriate settings
 opencv_camera_cb = CircuitBreaker(
@@ -84,132 +78,30 @@ async def detect_cameras():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Camera service unavailable: {str(e)}")
 
-# OpenCV camera routes with direct start logic
-@camera_router.post("/opencv/start-direct")
+# OpenCV camera routes
+@camera_router.post("/opencv/start")
 def start_opencv_camera(request: OpenCVCameraRequest):
-    """Start an OpenCV camera using direct start logic (like start-direct endpoint)"""
+    """Start an OpenCV camera using the provided index"""
     try:
-        def start_opencv_direct():
-            logger.info(f"Starting OpenCV camera {request.camera_index} using direct method")
-            
-            # Direct camera start logic (same as your working start-direct endpoint)
-            if frame_source.camera_is_running:
-                logger.info("Camera is already running.")
-                return {
-                    "status": "success",
-                    "message": f"Camera {request.camera_index} is already running"
-                }
-            
-            # Try with MSMF backend first (best for Windows)
-            frame_source.capture = cv2.VideoCapture(request.camera_index, cv2.CAP_MSMF)
-            backend_used = "MSMF"
-            
-            if not frame_source.capture.isOpened():
-                # Try with DSHOW as backup
-                frame_source.capture = cv2.VideoCapture(request.camera_index, cv2.CAP_DSHOW)
-                backend_used = "DSHOW"
-            
-            if not frame_source.capture.isOpened():
-                raise SystemError(f"Cannot open camera {request.camera_index}")
-            
-            # Warm up the camera
-            time.sleep(1.0)
-            
-            # Test frame reading
-            for i in range(3):
-                ret, frame = frame_source.capture.read()
-                if ret and frame is not None:
-                    break
-                time.sleep(0.2)
-            else:
-                frame_source.capture.release()
-                frame_source.capture = None
-                raise SystemError(f"Camera {request.camera_index} opened but cannot read frames")
-            
-            # Set frame source properties
-            frame_source.type = "regular"
-            frame_source.cam_id = request.camera_index
-            frame_source.camera_is_running = True
-            
+        def start_opencv():
+            frame_source.start_opencv_camera(request.camera_index)
             # Reset image capture circuit breaker when camera starts successfully
             image_capture_cb.reset()
-            
             return {
                 "status": "success",
-                "message": f"OpenCV camera {request.camera_index} started successfully with {backend_used} backend",
-                "backend": backend_used,
-                "camera_index": request.camera_index
+                "message": f"OpenCV camera with index {request.camera_index} started successfully"
             }
         
         # Use circuit breaker to protect camera start
         return opencv_camera_cb.execute(
-            start_opencv_direct,
+            start_opencv,
             fallback=lambda: start_camera_fallback("OpenCV", str(request.camera_index))
         )
     except Exception as e:
-        # Log the actual error for debugging
-        logger.error(f"Failed to start OpenCV camera {request.camera_index}: {e}")
-        
-        # If it's a circuit breaker issue, provide more helpful response
-        if "Circuit" in str(e):
-            return {
-                "status": "error",
-                "message": f"Circuit breaker is open for OpenCV cameras. Last error: {str(e)}",
-                "suggestion": "Try resetting the circuit breaker or wait for automatic recovery",
-                "circuit_breaker_state": opencv_camera_cb.current_state
-            }
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to start OpenCV camera: {str(e)}"
-            )
-
-# Keep the original start-direct endpoint for debugging
-@camera_router.post("/opencv/start")
-def start_opencv_camera_direct(request: OpenCVCameraRequest):
-    """Start OpenCV camera directly without circuit breaker (for debugging)"""
-    try:
-        logger.info(f"Direct start attempt for camera {request.camera_index}")
-        
-        # Try with MSMF backend (best for Windows)
-        frame_source.capture = cv2.VideoCapture(request.camera_index, cv2.CAP_MSMF)
-        
-        if not frame_source.capture.isOpened():
-            # Try with DSHOW as backup
-            frame_source.capture = cv2.VideoCapture(request.camera_index, cv2.CAP_DSHOW)
-        
-        if not frame_source.capture.isOpened():
-            raise SystemError(f"Cannot open camera {request.camera_index}")
-        
-        # Warm up the camera
-        time.sleep(1.0)
-        
-        # Test frame reading
-        for i in range(3):
-            ret, frame = frame_source.capture.read()
-            if ret and frame is not None:
-                break
-            time.sleep(0.2)
-        else:
-            raise SystemError(f"Camera {request.camera_index} opened but cannot read frames")
-        
-        frame_source.type = "regular"
-        frame_source.cam_id = request.camera_index
-        frame_source.camera_is_running = True
-        
-        # Reset all circuit breakers on successful direct start
-        opencv_camera_cb.reset()
-        image_capture_cb.reset()
-        
-        return {
-            "status": "success",
-            "message": f"Camera {request.camera_index} started directly (bypassing circuit breaker)",
-            "note": "Circuit breakers have been reset"
-        }
-        
-    except Exception as e:
-        logger.error(f"Direct camera start failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=503 if "Circuit" in str(e) else 500,
+            detail=f"Failed to start OpenCV camera: {str(e)}"
+        )
 
 # Basler camera routes
 @camera_router.post("/basler/start")
@@ -242,7 +134,7 @@ def video_feed():
     if not frame_source.camera_is_running:
         raise HTTPException(
             status_code=503,
-            detail="Camera is not running. Please start the camera first."
+            detail="Camera is not running or hardware is unavailable"
         )
     return StreamingResponse(
         frame_source.generate_frames(), 
@@ -255,10 +147,10 @@ def raw_jpeg_stream():
     if not frame_source.camera_is_running:
         raise HTTPException(
             status_code=503,
-            detail="Camera is not running. Please start the camera first."
+            detail="Camera is not running or hardware is unavailable"
         )
     
-    logger.info(f"Starting raw JPEG stream for {frame_source.type} camera")
+    print(f"Starting raw JPEG stream for {frame_source.type} camera")
     
     return StreamingResponse(
         frame_source.generate_raw_jpeg_stream(),
@@ -292,13 +184,8 @@ async def capture_images(
         return ImageCapture().capture_image_only(frame_source, piece_label)
     
     def capture_fallback():
-        logger.info("Using image capture fallback")
-        # Try direct frame capture as fallback
-        try:
-            return frame_source.frame()
-        except Exception as e:
-            logger.error(f"Fallback frame capture failed: {e}")
-            return None
+        # Return None to indicate service unavailable
+        return None
     
     try:
         frame = image_capture_cb.execute(capture_image, fallback=capture_fallback)
@@ -385,10 +272,6 @@ async def get_camera_status():
         "image_capture_circuit_breaker": {
             "state": image_capture_cb.current_state,
             "failure_count": image_capture_cb.failure_count
-        },
-        "opencv_camera_circuit_breaker": {
-            "state": opencv_camera_cb.current_state,
-            "failure_count": opencv_camera_cb.failure_count
         }
     }
 
@@ -398,7 +281,7 @@ def get_single_frame():
     if not frame_source.camera_is_running:
         raise HTTPException(
             status_code=503,
-            detail="Camera is not running. Please start the camera first."
+            detail="Camera is not running or hardware is unavailable"
         )
     
     try:
@@ -487,32 +370,3 @@ async def reset_all_circuit_breakers():
         breaker.reset()
     
     return {"message": f"All {len(breakers)} circuit breakers have been reset"}
-
-# Add diagnostic endpoints
-@camera_router.get("/diagnostic/list-cameras")
-async def diagnostic_list_cameras():
-    """Diagnostic endpoint to list available cameras"""
-    cameras = []
-    for i in range(5):
-        try:
-            cap = cv2.VideoCapture(i, cv2.CAP_MSMF)  # Use MSMF for Windows
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret and frame is not None:
-                    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-                    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                    fps = cap.get(cv2.CAP_PROP_FPS)
-                    cameras.append({
-                        "index": i,
-                        "width": width,
-                        "height": height,
-                        "fps": fps,
-                        "working": True
-                    })
-                else:
-                    cameras.append({"index": i, "working": False, "reason": "Cannot read frames"})
-            cap.release()
-        except Exception as e:
-            cameras.append({"index": i, "working": False, "reason": str(e)})
-    
-    return {"available_cameras": cameras}
