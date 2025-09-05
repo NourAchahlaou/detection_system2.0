@@ -368,17 +368,94 @@ class DetectionSystem:
         # Return filtered detections
         return [detections[i] for i in keep_indices]
 
-    def detect_with_sliding_window(self, frame: np.ndarray, target_label: Optional[str] = None) -> Tuple[np.ndarray, bool, int, int, int, float]:
+# Enhanced DetectionSystem to return individual detection data
+
+    def visualize_detections(self, frame: np.ndarray, detections: List[Dict], target_label: Optional[str] = None) -> Tuple[np.ndarray, bool, int, int, int, float, List[Dict]]:
+        """
+        Visualize detections on the frame and return statistics WITH individual detections data.
+        Modified to return individual detection data for database storage.
+        """
+        annotated_frame = frame.copy()
+        
+        detected_target = False
+        non_target_count = 0
+        total_pieces_detected = len(detections)
+        correct_pieces_count = 0
+        max_confidence = 0.0
+        
+        target_color = (0, 255, 0)  # Green for target
+        other_color = (0, 0, 255)   # Red for others
+        
+        # Clear the label manager for this frame
+        self.label_manager.clear()
+        
+        frame_height, frame_width = annotated_frame.shape[:2]
+        
+        # Store individual detection data for database
+        individual_detections = []
+        
+        for det in detections:
+            confidence = det['confidence']
+            max_confidence = max(max_confidence, confidence)
+            
+            x1, y1, x2, y2 = det['x1'], det['y1'], det['x2'], det['y2']
+            detected_label = det['label']
+            
+            # Determine if this is our target
+            is_correct_piece = False
+            if target_label and detected_label == target_label:
+                color = target_color
+                detected_target = True
+                correct_pieces_count += 1
+                is_correct_piece = True
+            else:
+                color = other_color
+                non_target_count += 1
+            
+            # Store individual detection data
+            detection_data = {
+                'detected_label': detected_label,
+                'confidence_score': confidence,
+                'bounding_box_x1': x1,
+                'bounding_box_y1': y1,
+                'bounding_box_x2': x2,
+                'bounding_box_y2': y2,
+                'is_correct_piece': is_correct_piece,
+                'piece_id': None  # Can be populated later if needed
+            }
+            individual_detections.append(detection_data)
+            
+            # Draw bounding box
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+            
+            # Prepare label text
+            confidence_percent = confidence * 100
+            label_text = f"{detected_label}: {confidence_percent:.1f}%"
+            
+            font_scale = 1.0
+            font_thickness = 2
+            (label_width, label_height), _ = cv2.getTextSize(
+                label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
+            )
+            
+            # Use label placement manager to find free position
+            label_x, label_y, bg_x1, bg_y1, bg_x2, bg_y2 = self.label_manager.find_free_label_position(
+                (x1, y1, x2, y2), label_width, label_height, frame_width, frame_height
+            )
+            
+            # Draw label background
+            cv2.rectangle(annotated_frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+            
+            # Draw label text
+            cv2.putText(annotated_frame, label_text, (label_x, label_y - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
+        
+        return annotated_frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence, individual_detections
+
+    def detect_with_sliding_window(self, frame: np.ndarray, target_label: Optional[str] = None) -> Tuple[np.ndarray, bool, int, int, int, float, List[Dict]]:
         """
         Detect objects using sliding window approach.
-        
-        Args:
-            frame: Input frame
-            target_label: Target piece label to search for
-            
-        Returns:
-            Tuple of (annotated_frame, detected_target, non_target_count, 
-                     total_pieces_detected, correct_pieces_count, max_confidence)
+        Enhanced to return individual detection data.
         """
         frame_height, frame_width = frame.shape[:2]
         
@@ -405,7 +482,6 @@ class DetectionSystem:
             if crop_h != self.crop_size or crop_w != self.crop_size:
                 # Pad crop to crop_size
                 padded_crop = np.zeros((self.crop_size, self.crop_size, 3), dtype=crop.dtype)
-                padded_crop[:crop_h, :crop_w] = crop
                 crop = padded_crop
             
             # Detect in this crop
@@ -421,71 +497,8 @@ class DetectionSystem:
         # Process and visualize results
         return self.visualize_detections(frame, filtered_detections, target_label)
 
-    def visualize_detections(self, frame: np.ndarray, detections: List[Dict], target_label: Optional[str] = None) -> Tuple[np.ndarray, bool, int, int, int, float]:
-        """
-        Visualize detections on the frame and return statistics.
-        """
-        annotated_frame = frame.copy()
-        
-        detected_target = False
-        non_target_count = 0
-        total_pieces_detected = len(detections)
-        correct_pieces_count = 0
-        max_confidence = 0.0
-        
-        target_color = (0, 255, 0)  # Green for target
-        other_color = (0, 0, 255)   # Red for others
-        
-        # Clear the label manager for this frame
-        self.label_manager.clear()
-        
-        frame_height, frame_width = annotated_frame.shape[:2]
-        
-        for det in detections:
-            confidence = det['confidence']
-            max_confidence = max(max_confidence, confidence)
-            
-            x1, y1, x2, y2 = det['x1'], det['y1'], det['x2'], det['y2']
-            detected_label = det['label']
-            
-            # Determine if this is our target
-            if target_label and detected_label == target_label:
-                color = target_color
-                detected_target = True
-                correct_pieces_count += 1
-            else:
-                color = other_color
-                non_target_count += 1
-            
-            # Draw bounding box
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-            
-            # Prepare label text
-            confidence_percent = confidence * 100
-            label_text = f"{detected_label}: {confidence_percent:.1f}%"
-            
-            font_scale = 1.0
-            font_thickness = 2
-            (label_width, label_height), _ = cv2.getTextSize(
-                label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
-            )
-            
-            # Use label placement manager to find free position
-            label_x, label_y, bg_x1, bg_y1, bg_x2, bg_y2 = self.label_manager.find_free_label_position(
-                (x1, y1, x2, y2), label_width, label_height, frame_width, frame_height
-            )
-            
-            # Draw label background
-            cv2.rectangle(annotated_frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
-            
-            # Draw label text
-            cv2.putText(annotated_frame, label_text, (label_x, label_y - 2),
-                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
-        
-        return annotated_frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
-
     def detect_and_contour(self, frame, target_label):
-        """Original detection method for backward compatibility."""
+        """Original detection method for backward compatibility - Enhanced to return individual detections"""
         try:
             results = self.model.predict(
                 frame,
@@ -495,13 +508,13 @@ class DetectionSystem:
             )
             
             if not results or len(results) == 0:
-                return frame, False, 0, 0, 0, 0.0
+                return frame, False, 0, 0, 0, 0.0, []
                 
             result = results[0]
             
         except Exception as e:
             print(f"Detection failed: {e}")
-            return frame, False, 0, 0, 0, 0.0
+            return frame, False, 0, 0, 0, 0.0, []
 
         class_names = self.model.names
         target_color = (0, 255, 0)
@@ -512,9 +525,10 @@ class DetectionSystem:
         total_pieces_detected = 0
         correct_pieces_count = 0
         max_confidence = 0.0
+        individual_detections = []
 
         if result.boxes is None or len(result.boxes) == 0:
-            return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
+            return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence, individual_detections
 
         frame_height, frame_width = frame.shape[:2]
         
@@ -536,13 +550,28 @@ class DetectionSystem:
             class_id = int(box.cls.item())
             detected_label = class_names[class_id]
 
+            is_correct_piece = False
             if detected_label == target_label:
                 color = target_color
                 detected_target = True
                 correct_pieces_count += 1
+                is_correct_piece = True
             else:
                 color = other_color
                 non_target_count += 1
+
+            # Store individual detection data
+            detection_data = {
+                'detected_label': detected_label,
+                'confidence_score': confidence,
+                'bounding_box_x1': x1,
+                'bounding_box_y1': y1,
+                'bounding_box_x2': x2,
+                'bounding_box_y2': y2,
+                'is_correct_piece': is_correct_piece,
+                'piece_id': None
+            }
+            individual_detections.append(detection_data)
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
 
@@ -567,8 +596,7 @@ class DetectionSystem:
             cv2.putText(frame, label, (label_x, label_y - 2),
                         cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), font_thickness)
 
-        return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence
-
+        return frame, detected_target, non_target_count, total_pieces_detected, correct_pieces_count, max_confidence, individual_detections
     @staticmethod
     def resize_frame_optimized(frame: np.ndarray, target_size=(512, 512)) -> np.ndarray:
         """Optimized frame resizing with better interpolation."""

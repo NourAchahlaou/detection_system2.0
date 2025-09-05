@@ -30,8 +30,13 @@ import {
   Tooltip,
   CircularProgress,
   Alert,
-  FormControlLabel,
-  Checkbox
+  Badge,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider
 } from '@mui/material';
 import {
   ExpandMore,
@@ -45,12 +50,17 @@ import {
   Schedule,
   Analytics,
   Visibility,
-  DateRange
+  DateRange,
+  ViewList,
+  Close,
+  PrecisionManufacturing,
+  PhotoCamera,
+  Timeline,
+  BoundingBox
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
-import lotSessionService from './lotSessionService';
 
-// Styled Components (keeping all your existing styles)
+// Styled Components
 const Container = styled(Box)(({ theme }) => ({
   padding: '24px',
   backgroundColor: 'transparent',
@@ -131,215 +141,423 @@ const StatusChip = styled(Chip)(({ variant }) => ({
   }),
 }));
 
-// Mock data generator (keeping your existing logic as fallback)
-const generateMockData = () => {
-  const lotGroups = ['PROD_A', 'PROD_B', 'TEST_X', 'QUAL_Y'];
-  
-  const statuses = ['completed', 'failed', 'running', 'pending'];
-  const pieces = ['piece_001', 'piece_002', 'piece_003', 'piece_004', 'piece_005'];
-  
-  const lots = [];
-  
-  lotGroups.forEach(group => {
-    const lotCount = Math.floor(Math.random() * 5) + 3; // 3-7 lots per group
-    
-    for (let i = 0; i < lotCount; i++) {
-      const lotId = `${group}_LOT_${String(i + 1).padStart(3, '0')}`;
-      const sessionCount = Math.floor(Math.random() * 8) + 2; // 2-9 sessions per lot
+const DetectedPieceCard = styled(Card)(({ theme }) => ({
+  marginBottom: '8px',
+  border: '1px solid rgba(0, 0, 0, 0.1)',
+  borderRadius: '8px',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+}));
+
+// API Service - simplified version focusing on basic fetching
+const apiService = {
+  async fetchDashboardData(filters = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (filters.groupFilter) params.append('group_filter', filters.groupFilter);
+      if (filters.search) params.append('search', filters.search);
+      if (filters.statusFilter) params.append('status_filter', filters.statusFilter);
+
+      const url = `/api/detection/basic/lotSession/data${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await fetch(url);
       
-      const sessions = [];
-      for (let j = 0; j < sessionCount; j++) {
-        const status = statuses[Math.floor(Math.random() * statuses.length)];
-       
-        const piece = pieces[Math.floor(Math.random() * pieces.length)];
-        const confidence = status === 'completed' ? Math.random() * 0.3 + 0.7 : Math.random() * 0.8;
-        const isMatch = status === 'completed' ? Math.random() > 0.3 : false;
-        
-        sessions.push({
-          id: `session_${lotId}_${j + 1}`,
-          sessionNumber: j + 1,
-          
-          targetPiece: piece,
-          detectedPiece: isMatch ? piece : pieces[Math.floor(Math.random() * pieces.length)],
-          confidence: confidence * 100, // Convert to percentage
-          isTargetMatch: isMatch,
-          status: status,
-          timestamp: new Date(Date.now() - Math.random() * 86400000 * 7), // Last 7 days
-          processingTime: Math.floor(Math.random() * 2000) + 500, // 500-2500ms
-          detectionRate: Math.random() * 0.4 + 0.6 // 0.6-1.0
-        });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
-      const completedSessions = sessions.filter(s => s.status === 'completed').length;
-      const matchingSessions = sessions.filter(s => s.isTargetMatch && s.status === 'completed').length;
-      
-      // Fix: Calculate average confidence properly
-      const completedSessionsWithConfidence = sessions.filter(s => s.status === 'completed');
-      const avgConfidence = completedSessionsWithConfidence.length > 0 
-        ? completedSessionsWithConfidence.reduce((acc, s) => acc + s.confidence, 0) / completedSessionsWithConfidence.length
-        : 0;
-      
-      lots.push({
-        id: lotId,
-        group: group,
-        lotName: lotId.replace(group + '_', ''),
-        expectedPiece: pieces[Math.floor(Math.random() * pieces.length)],
-        expectedPieceNumber: Math.floor(Math.random() * 100) + 1,
-        sessions: sessions,
-        totalSessions: sessions.length,
-        completedSessions: completedSessions,
-        successfulMatches: matchingSessions,
-        successRate: completedSessions > 0 ? (matchingSessions / completedSessions * 100).toFixed(1) : 0,
-        avgConfidence: avgConfidence.toFixed(1),
-        createdAt: new Date(Date.now() - Math.random() * 86400000 * 30), // Last 30 days
-        lastActivity: sessions.length > 0 ? new Date(Math.max(...sessions.map(s => s.timestamp.getTime()))) : new Date(),
-        // Add lot-level status based on sessions
-        lotStatus: sessions.some(s => s.status === 'running') ? 'running' : 
-                  sessions.some(s => s.status === 'pending') ? 'pending' :
-                  sessions.every(s => s.status === 'completed') ? 'completed' : 'mixed'
-      });
+
+      return await response.json();
+    } catch (error) {
+      console.error('API fetch failed:', error);
+      throw error;
     }
-  });
-  
-  return lots;
+  },
+
+  async fetchLotSessions(lotId) {
+    try {
+      const response = await fetch(`/api/detection/basic/lots/${lotId}/sessions`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Fetch lot sessions failed:', error);
+      throw error;
+    }
+  },
+
+  async fetchSessionDetectedPieces(sessionId) {
+    try {
+      const response = await fetch(`/api/detection/basic/lotSession/sessions/${sessionId}/pieces`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Fetch detected pieces failed:', error);
+      throw error;
+    }
+  }
 };
 
+// DetectedPiecesDialog Component
+const DetectedPiecesDialog = ({ open, onClose, session, detectedPieces, loading }) => {
+  const correctPieces = detectedPieces.filter(piece => piece.is_correct_piece);
+  const incorrectPieces = detectedPieces.filter(piece => !piece.is_correct_piece);
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h6">
+              Detected Pieces - Session #{session?.sessionNumber}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {session?.targetPiece} • {detectedPieces.length} pieces detected
+            </Typography>
+          </Box>
+          <IconButton onClick={onClose}>
+            <Close />
+          </IconButton>
+        </Box>
+      </DialogTitle>
+      
+      <DialogContent>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Box>
+            {/* Summary Stats */}
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={3}>
+                <Card sx={{ textAlign: 'center', py: 2, bgcolor: '#e8f5e8' }}>
+                  <Typography variant="h4" color="#2e7d2e">{correctPieces.length}</Typography>
+                  <Typography variant="caption">Correct</Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={3}>
+                <Card sx={{ textAlign: 'center', py: 2, bgcolor: '#ffebee' }}>
+                  <Typography variant="h4" color="#c62828">{incorrectPieces.length}</Typography>
+                  <Typography variant="caption">Incorrect</Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={3}>
+                <Card sx={{ textAlign: 'center', py: 2, bgcolor: '#f3f4f6' }}>
+                  <Typography variant="h4" color="#374151">{detectedPieces.length}</Typography>
+                  <Typography variant="caption">Total</Typography>
+                </Card>
+              </Grid>
+              {/* <Grid item xs={3}>
+                <Card sx={{ textAlign: 'center', py: 2, bgcolor: '#fff3e0' }}>
+                  <Typography variant="h4" color="#ef6c00">
+                    {detectedPieces.length > 0 
+                      ? (detectedPieces.reduce((acc, p) => acc + p.confidence_score, 0) / detectedPieces.length).toFixed(1)
+                      : 0}%
+                  </Typography>
+                  <Typography variant="caption">Avg Confidence</Typography>
+                </Card>
+              </Grid> */}
+            </Grid>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Correct Pieces */}
+            {correctPieces.length > 0 && (
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" sx={{ color: '#2e7d2e', mb: 2, display: 'flex', alignItems: 'center' }}>
+                  <CheckCircle sx={{ mr: 1 }} />
+                  Correct Pieces ({correctPieces.length})
+                </Typography>
+                {correctPieces.map((piece, index) => (
+                  <DetectedPieceCard key={piece.id}>
+                    <CardContent sx={{ py: 2 }}>
+                      <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={3}>
+                          <Typography variant="body2" fontWeight="600">
+                            {piece.detected_label}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Piece ID: {piece.piece_id || 'Unknown'}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={2}>
+                          <Typography variant="body2" color="#2e7d2e" fontWeight="600">
+                            {(piece.confidence_score * 100).toFixed(1)}%
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Confidence
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Bounding Box: ({piece.bounding_box_x1}, {piece.bounding_box_y1}) - ({piece.bounding_box_x2}, {piece.bounding_box_y2})
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={3}>
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(piece.created_at).toLocaleTimeString()}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </DetectedPieceCard>
+                ))}
+              </Box>
+            )}
+
+            {/* Incorrect Pieces */}
+            {incorrectPieces.length > 0 && (
+              <Box>
+                <Typography variant="h6" sx={{ color: '#c62828', mb: 2, display: 'flex', alignItems: 'center' }}>
+                  <Error sx={{ mr: 1 }} />
+                  Incorrect Pieces ({incorrectPieces.length})
+                </Typography>
+                {incorrectPieces.map((piece, index) => (
+                  <DetectedPieceCard key={piece.id}>
+                    <CardContent sx={{ py: 2 }}>
+                      <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={3}>
+                          <Typography variant="body2" fontWeight="600">
+                            {piece.detected_label}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Piece ID: {piece.piece_id || 'Unknown'}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={2}>
+                          <Typography variant="body2" color="#c62828" fontWeight="600">
+                            {(piece.confidence_score * 100).toFixed(1)}%
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Confidence
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Bounding Box: ({piece.bounding_box_x1}, {piece.bounding_box_y1}) - ({piece.bounding_box_x2}, {piece.bounding_box_y2})
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={3}>
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(piece.created_at).toLocaleTimeString()}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </DetectedPieceCard>
+                ))}
+              </Box>
+            )}
+
+            {detectedPieces.length === 0 && (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <PrecisionManufacturing sx={{ fontSize: 48, color: '#ccc', mb: 2 }} />
+                <Typography variant="body1" color="text.secondary">
+                  No detected pieces found for this session
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        )}
+      </DialogContent>
+      
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+// Main Component
 export default function LotSessionDatabase() {
-  // Enhanced state management
   const [lots, setLots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [useMockData, setUseMockData] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
   const [expandedLots, setExpandedLots] = useState(new Set());
   const [dashboardData, setDashboardData] = useState(null);
-  const [statistics, setStatistics] = useState({
-    totalGroups: 0,
-    totalLots: 0,
-    totalSessions: 0,
-    avgSuccessRate: 0,
-    avgConfidence: 0
-    
+  const [detectedPiecesDialog, setDetectedPiecesDialog] = useState({
+    open: false,
+    session: null,
+    pieces: [],
+    loading: false
   });
   
-  // Enhanced filter state - added date range filter
   const [filters, setFilters] = useState({
     search: '',
     group: '',
     status: '',
-    matchFilter: '', // 'match', 'no_match', or ''
+    matchFilter: '',
     sortBy: 'lastActivity',
     sortOrder: 'desc',
     createdFrom: '',
     createdTo: ''
   });
 
-  // Load data from API
+  const [statistics, setStatistics] = useState({
+    totalGroups: 0,
+    totalLots: 0,
+    totalSessions: 0,
+    avgSuccessRate: 0,
+    avgConfidence: 0
+  });
+
+  // Load dashboard data from API
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Prepare filters for API call
       const apiFilters = {};
       if (filters.group) apiFilters.groupFilter = filters.group;
       if (filters.search) apiFilters.search = filters.search;
       if (filters.status) apiFilters.statusFilter = filters.status;
 
-      const response = await lotSessionService.getDashboardData(apiFilters);
+      const response = await apiService.fetchDashboardData(apiFilters);
       
       if (response.success) {
         setDashboardData(response);
-        setStatistics(lotSessionService.processStatistics(response));
         
-        // Convert API data to component format
-        const processedGroups = lotSessionService.processGroupedData(response);
-        const allLots = Object.values(processedGroups).flatMap(group => 
-          group.lots.map(lot => ({
-            ...lot,
-            completedSessions: lot.successfulSessions || 0,
-            successfulMatches: lot.successfulSessions || 0,
-            successRate: lot.sessionSuccessRate || 0,
-            // Fix: Properly handle confidence values from API
-            avgConfidence: lot.lotMatchConfidence ? parseFloat(lot.lotMatchConfidence).toFixed(1) : '0.0',
-            createdAt: lot.createdAt,
-            lastActivity: lot.lastActivity,
-            // Determine lot-level status from sessions
-            lotStatus: (lot.sessions || []).some(s => s.status === 'running') ? 'running' : 
-                      (lot.sessions || []).some(s => s.status === 'pending') ? 'pending' :
-                      (lot.sessions || []).every(s => s.status === 'completed') ? 'completed' : 'mixed',
-            sessions: (lot.sessions || []).map(session => ({
-              ...session,
-              // Ensure confidence is properly formatted
-              confidence: session.confidence ? parseFloat(session.confidence) : 0,
-              timestamp: session.timestamp
-            }))
-          }))
-        );
+        // Process grouped lots from API response
+        const processedLots = [];
         
-        setLots(allLots);
-        setUseMockData(false);
+        Object.entries(response.groupedLots || {}).forEach(([groupName, groupLots]) => {
+          groupLots.forEach(lot => {
+            const processedLot = {
+              id: lot.id,
+              group: groupName,
+              lotName: lot.lotName,
+              expectedPiece: lot.expectedPiece,
+              expectedPieceNumber: lot.expectedPieceNumber,
+              sessions: lot.sessions || [],
+              totalSessions: lot.totalSessions || 0,
+              completedSessions: lot.completedSessions || 0,
+              successfulMatches: lot.successfulSessions || 0,
+              successRate: parseFloat(lot.sessionSuccessRate || 0).toFixed(1),
+              avgConfidence: parseFloat(lot.avgConfidence || 0).toFixed(1),
+              createdAt: lot.createdAt,
+              lastActivity: lot.lastActivity,
+              lotStatus: determineLotStatus(lot.sessions || [])
+            };
+            processedLots.push(processedLot);
+          });
+        });
+        
+        setLots(processedLots);
+        
+        // Set statistics from API response
+        setStatistics({
+          totalGroups: response.statistics?.totalGroups || 0,
+          totalLots: response.statistics?.totalLots || 0,
+          totalSessions: response.statistics?.totalSessions || 0,
+          avgSuccessRate: parseFloat(response.statistics?.sessionSuccessRate || 0).toFixed(1),
+          avgConfidence: parseFloat(response.statistics?.avgLotConfidence || 0).toFixed(1)
+        });
       } else {
-        throw new Error('Failed to load dashboard data');
+        throw new Error(response.message || 'Failed to load dashboard data');
       }
     } catch (err) {
-      console.warn('Failed to load real data, using mock data:', err);
-      setError('Failed to load real data. Using demo data.');
-      setLots(generateMockData());
-      setUseMockData(true);
+      console.error('Failed to load dashboard data:', err);
+      setError(`Failed to load data: ${err.message}`);
+      setLots([]);
     } finally {
       setLoading(false);
     }
-  }, []); // Removed dependencies to prevent API calls on every filter change
+  }, [filters.group, filters.search, filters.status]);
+
+  // Determine lot status based on sessions
+  const determineLotStatus = (sessions) => {
+    if (!sessions || sessions.length === 0) return 'pending';
+    
+    const hasRunning = sessions.some(s => s.status === 'running');
+    const hasPending = sessions.some(s => s.status === 'pending');
+    const allCompleted = sessions.every(s => s.status === 'completed');
+    
+    if (hasRunning) return 'running';
+    if (hasPending) return 'pending';
+    if (allCompleted) return 'completed';
+    return 'mixed';
+  };
 
   // Initial data load
   useEffect(() => {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  // Get available groups for filter dropdown
+  // Handle detected pieces dialog
+  const handleShowDetectedPieces = async (session) => {
+    setDetectedPiecesDialog({
+      open: true,
+      session: session,
+      pieces: [],
+      loading: true
+    });
+
+    try {
+      // First check if pieces are already in session data
+      if (session.detected_pieces && session.detected_pieces.length > 0) {
+        setDetectedPiecesDialog(prev => ({
+          ...prev,
+          pieces: session.detected_pieces,
+          loading: false
+        }));
+        return;
+      }
+
+      // Otherwise fetch from API
+      const response = await apiService.fetchSessionDetectedPieces(session.id);
+      
+      setDetectedPiecesDialog(prev => ({
+        ...prev,
+        pieces: response.detected_pieces || [],
+        loading: false
+      }));
+    } catch (error) {
+      console.error('Error loading detected pieces:', error);
+      setDetectedPiecesDialog(prev => ({
+        ...prev,
+        pieces: [],
+        loading: false
+      }));
+    }
+  };
+
+  // Get available groups for filtering
   const availableGroups = useMemo(() => {
     return [...new Set(lots.map(lot => lot.group))].sort();
   }, [lots]);
 
-  // Get available lot-level statuses for filter dropdown
   const availableStatuses = useMemo(() => {
     const statuses = new Set();
     lots.forEach(lot => {
-      // Add the lot-level status
       statuses.add(lot.lotStatus || 'unknown');
     });
     return [...statuses].sort();
   }, [lots]);
 
-  // Fixed filtering logic - added date range filtering
+  // Apply filters
   const filteredLots = useMemo(() => {
     return lots.filter(lot => {
-      // Search filter - search in lot name, lot ID, and expected piece
       if (filters.search) {
         const searchTerm = filters.search.toLowerCase();
         const matchesLotName = lot.lotName.toLowerCase().includes(searchTerm);
         const matchesExpectedPiece = lot.expectedPiece.toLowerCase().includes(searchTerm);
-        const matchesLotId = lot.id.toLowerCase().includes(searchTerm);
+        const matchesLotId = lot.id.toString().toLowerCase().includes(searchTerm);
         
         if (!matchesLotName && !matchesExpectedPiece && !matchesLotId) {
           return false;
         }
       }
       
-      // Group filter - exact match on group name
       if (filters.group && lot.group !== filters.group) {
         return false;
       }
       
-      // Status filter - check lot-level status
       if (filters.status && lot.lotStatus !== filters.status) {
         return false;
       }
       
-      // Match filter - check if lot has matching or non-matching sessions
       if (filters.matchFilter) {
         const completedSessions = lot.sessions?.filter(session => session.status === 'completed') || [];
         const hasMatches = completedSessions.some(session => session.isTargetMatch);
@@ -354,7 +572,6 @@ export default function LotSessionDatabase() {
         }
       }
       
-      // Date range filter - check created_at
       if (filters.createdFrom) {
         const createdFromDate = new Date(filters.createdFrom);
         const lotCreatedDate = new Date(lot.createdAt);
@@ -365,7 +582,7 @@ export default function LotSessionDatabase() {
       
       if (filters.createdTo) {
         const createdToDate = new Date(filters.createdTo);
-        createdToDate.setHours(23, 59, 59, 999); // End of day
+        createdToDate.setHours(23, 59, 59, 999);
         const lotCreatedDate = new Date(lot.createdAt);
         if (lotCreatedDate > createdToDate) {
           return false;
@@ -376,7 +593,7 @@ export default function LotSessionDatabase() {
     });
   }, [lots, filters]);
 
-  // Enhanced group lots with proper filtering
+  // Group filtered lots
   const groupedLots = useMemo(() => {
     const groups = {};
     
@@ -397,7 +614,7 @@ export default function LotSessionDatabase() {
       groups[lot.group].totalLots++;
       groups[lot.group].totalSessions += lot.totalSessions;
       
-      if (!groups[lot.group].lastActivity || lot.lastActivity > groups[lot.group].lastActivity) {
+      if (!groups[lot.group].lastActivity || new Date(lot.lastActivity) > new Date(groups[lot.group].lastActivity)) {
         groups[lot.group].lastActivity = lot.lastActivity;
       }
     });
@@ -406,8 +623,6 @@ export default function LotSessionDatabase() {
     Object.values(groups).forEach(group => {
       if (group.lots.length > 0) {
         group.avgSuccessRate = (group.lots.reduce((acc, lot) => acc + parseFloat(lot.successRate), 0) / group.lots.length).toFixed(1);
-        
-        // FIXED: Include all lots in confidence calculation, not just those with >0 confidence
         group.avgConfidence = (group.lots.reduce((acc, lot) => acc + parseFloat(lot.avgConfidence), 0) / group.lots.length).toFixed(1);
       }
     });
@@ -415,28 +630,24 @@ export default function LotSessionDatabase() {
     return groups;
   }, [filteredLots]);
 
-  // FIXED: Update statistics based on filtered data with proper confidence and active groups calculation
+  // Update statistics based on filtered data
   const finalStatistics = useMemo(() => {
-    // FIXED: Calculate confidence for all lots, not just those with >0 confidence
     const avgConfidence = filteredLots.length > 0 
       ? (filteredLots.reduce((acc, lot) => acc + parseFloat(lot.avgConfidence), 0) / filteredLots.length).toFixed(1)
       : '0.0';
-      
-
       
     return {
       totalGroups: Object.keys(groupedLots).length,
       totalLots: filteredLots.length,
       totalSessions: filteredLots.reduce((acc, lot) => acc + lot.totalSessions, 0),
       avgSuccessRate: filteredLots.length > 0 ? (filteredLots.reduce((acc, lot) => acc + parseFloat(lot.successRate), 0) / filteredLots.length).toFixed(1) : 0,
-      avgConfidence: avgConfidence,
-     
+      avgConfidence: avgConfidence
     };
   }, [filteredLots, groupedLots]);
 
+  // Event handlers
   const handleFilterChange = useCallback((field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
-    setPage(0);
   }, []);
 
   const handleClearFilters = useCallback(() => {
@@ -450,13 +661,9 @@ export default function LotSessionDatabase() {
       createdFrom: '',
       createdTo: ''
     });
-    setPage(0);
   }, []);
 
   const handleRefresh = useCallback(() => {
-    if (lotSessionService?.clearCache) {
-      lotSessionService.clearCache();
-    }
     loadDashboardData();
   }, [loadDashboardData]);
 
@@ -497,12 +704,6 @@ export default function LotSessionDatabase() {
     });
   }, []);
 
-  const formatDateForInput = useCallback((date) => {
-    if (!date) return '';
-    const d = new Date(date);
-    return d.toISOString().split('T')[0];
-  }, []);
-
   const getSessionStatusIcon = (status) => {
     switch (status) {
       case 'completed': return <CheckCircle fontSize="small" />;
@@ -526,9 +727,8 @@ export default function LotSessionDatabase() {
 
   return (
     <Container>
-      {/* Error Alert */}
       {error && (
-        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
@@ -537,10 +737,10 @@ export default function LotSessionDatabase() {
       <HeaderBox>
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 600, color: '#333', mb: 1 }}>
-            Lot Session Database {useMockData && '(Demo Mode)'}
+            Lot Session Database
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Monitor and analyze detection lot sessions grouped by production lines
+            Monitor and analyze detection lot sessions with detailed piece tracking
           </Typography>
         </Box>
         
@@ -632,11 +832,9 @@ export default function LotSessionDatabase() {
             </CardContent>
           </StatsCard>
         </Grid>
-
-
       </Grid>
 
-      {/* Enhanced Filters Panel with Date Range */}
+      {/* Filters Panel */}
       <Collapse in={showFilters}>
         <FilterCard>
           <CardContent>
@@ -881,14 +1079,13 @@ export default function LotSessionDatabase() {
                         <TableHead>
                           <TableRow>
                             <TableCell>Session</TableCell>
-                           
                             <TableCell>Target Piece</TableCell>
-                            <TableCell>Detected</TableCell>
                             <TableCell>Match</TableCell>
                             <TableCell>Confidence</TableCell>
                             <TableCell>Status</TableCell>
-                            <TableCell>Time</TableCell>
+                            <TableCell>Detected Pieces</TableCell>
                             <TableCell>Timestamp</TableCell>
+                            <TableCell>Actions</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -900,19 +1097,12 @@ export default function LotSessionDatabase() {
                                 </Typography>
                               </TableCell>
                               
-
-                              
                               <TableCell>
                                 <Typography variant="body2" fontWeight="500">
                                   {session.targetPiece}
                                 </Typography>
                               </TableCell>
                               
-                              <TableCell>
-                                <Typography variant="body2" color={session.detectedPiece === session.targetPiece ? '#4caf50' : '#f44336'}>
-                                  {session.detectedPiece}
-                                </Typography>
-                              </TableCell>
                               
                               <TableCell>
                                 <Chip
@@ -929,7 +1119,7 @@ export default function LotSessionDatabase() {
                               
                               <TableCell>
                                 <Typography variant="body2" fontWeight="600" color="#ff9800">
-                                  {(session.confidence || 0).toFixed(1)}%
+                                  {((session.confidence || 0)*100).toFixed(1)}%
                                 </Typography>
                               </TableCell>
                               
@@ -941,17 +1131,33 @@ export default function LotSessionDatabase() {
                                   variant={session.status}
                                 />
                               </TableCell>
-                              
+
                               <TableCell>
-                                <Typography variant="body2" color="text.secondary">
-                                  {session.processingTime}ms
-                                </Typography>
+                                <Badge 
+                                  badgeContent={session.detected_pieces?.length || session.detectedPieces?.length || 0} 
+                                  color="primary"
+                                  max={99}
+                                >
+                                  <PrecisionManufacturing />
+                                </Badge>
                               </TableCell>
                               
                               <TableCell>
                                 <Typography variant="caption" color="text.secondary">
                                   {formatDate(session.timestamp)}
                                 </Typography>
+                              </TableCell>
+
+                              <TableCell>
+                                <Tooltip title="View Detected Pieces">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleShowDetectedPieces(session)}
+                                    disabled={!session.detected_pieces?.length && !session.detectedPieces?.length}
+                                  >
+                                    <ViewList />
+                                  </IconButton>
+                                </Tooltip>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -967,7 +1173,7 @@ export default function LotSessionDatabase() {
       ))}
 
       {/* Empty State */}
-      {Object.keys(groupedLots).length === 0 && (
+      {Object.keys(groupedLots).length === 0 && !loading && (
         <Card sx={{ textAlign: 'center', py: 8, border: '1px solid rgba(102, 126, 234, 0.1)' }}>
           <CardContent>
             <Analytics sx={{ fontSize: 64, color: '#ccc', mb: 2 }} />
@@ -975,42 +1181,27 @@ export default function LotSessionDatabase() {
               No lots found
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Try adjusting your filters or refresh the data
+              {error ? 'Failed to load data from the server.' : 'Try adjusting your filters or refresh the data'}
             </Typography>
             <Button
               variant="outlined"
-              onClick={handleClearFilters}
-              startIcon={<Clear />}
+              onClick={error ? handleRefresh : handleClearFilters}
+              startIcon={error ? <Refresh /> : <Clear />}
               sx={{ textTransform: 'none' }}
             >
-              Clear Filters
+              {error ? 'Retry' : 'Clear Filters'}
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Pagination */}
-      <TablePagination
-        component="div"
-        count={Object.values(groupedLots).reduce((acc, group) => acc + group.totalLots, 0)}
-        page={page}
-        onPageChange={(e, newPage) => setPage(newPage)}
-        rowsPerPage={pageSize}
-        onRowsPerPageChange={(e) => {
-          setPageSize(parseInt(e.target.value, 10));
-          setPage(0);
-        }}
-        rowsPerPageOptions={[5, 10, 25, 50]}
-        sx={{
-          mt: 3,
-          bgcolor: 'rgba(102, 126, 234, 0.02)',
-          borderRadius: '12px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
-            color: "#667eea",
-            fontWeight: "500"
-          }
-        }}
+      {/* Detected Pieces Dialog */}
+      <DetectedPiecesDialog
+        open={detectedPiecesDialog.open}
+        onClose={() => setDetectedPiecesDialog({ open: false, session: null, pieces: [], loading: false })}
+        session={detectedPiecesDialog.session}
+        detectedPieces={detectedPiecesDialog.pieces}
+        loading={detectedPiecesDialog.loading}
       />
     </Container>
   );
