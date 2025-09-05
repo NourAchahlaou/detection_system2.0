@@ -44,7 +44,6 @@ import {
   Error,
   Schedule,
   Analytics,
-  Camera,
   Visibility,
   DateRange
 } from '@mui/icons-material';
@@ -135,7 +134,7 @@ const StatusChip = styled(Chip)(({ variant }) => ({
 // Mock data generator (keeping your existing logic as fallback)
 const generateMockData = () => {
   const lotGroups = ['PROD_A', 'PROD_B', 'TEST_X', 'QUAL_Y'];
-  const cameras = [1, 2, 3, 4];
+  
   const statuses = ['completed', 'failed', 'running', 'pending'];
   const pieces = ['piece_001', 'piece_002', 'piece_003', 'piece_004', 'piece_005'];
   
@@ -151,7 +150,7 @@ const generateMockData = () => {
       const sessions = [];
       for (let j = 0; j < sessionCount; j++) {
         const status = statuses[Math.floor(Math.random() * statuses.length)];
-        const camera = cameras[Math.floor(Math.random() * cameras.length)];
+       
         const piece = pieces[Math.floor(Math.random() * pieces.length)];
         const confidence = status === 'completed' ? Math.random() * 0.3 + 0.7 : Math.random() * 0.8;
         const isMatch = status === 'completed' ? Math.random() > 0.3 : false;
@@ -159,7 +158,7 @@ const generateMockData = () => {
         sessions.push({
           id: `session_${lotId}_${j + 1}`,
           sessionNumber: j + 1,
-          cameraId: camera,
+          
           targetPiece: piece,
           detectedPiece: isMatch ? piece : pieces[Math.floor(Math.random() * pieces.length)],
           confidence: confidence * 100, // Convert to percentage
@@ -882,7 +881,7 @@ export default function LotSessionDatabase() {
                         <TableHead>
                           <TableRow>
                             <TableCell>Session</TableCell>
-                            <TableCell>Camera</TableCell>
+                           
                             <TableCell>Target Piece</TableCell>
                             <TableCell>Detected</TableCell>
                             <TableCell>Match</TableCell>
@@ -901,14 +900,7 @@ export default function LotSessionDatabase() {
                                 </Typography>
                               </TableCell>
                               
-                              <TableCell>
-                                <Chip
-                                  icon={<Camera />}
-                                  label={`Cam ${session.cameraId}`}
-                                  size="small"
-                                  sx={{ bgcolor: '#e3f2fd', color: '#1976d2' }}
-                                />
-                              </TableCell>
+
                               
                               <TableCell>
                                 <Typography variant="body2" fontWeight="500">

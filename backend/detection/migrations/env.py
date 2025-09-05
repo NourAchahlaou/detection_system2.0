@@ -16,9 +16,10 @@ from detection.app.core.settings import get_settings
 # Import ALL models for relationship resolution, but only migrate owned ones
 from detection.app.db.models.detectionSession  import DetectionSession 
 from detection.app.db.models.piece import Piece  # Read-only
-from detection.app.db.models.detectionLot import DetectionLot  # Read-only
-from detection.app.db.models.camera import Camera  # Read-only
-from detection.app.db.models.camera_settings import CameraSettings  # Read-only
+from detection.app.db.models.detectionLot import DetectionLot  
+from detection.app.db.models.camera import Camera  
+from detection.app.db.models.camera_settings import CameraSettings  
+from detection.app.db.models.detectedPiece import DetectedPiece
 version_table = "alembic_version_detection "
 
 config = context.config
@@ -37,7 +38,8 @@ SCHEMA_NAME = "detection"
 # Tables this service owns and should manage migrations for
 OWNED_TABLES = {
     'detection_session', 
-    'detection_lot' # This service owns detection s
+    'detection_lot',
+    'detected_piece' 
 }
 
 # Tables from other services that we reference but don't own

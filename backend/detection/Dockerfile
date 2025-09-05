@@ -19,7 +19,6 @@ COPY ./requirements.txt /usr/srv/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 # Copy application code
 COPY . /usr/srv/detection
-
 # Make entrypoint executable
 RUN chmod +x /usr/srv/detection/entrypoint.sh
 
@@ -29,8 +28,10 @@ RUN ls -la /usr/srv/detection/entrypoint.sh
 # Create only the models shared directory (since you don't need dataset)
 RUN mkdir -p /app/shared/models
 RUN chown -R ubuntu:ubuntu /app/shared
-RUN chmod -R 755 /app/shared
-
+RUN chmod -R 755 /app/shared 
+RUN mkdir -p /usr/srv/detection/migrations/versions \
+    && chown -R ubuntu:ubuntu /usr/srv/detection/migrations \
+    && chmod -R 755 /usr/srv/detection/migrations
 # Create local shared_data directory only for models
 RUN mkdir -p ./shared_data/models
 RUN chown -R ubuntu:ubuntu ./shared_data
