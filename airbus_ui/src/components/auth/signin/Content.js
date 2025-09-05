@@ -25,7 +25,7 @@ const items = [
     icon: <ThumbUpAltRoundedIcon sx={{ color: 'text.secondary' }} />,
     title: 'Operator-Friendly',
     description:
-      'Simple interface for technicians and admins to monitor, inspect, and control the inspection process.',
+      'Simple interface for technicians to monitor, inspect, and control the inspection process.',
   },
   {
     icon: <AutoFixHighRoundedIcon sx={{ color: 'text.secondary' }} />,

@@ -2,8 +2,8 @@ from enum import Enum
 
 
 class RoleType(Enum):
-    TECHNICIAN = "technician"
-    ADMIN ="admin"
+    DATA_MANAGER = "data manager"  
+    OPERATOR = "operator"
     AUDITOR = "auditor"
 
 

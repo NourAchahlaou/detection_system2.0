@@ -437,19 +437,8 @@ export default function SignUpCard() {
               {isLoading ? 'Please wait...' : 'Sign up'}
             </Button>
           </Box>
-          <Divider>
-            <Typography sx={{ color: 'text.secondary' }}>or</Typography>
-          </Divider>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Button
-              fullWidth
-              variant="outlined"
-              onClick={() => alert('Sign up with Google')}
-              startIcon={<GoogleIcon />}
-              disabled={isLoading}
-            >
-              Sign up with Google
-            </Button>
+
 
             <Typography sx={{ textAlign: 'center' }}>
               Already have an account?{' '}

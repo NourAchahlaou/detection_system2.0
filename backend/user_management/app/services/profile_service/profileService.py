@@ -68,8 +68,8 @@ async def get_user_profile_tab_info(user_id: int, session: Session) -> ProfileTa
     total_hours_display = f"{total_hours}h {remaining_minutes}min"
     
     # Determine access level based on role
-    access_level = "Level 1" if user.role == RoleType.TECHNICIAN else "Level 2"
-    access_description = "Standard Technician" if user.role == RoleType.TECHNICIAN else "Auditor"
+    access_level = "Level 1" if user.role == RoleType.DATA_MANAGER else  "Level 1" if user.role == RoleType.OPERATOR else "Level 2"
+    access_description = "Standard data manager" if user.role == RoleType.DATA_MANAGER else  "Standard operator" if user.role == RoleType.OPERATOR else "Auditor"
     
     # Get primary shift times (most common pattern or first shift)
     shift_start = "N/A"

@@ -42,14 +42,16 @@ target_metadata = Base.metadata
 # Add under the imports
 SCHEMA_NAME = "user_mgmt"  # Unique schema for this service  
 
+# FIXED: Corrected table names to match actual model table names
 OWNED_TABLES = {
-    'user',          # Service-specific model
-    'user_token',    # Service-specific model
-    'activity',      # Service-specific model
-    'shift',         # Service-specific model
-    'work_hours',    # Service-specific model
-    'task'           # Service-specific model
+    'users',         # Fixed: was 'user', now matches User model __tablename__
+    'user_tokens',   # Fixed: was 'user_token', now matches UserToken model __tablename__
+    'activities',    # Fixed: was 'activity', now matches Activity model __tablename__
+    'shifts',        # Fixed: was 'shift', now matches Shift model __tablename__
+    'work_hours',    # Service-specific model (already correct)
+    'tasks'          # Fixed: was 'task', now matches Task model __tablename__
 }
+
 def include_object(object, name, type_, reflected, compare_to):
     """
     Enhanced filtering logic for shared models across schemas

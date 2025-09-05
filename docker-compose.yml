@@ -116,6 +116,9 @@ services:
       - airvision-net
     volumes:
       - ./backend/user_management/app:/usr/srv/user_management/app
+      - ./backend/user_management:/usr/srv/user_management
+      - ./backend/user_management/migrations:/usr/srv/user_management/migrations  # 🔥 Add this
+      - ./backend/user_management/alembic.ini:/usr/srv/user_management/alembic.ini  # 🔥 Add this
       - ./.env:/usr/srv/.env
     # environment:
     #   - RABBITMQ_URL=amqp://airvision:airvision123@airvision_rabbitmq:5672/airvision
@@ -252,6 +255,7 @@ services:
       - airvision-net
     volumes:
       - ./backend/detection/app:/usr/srv/detection/app
+      - ./backend/detection:/usr/srv/detection
       - ./.env:/usr/srv/.env
       - models:/app/shared/models
     user: "1001:1001"

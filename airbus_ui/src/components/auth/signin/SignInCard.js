@@ -276,18 +276,6 @@ export default function SignInCard() {
           </Link>
         </Typography>
       </Box>
-      <Divider>or</Divider>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Button
-          fullWidth
-          variant="outlined"
-          onClick={() => alert('Sign in with Google')}
-          startIcon={<GoogleIcon />}
-          disabled={isLoading}
-        >
-          Sign in with Google
-        </Button>
-      </Box>
       
       {/* Snackbar for notifications */}
       <Snackbar 

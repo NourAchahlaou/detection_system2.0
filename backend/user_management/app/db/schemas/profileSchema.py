@@ -57,7 +57,7 @@ class ProfileTabUpdateRequest(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
     email: Optional[EmailStr] = None
-    role: Optional[str] = Field(None, pattern="^(TECHNICIAN|AUDITOR)$")
+    role: Optional[str] = Field(None, pattern="^(DATA_MANAGER|AUDITOR|OPERATOR)$")
     
     # Access & Credentials
     airbus_id: Optional[int] = Field(None, gt=0)
