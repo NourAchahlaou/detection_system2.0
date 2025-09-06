@@ -19,7 +19,8 @@ import SidebarItem from './SidebarItem';
 const ROLES = {
   DATA_MANAGER: "data manager",
   OPERATOR: "operator", 
-  AUDITOR: "auditor"
+  AUDITOR: "auditor",
+  ADMIN: "admin"
 };
 
 const MenuContent = () => {
@@ -62,7 +63,7 @@ const MenuContent = () => {
           text: 'Dashboard',
           icon: <HomeRoundedIcon />,
           to: '/',
-          roles: [ROLES.DATA_MANAGER, ROLES.OPERATOR, ROLES.AUDITOR]
+          roles: [ROLES.DATA_MANAGER, ROLES.OPERATOR, ROLES.AUDITOR, ROLES.ADMIN]
         },
       ],
     },
@@ -73,25 +74,25 @@ const MenuContent = () => {
           text: 'Capture Image',
           icon: <CameraAltRoundedIcon />,
           to: '/captureImage',
-          roles: [ROLES.DATA_MANAGER]
+          roles: [ROLES.DATA_MANAGER, ROLES.ADMIN]
         },
         {
           text: 'Annotation',
           icon: <LabelRoundedIcon />,
           to: '/piecesOverview',
-          roles: [ROLES.DATA_MANAGER]
+          roles: [ROLES.DATA_MANAGER, ROLES.ADMIN]
         },
         {
           text: 'Manage Dataset',
           icon: <FolderRoundedIcon />,
           to: '/dataset',
-          roles: [ROLES.DATA_MANAGER]
+          roles: [ROLES.DATA_MANAGER, ROLES.ADMIN]
         },
         {
           text: 'Group Overview',
           icon: <FolderRoundedIcon />,
           to: '/piecesGroupOverview',
-          roles: [ROLES.DATA_MANAGER]
+          roles: [ROLES.DATA_MANAGER, ROLES.ADMIN,ROLES.AUDITOR]
         },
       ],
     },
@@ -102,13 +103,13 @@ const MenuContent = () => {
           text: 'Verify Lot',
           icon: <SearchRoundedIcon />,
           to: '/detectionLotsOverview',
-          roles: [ROLES.OPERATOR]
+          roles: [ROLES.OPERATOR, ROLES.ADMIN]
         },
         {
           text: 'Identify Piece',
           icon: <FindInPageRoundedIcon />,
           to: '/identification',
-          roles: [ROLES.OPERATOR]
+          roles: [ROLES.OPERATOR, ROLES.ADMIN]
         },
       ],
     },
@@ -119,7 +120,7 @@ const MenuContent = () => {
           text: 'Lot Session',
           icon: <HistoryRoundedIcon />,
           to: '/lotSessionViewer',
-          roles: [ROLES.OPERATOR, ROLES.AUDITOR]
+          roles: [ROLES.OPERATOR, ROLES.AUDITOR, ROLES.ADMIN]
         },
       ],
     },

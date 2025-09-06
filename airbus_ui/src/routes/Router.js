@@ -34,7 +34,8 @@ const LotSessionViewer = Loadable(lazy(() => import("../views/lotSession/lotSess
 const ROLES = {
   DATA_MANAGER: "data manager",
   OPERATOR: "operator", 
-  AUDITOR: "auditor"
+  AUDITOR: "auditor",
+  ADMIN: "admin"
 };
 
 const router = createBrowserRouter([
@@ -66,7 +67,7 @@ const router = createBrowserRouter([
       {
         path: 'captureImage',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER]}>
+          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER, ROLES.ADMIN]}>
             <CaptureImage />
           </RoleBasedRoute>
         ),
@@ -74,7 +75,7 @@ const router = createBrowserRouter([
       {
         path: 'annotation',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER]}>
+          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER, ROLES.ADMIN]}>
             <Annotation />
           </RoleBasedRoute>
         ),
@@ -82,7 +83,7 @@ const router = createBrowserRouter([
       {
         path: 'piecesOverview',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER]}>
+          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER, ROLES.ADMIN]}>
             <PiecesOverview />
           </RoleBasedRoute>
         ),    
@@ -90,7 +91,7 @@ const router = createBrowserRouter([
       {
         path: 'dataset',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER]}>
+          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER, ROLES.ADMIN]}>
             <Dataset />
           </RoleBasedRoute>
         ), 
@@ -98,7 +99,7 @@ const router = createBrowserRouter([
       {
         path: 'piecesGroupOverview',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER]}>
+          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER, ROLES.ADMIN,ROLES.AUDITOR]}>
             <PiecesGroupOverview />
           </RoleBasedRoute>
         ), 
@@ -106,7 +107,7 @@ const router = createBrowserRouter([
       {
         path: 'pieceImageViewer',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER]}>
+          <RoleBasedRoute allowedRoles={[ROLES.DATA_MANAGER, ROLES.ADMIN,ROLES.AUDITOR]}>
             <PieceImageViewer />
           </RoleBasedRoute>
         ),  
@@ -116,7 +117,7 @@ const router = createBrowserRouter([
       {
         path: 'detectionLotsOverview',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.OPERATOR]}>
+          <RoleBasedRoute allowedRoles={[ROLES.OPERATOR, ROLES.ADMIN]}>
             <DetectionLotsOverview />
           </RoleBasedRoute>
         ),
@@ -124,7 +125,7 @@ const router = createBrowserRouter([
       {
         path: 'detection',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.OPERATOR]}>
+          <RoleBasedRoute allowedRoles={[ROLES.OPERATOR, ROLES.ADMIN]}>
             <Detection />
           </RoleBasedRoute>
         ),
@@ -132,7 +133,7 @@ const router = createBrowserRouter([
       {
         path: 'identification',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.OPERATOR]}>
+          <RoleBasedRoute allowedRoles={[ROLES.OPERATOR, ROLES.ADMIN]}>
             <Identification />
           </RoleBasedRoute>
         ),
@@ -142,7 +143,7 @@ const router = createBrowserRouter([
       {
         path: 'lotSessionViewer',
         element: (
-          <RoleBasedRoute allowedRoles={[ROLES.AUDITOR, ROLES.OPERATOR]}>
+          <RoleBasedRoute allowedRoles={[ROLES.AUDITOR, ROLES.OPERATOR, ROLES.ADMIN]}>
             <LotSessionViewer />
           </RoleBasedRoute>
         ),
