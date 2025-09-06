@@ -61,7 +61,8 @@ export class ProfileService {
       const response = await api.get('/api/users/profile/basic');
       
       if (response.data) {
-        console.log(`✅ Retrieved basic info for ${response.data.name}`);
+        console.log(`✅ Retrieved basic info for ${response.data.role}: ${response.data.name}`);
+        console.log('Basic Info:', response.data);
         return {
           success: true,
           profile: response.data,
