@@ -1,8 +1,8 @@
-"""create all user tables
+"""create the user mng tables
 
-Revision ID: 883acf940824
+Revision ID: 60dd1e6a5b11
 Revises: 
-Create Date: 2025-09-05 22:50:22.439758
+Create Date: 2025-09-06 14:25:18.096133
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '883acf940824'
+revision: str = '60dd1e6a5b11'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -32,12 +32,47 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.Column('activation_code', sa.String(length=8), nullable=True),
     sa.Column('activation_code_expires_at', sa.DateTime(), nullable=True),
-    sa.Column('role', sa.Enum('DATA_MANAGER', 'OPERATOR', 'AUDITOR', name='roletype', schema='user_mgmt'), nullable=False),
+    sa.Column('role', sa.Enum('DATA_MANAGER', 'OPERATOR', 'AUDITOR', 'ADMIN', name='roletype', schema='user_mgmt'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_users')),
     sa.UniqueConstraint('airbus_id', name=op.f('uq_users_airbus_id')),
     schema='user_mgmt'
     )
     op.create_index(op.f('ix_user_mgmt_users_email'), 'users', ['email'], unique=True, schema='user_mgmt')
+    op.create_table('activities',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('action_type', sa.Enum('LOGIN', 'LOGOUT', 'VIEW_PIECE', 'ANNOTATE_PIECE', 'UPDATE_PROFILE', 'CREATE_PROFILE', name='actiontype', schema='user_mgmt'), nullable=False),
+    sa.Column('timestamp', sa.DateTime(), nullable=True),
+    sa.Column('details', sa.Text(), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['user_mgmt.users.id'], name=op.f('fk_activities_user_id_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_activities')),
+    schema='user_mgmt'
+    )
+    op.create_table('shifts',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('start_time', sa.Time(), nullable=False),
+    sa.Column('end_time', sa.Time(), nullable=False),
+    sa.Column('day_of_week', sa.Enum('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', name='shiftday', schema='user_mgmt'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['user_mgmt.users.id'], name=op.f('fk_shifts_user_id_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_shifts')),
+    schema='user_mgmt'
+    )
+    op.create_table('tasks',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(length=100), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('assigned_user_id', sa.Integer(), nullable=True),
+    sa.Column('status', sa.String(length=50), nullable=False),
+    sa.Column('due_date', sa.DateTime(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['assigned_user_id'], ['user_mgmt.users.id'], name=op.f('fk_tasks_assigned_user_id_users')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_tasks')),
+    schema='user_mgmt'
+    )
     op.create_table('user_tokens',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=True),
@@ -70,6 +105,9 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_user_mgmt_user_tokens_refresh_key'), table_name='user_tokens', schema='user_mgmt')
     op.drop_index(op.f('ix_user_mgmt_user_tokens_access_key'), table_name='user_tokens', schema='user_mgmt')
     op.drop_table('user_tokens', schema='user_mgmt')
+    op.drop_table('tasks', schema='user_mgmt')
+    op.drop_table('shifts', schema='user_mgmt')
+    op.drop_table('activities', schema='user_mgmt')
     op.drop_index(op.f('ix_user_mgmt_users_email'), table_name='users', schema='user_mgmt')
     op.drop_table('users', schema='user_mgmt')
     # ### end Alembic commands ###
