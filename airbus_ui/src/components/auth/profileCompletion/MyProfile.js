@@ -378,7 +378,7 @@ function MyProfile() {
       
       // Use a timeout to ensure notification is shown before navigation
       setTimeout(() => {
-        navigate('/dashboard', { replace: true });
+        navigate('/PiecesGroupOverview', { replace: true });
       }, 1000);
       
     } catch (error) {

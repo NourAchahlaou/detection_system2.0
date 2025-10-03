@@ -1,0 +1,1037 @@
+Structure du dossier
+Le num‚ro de s‚rie du volume est 5432-F18A
+C:.
+|   .dockerignore
+|   .env
+|   .gitignore
+|   23e348a46c9f_user_mng_tables.py
+|   docker-compose.yml
+|   plot.py
+|   readme
+|   README.md
+|   results.py
+|   schema.sql
+|   
++---.vscode
+|       settings.json
+|       
++---airbus_ui
+|   |   .dockerignore
+|   |   .gitignore
+|   |   Dockerfile
+|   |   Dockerfile.prod
+|   |   nginx.conf
+|   |   package-lock.json
+|   |   package.json
+|   |   README.md
+|   |   
+|   +---public
+|   |       Airbus-Logo.png
+|   |       Airbusicon.svg
+|   |       favicon.ico
+|   |       index.html
+|   |       logo192.png
+|   |       logo512.png
+|   |       manifest.json
+|   |       robots.txt
+|   |       
+|   \---src
+|       |   App.css
+|       |   App.js
+|       |   App.test.js
+|       |   index.css
+|       |   index.js
+|       |   logo.svg
+|       |   reportWebVitals.js
+|       |   setupTests.js
+|       |   
+|       +---assets
+|       |       Airvisionlogo_cleaned.svg
+|       |       Airvisionlogo_updated.svg
+|       |       
+|       +---components
+|       |   |   AuthWrapper.js
+|       |   |   
+|       |   +---auth
+|       |   |   |   CustomIcons.js
+|       |   |   |   RoleBasedRoute.jsx
+|       |   |   |   
+|       |   |   +---profileCompletion
+|       |   |   |       MyProfile.js
+|       |   |   |       
+|       |   |   +---signin
+|       |   |   |       Content.js
+|       |   |   |       ForgotPassword.js
+|       |   |   |       layout.js
+|       |   |   |       SignInCard.js
+|       |   |   |       
+|       |   |   \---signup
+|       |   |           SignUpCard.js
+|       |   |           SignUpLayout.js
+|       |   |           VerificationCodeDialog.js
+|       |   |           
+|       |   +---components
+|       |   |   +---cards
+|       |   |   |       CardAlert.js
+|       |   |   |       HighlightedCard.js
+|       |   |   |       StatCard.js
+|       |   |   |       
+|       |   |   +---charts
+|       |   |   |       ChartUserByCountry.js
+|       |   |   |       PageViewsBarChart.js
+|       |   |   |       SessionsChart.js
+|       |   |   |       
+|       |   |   +---grid
+|       |   |   |       CustomizedDataGrid.js
+|       |   |   |       
+|       |   |   \---load
+|       |   |           loadable.js
+|       |   |           loading.js
+|       |   |           
+|       |   +---internals
+|       |   |   +---components
+|       |   |   |       Copyright.js
+|       |   |   |       CustomIcons.js
+|       |   |   |       
+|       |   |   \---data
+|       |   |           gridData.js
+|       |   |           
+|       |   \---theme
+|       |       \---customizations
+|       |               BadgeSelected.jsx
+|       |               charts.js
+|       |               dataGrid.js
+|       |               datePickers.js
+|       |               index.js
+|       |               treeView.js
+|       |               
+|       +---context
+|       |       AuthContext.js
+|       |       
+|       +---layouts
+|       |   +---blank
+|       |   |       BlankLayout.js
+|       |   |       
+|       |   \---full
+|       |       |   FullLayout.js
+|       |       |   
+|       |       +---footer
+|       |       |       Copyright.js
+|       |       |       
+|       |       +---header
+|       |       |       CustomDatePicker.js
+|       |       |       CustomizedTreeView.js
+|       |       |       Header.js
+|       |       |       Search.js
+|       |       |       SelectContent.js
+|       |       |       
+|       |       +---navbar
+|       |       |       AppNavbar.js
+|       |       |       NavbarBreadcrumbs copy.js
+|       |       |       NavbarBreadcrumbs.js
+|       |       |       
+|       |       \---sidebar
+|       |               MenuButton.js
+|       |               MenuContent.js
+|       |               OptionsMenu.js
+|       |               SelectContent copy.js
+|       |               SelectContent.js
+|       |               SidebarItem.js
+|       |               SideMenuMobile.js
+|       |               
+|       +---routes
+|       |       PrivateRoute.js
+|       |       Router.js
+|       |       
+|       +---shared-theme
+|       |   |   AppTheme.js
+|       |   |   ColorModeIconDropdown.js
+|       |   |   ColorModeSelect.js
+|       |   |   themePrimitives.js
+|       |   |   
+|       |   \---customizations
+|       |           dataDisplay.js
+|       |           feedback.js
+|       |           inputs.js
+|       |           navigation.js
+|       |           surfaces.js
+|       |           surfaces.ts
+|       |           
+|       +---utils
+|       |       roleUtils.js
+|       |       UseAxios.js
+|       |       
+|       \---views
+|           +---auth
+|           |   +---profile-completion
+|           |   |       Profile.js
+|           |   |       
+|           |   +---sign-in-side
+|           |   |       SignInSide.js
+|           |   |       
+|           |   \---sign-up
+|           |           SignUp.js
+|           |           
+|           +---captureImage
+|           |   |   CameraCapture.jsx
+|           |   |   CameraPlaceholder.jsx
+|           |   |   CameraService.js
+|           |   |   CaptureDialog.js
+|           |   |   HorizontalImageSlider.jsx
+|           |   |   ImageSlider.jsx
+|           |   |   LiveCamera.jsx
+|           |   |   
+|           |   \---components
+|           |           CameraControls.js
+|           |           styledComponents.js
+|           |           VideoFeed.jsx
+|           |           
+|           +---dashboard
+|           |       Dashboard.js
+|           |       MainGrid.js
+|           |       
+|           +---dataset
+|           |   |   AppDatabasesetup.js
+|           |   |   datasetService.js
+|           |   |   DatasetTable.js
+|           |   |   ProgressBar.jsx
+|           |   |   TrainingProgressSidebar.js
+|           |   |   
+|           |   \---datasetTable
+|           |           ConfirmationDialog.js
+|           |           Dataset.js
+|           |           DataTable.js
+|           |           EnhancedTrainingStatus.jsx
+|           |           FiltersPanel.js
+|           |           HeaderActions.js
+|           |           StatisticsPanel.js
+|           |           StyledComponents.js
+|           |           
+|           +---detection
+|           |   |   CameraPlaceholder.jsx
+|           |   |   CaptureDialog.js
+|           |   |   Detection.jsx
+|           |   |   DetectionLotsOverview.jsx
+|           |   |   LiveDetectionView.jsx
+|           |   |   systemPerformanceService.js
+|           |   |   
+|           |   +---components
+|           |   |       BasicModeControls.jsx
+|           |   |       DetectionControls.js
+|           |   |       DetectionLotForm.jsx
+|           |   |       DetectionStatsPanel.jsx
+|           |   |       DetectionVideoFeed copy.jsx
+|           |   |       DetectionVideoFeed.jsx
+|           |   |       InfoPanel.jsx
+|           |   |       LotWorkflowPanel copy.jsx
+|           |   |       LotWorkflowPanel.jsx
+|           |   |       styledComponents.js
+|           |   |       SystemPerformancePanel copy.js
+|           |   |       SystemPerformancePanel.js
+|           |   |       
+|           |   +---handlers
+|           |   |       AppDetectionHandlers.js
+|           |   |       
+|           |   +---hooks
+|           |   |       AppDetectionHooks.js
+|           |   |       
+|           |   +---service
+|           |   |   |   DetectionService.js
+|           |   |   |   StateManager.js
+|           |   |   |   SystemProfiler copy.js
+|           |   |   |   SystemProfiler.js
+|           |   |   |   
+|           |   |   +---statistics
+|           |   |   |       DetectionStatisticsService.js
+|           |   |   |       
+|           |   |   \---StreamManger
+|           |   |           BasicStreamManager.js
+|           |   |           MainStreamManager.js
+|           |   |           OptimizedStreamManager.js
+|           |   |           
+|           |   \---utils
+|           |           AppDetectionUtils.js
+|           |           
+|           +---identification
+|           |   |   AppIdentification.jsx
+|           |   |   CameraPlaceholder.jsx
+|           |   |   CaptureDialog.js
+|           |   |   LiveIdentificationView.jsx
+|           |   |   
+|           |   +---components
+|           |   |       BasicModeIdentificationControls.jsx
+|           |   |       IdentificationControls.js
+|           |   |       IdentificationInfoPanel.jsx
+|           |   |       IdentificationVideoFeed.jsx
+|           |   |       styledComponents.js
+|           |   |       
+|           |   +---handlers
+|           |   |       AppIdentificationHandlers.js
+|           |   |       
+|           |   +---hooks
+|           |   |       AppIdentificationHooks.js
+|           |   |       
+|           |   +---service
+|           |   |   |   IdentificationShutdownManager.js
+|           |   |   |   IdentificationStateManager.js
+|           |   |   |   IdentificationStreamManager.js
+|           |   |   |   MainIdentificationService.js
+|           |   |   |   
+|           |   |   \---optimizedFeature
+|           |   |           IdentificationStateManager.js
+|           |   |           IdentificationStreamManager.js
+|           |   |           MainIdentificationService.js
+|           |   |           
+|           |   \---utils
+|           |           AppIdentificationUtils.js
+|           |           
+|           +---imageAnnotaion
+|           |   |   AppImageAnnotaion.jsx
+|           |   |   PiecesOverview.jsx
+|           |   |   
+|           |   +---annotation
+|           |   |   |   index.js
+|           |   |   |   selectors.js
+|           |   |   |   
+|           |   |   +---components
+|           |   |   |   |   Annotation.jsx
+|           |   |   |   |   defaultProps.js
+|           |   |   |   |   HorizontalAnnotationSlider.js
+|           |   |   |   |   ImageWithAnnotations.jsx
+|           |   |   |   |   SidenavImageDisplay.jsx
+|           |   |   |   |   
+|           |   |   |   +---Content
+|           |   |   |   |       index.js
+|           |   |   |   |       
+|           |   |   |   +---Editor
+|           |   |   |   |       index.js
+|           |   |   |   |       
+|           |   |   |   +---FancyRectangle
+|           |   |   |   |       index.js
+|           |   |   |   |       
+|           |   |   |   +---Overlay
+|           |   |   |   |       index.js
+|           |   |   |   |       
+|           |   |   |   +---Rectangle
+|           |   |   |   |       index.js
+|           |   |   |   |       
+|           |   |   |   \---TextEditor
+|           |   |   |           index.js
+|           |   |   |           
+|           |   |   +---hocs
+|           |   |   |       RectangleSelector.js
+|           |   |   |       
+|           |   |   +---types
+|           |   |   |       index.d.ts
+|           |   |   |       
+|           |   |   \---utils
+|           |   |           compose.js
+|           |   |           isMouseHovering.js
+|           |   |           offsetCoordinates.js
+|           |   |           withRelativeMousePos.js
+|           |   |           
+|           |   \---Simple
+|           |           index.js
+|           |           Simple.css
+|           |           
+|           +---lotSession
+|           |       lotSessionDatabase.jsx
+|           |       lotSessionService.js
+|           |       
+|           +---pieces
+|           |       PieceImageViewer.jsx
+|           |       PiecesGroupOverview.jsx
+|           |       
+|           +---profile
+|           |   |   ActivitiesTab.js
+|           |   |   AlertsTab.js
+|           |   |   PerformanceTab.js
+|           |   |   Profile.js
+|           |   |   ProfileTab.js
+|           |   |   ProfileUpdateDialog.jsx
+|           |   |   SettingsTab.js
+|           |   |   ShiftHistoryTab.js
+|           |   |   SideCardProfile.js
+|           |   |   
+|           |   \---services
+|           |           AccountService.js
+|           |           profileService.js
+|           |           ShiftService.js
+|           |           
+|           \---sessions
+|                   JwtLogin.jsx
+|                   NoData.jsx
+|                   NoData_annotation.jsx
+|                   NotFound.jsx
+|                   Unauthorized.jsx
+|                   
++---backend
+|   +---activity_service
+|   |   |   Dockerfile
+|   |   |   entrypoint.sh
+|   |   |   requirements.txt
+|   |   |   
+|   |   \---app
+|   |       |   main.py
+|   |       |   
+|   |       +---db
+|   |       |   \---models
+|   |       \---service
+|   +---annotation
+|   |   |   .env
+|   |   |   alembic.ini
+|   |   |   Dockerfile
+|   |   |   entrypoint.sh
+|   |   |   requirements.txt
+|   |   |   
+|   |   +---app
+|   |   |   |   main.py
+|   |   |   |   
+|   |   |   +---api
+|   |   |   |   \---router
+|   |   |   |           annotation.py
+|   |   |   |           annotation_artifactkeeper.py
+|   |   |   |           health.py
+|   |   |   |           
+|   |   |   +---core
+|   |   |   |   |   customAuth.py
+|   |   |   |   |   email.py
+|   |   |   |   |   settings.py
+|   |   |   |   |   
+|   |   |   |           settings.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---db
+|   |   |   |   |   session.py
+|   |   |   |   |   
+|   |   |   |   \---models
+|   |   |   |           annotation.py
+|   |   |   |           piece.py
+|   |   |   |           piece_image.py
+|   |   |   |           
+|   |   |   \---services
+|   |   |           delete_annotation.py
+|   |   |           piece_service.py
+|   |   |           
+|   |   \---migrations
+|   |       |   env.py
+|   |       |   README
+|   |       |   script.py.mako
+|   |       |   
+|   |       \---versions
+|   |               ed073df86e1f_annotation_tables_v1.py
+|   |               
+|   +---artifact_keeper
+|   |   |   .env
+|   |   |   alembic.ini
+|   |   |   Dockerfile
+|   |   |   entrypoint.sh
+|   |   |   requirements.txt
+|   |   |   
+|   |   +---app
+|   |   |   |   main.py
+|   |   |   |   
+|   |   |   +---api
+|   |   |   |   \---router
+|   |   |   |           camera.py
+|   |   |   |           captureImage.py
+|   |   |   |           dataset.py
+|   |   |   |           datasetManager.py
+|   |   |   |           health.py
+|   |   |   |           pieceStatisticsRouter.py
+|   |   |   |           system_spec.py
+|   |   |   |           
+|   |   |   +---core
+|   |   |   |   |   customAuth.py
+|   |   |   |   |   email.py
+|   |   |   |   |   settings.py
+|   |   |   |   |   
+|   |   |   |           settings.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---db
+|   |   |   |   |   session.py
+|   |   |   |   |   
+|   |   |   |   \---models
+|   |   |   |       |   annotation.py
+|   |   |   |       |   camera.py
+|   |   |   |       |   camera_settings.py
+|   |   |   |       |   piece.py
+|   |   |   |       |   piece_image.py
+|   |   |   |       |   
+|   |   |   |               camera.cpython-312.pyc
+|   |   |   |               camera_settings.cpython-312.pyc
+|   |   |   |               piece.cpython-312.pyc
+|   |   |   |               piece_image.cpython-312.pyc
+|   |   |   |               
+|   |   |   +---request
+|   |   |   |       camera.py
+|   |   |   |       piece.py
+|   |   |   |       
+|   |   |   +---response
+|   |   |   |       camera.py
+|   |   |   |       piece.py
+|   |   |   |       
+|   |   |   \---services
+|   |   |       |   camera.py
+|   |   |       |   captureService.py
+|   |   |       |   datasetManagerService.py
+|   |   |       |   hardwareServiceClient.py
+|   |   |       |   
+|   |   |       \---statistic
+|   |   |               statistics_PieceService.py
+|   |   |               
+|   |   \---migrations
+|   |       |   env.py
+|   |       |   README
+|   |       |   script.py.mako
+|   |       |   
+|   |       \---versions
+|   |               e8bf56588d91_artifact_keeper_tables_v1.py
+|   |               
+|   +---cameraHardware
+|   |   |   .gitignore
+|   |   |   main.py
+|   |   |   requirements.txt
+|   |   |   
+|   |   +---app
+|   |   |   +---api
+|   |   |   |   \---route
+|   |   |   |       |   camera(fixopencv).py
+|   |   |   |       |   camera.py
+|   |   |   |       |   camera_hardware_profiling_router.py
+|   |   |   |       |   circuitBreaker.py
+|   |   |   |       |   
+|   |   |   |               camera.cpython-312.pyc
+|   |   |   |               camera_hardware_profiling_router.cpython-312.pyc
+|   |   |   |               
+|   |   |   +---response
+|   |   |   |   |   camera.py
+|   |   |   |   |   circuitBreaker.py
+|   |   |   |   |   piece_image.py
+|   |   |   |   |   
+|   |   |   |           camera.cpython-312.pyc
+|   |   |   |           circuitBreaker.cpython-312.pyc
+|   |   |   |           piece_image.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---schemas
+|   |   |   |   |   camera.py
+|   |   |   |   |   
+|   |   |   |           camera.cpython-312.pyc
+|   |   |   |           
+|   |   |   \---service
+|   |   |       |   camera_capture.py
+|   |   |       |   camera_debug.py
+|   |   |       |   camera_manager.py
+|   |   |       |   circuitBreaker.py
+|   |   |       |   external_camera.py
+|   |   |       |   frameSource.py
+|   |   |       |   system_profiler.py
+|   |   |       |   
+|   |   |               camera_capture.cpython-312.pyc
+|   |   |               camera_manager.cpython-312.pyc
+|   |   |               circuitBreaker.cpython-312.pyc
+|   |   |               external_camera.cpython-312.pyc
+|   |   |               frameSource.cpython-312.pyc
+|   |   |               system_profiler.cpython-312.pyc
+|   |   |               
+|   |   +---venv
+       
+|   +---detection
+|   |   |   .env
+|   |   |   .gitignore
+|   |   |   alembic.ini
+|   |   |   Dockerfile
+|   |   |   entrypoint.sh
+|   |   |   requirements.txt
+|   |   |   
+|   |   +---app
+|   |   |   |   main.py
+|   |   |   |   
+|   |   |   +---api
+|   |   |   |   \---route
+|   |   |   |           basic_detection_router copy.py
+|   |   |   |           basic_detection_router.py
+|   |   |   |           detection_redis_router.py
+|   |   |   |           graceful_shutdown_endpoints.py
+|   |   |   |           identification_router.py
+|   |   |   |           lot_session_router.py
+|   |   |   |           statistics_service_router.py
+|   |   |   |           
+|   |   |   +---core
+|   |   |   |   |   customAuth.py
+|   |   |   |   |   email.py
+|   |   |   |   |   settings.py
+|   |   |   |   |   
+|   |   |   |           settings.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---db
+|   |   |   |   |   session.py
+|   |   |   |   |   
+|   |   |   |   \---models
+|   |   |   |           camera.py
+|   |   |   |           camera_settings.py
+|   |   |   |           detectedPiece.py
+|   |   |   |           detectionLot.py
+|   |   |   |           detectionSession.py
+|   |   |   |           piece.py
+|   |   |   |           
+|   |   |   +---schema
+|   |   |   |       detectedPieceSchema.py
+|   |   |   |       lotRequest.py
+|   |   |   |       lotResponse.py
+|   |   |   |       
+|   |   |   \---service
+|   |   |       |   camera.py
+|   |   |       |   hardwareServiceClient.py
+|   |   |       |   lablePlacementService.py
+|   |   |       |   model_service.py
+|   |   |       |   video_streaming_client.py
+|   |   |       |   
+|   |   |       +---detection
+|   |   |       |   |   detection_service copy 2.py
+|   |   |       |   |   detection_service copy.py
+|   |   |       |   |   detection_service.py
+|   |   |       |   |   optimized_detection_service.py
+|   |   |       |   |   
+|   |   |       |   +---alternative
+|   |   |       |   |       basic_detection_service copy.py
+|   |   |       |   |       basic_detection_service.py
+|   |   |       |   |       statistics_service.py
+|   |   |       |   |       
+|   |   |       |   \---statistic
+|   |   |       |           statistics_service.py
+|   |   |       |           
+|   |   |       +---identification
+|   |   |       |       identification_detection_service copy.py
+|   |   |       |       identification_detection_service.py
+|   |   |       |       identification_service.py
+|   |   |       |       
+|   |   |       \---lotSessionService
+|   |   |               lotSessionDashboardService.py
+|   |   |               
+|   |   \---migrations
+|   |       |   env.py
+|   |       |   README
+|   |       |   script.py.mako
+|   |       |   
+|   |       \---versions
+|   |               66f9505302c2_detected_pieces_created.py
+|   |               965855fe092d_detection_microservice_tables.py
+|   |               
+|   +---shared
+|   |   |   dockerfile
+|   |   |   
+|   |   \---requirements
+|   |           ai_ml.txt
+|   |           auth.txt
+|   |           base.txt
+|   |           database.txt
+|   |           development.txt
+|   |           email.txt
+|   |           
+|   +---training
+|   |   |   .env
+|   |   |   alembic.ini
+|   |   |   Dockerfile
+|   |   |   entrypoint.sh
+|   |   |   requirements.txt
+|   |   |   
+|   |   +---app
+|   |   |   |   main.py
+|   |   |   |   
+|   |   |   +---api
+|   |   |   |   \---router
+|   |   |   |           training_router copy.py
+|   |   |   |           training_router.py
+|   |   |   |           
+|   |   |   +---core
+|   |   |   |   |   customAuth.py
+|   |   |   |   |   email.py
+|   |   |   |   |   settings.py
+|   |   |   |   |   
+|   |   |   |           settings.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---db
+|   |   |   |   |   session.py
+|   |   |   |   |   
+|   |   |   |   \---models
+|   |   |   |           annotation.py
+|   |   |   |           piece.py
+|   |   |   |           piece_image.py
+|   |   |   |           training.py
+|   |   |   |           
+|   |   |   +---request
+|   |   |   |       training_request.py
+|   |   |   |       
+|   |   |   \---services
+|   |   |       |   advanced_rotation_service.py
+|   |   |       |   basic_rotation_service.py
+|   |   |       |   boundingbox.py
+|   |   |       |   cropping.py
+|   |   |       |   diagnostic.py
+|   |   |       |   model_training_service copy.py
+|   |   |       |   model_training_service.py
+|   |   |       |   
+|   |   |       \---twomodelmethod
+|   |   |               groupe.py
+|   |   |               model_training_service.py
+|   |   |               
+|   |   \---migrations
+|   |       |   env.py
+|   |       |   README
+|   |       |   script.py.mako
+|   |       |   
+|   |       \---versions
+|   |               367fb1124436_creation_of_training_table.py
+|   |               
+|   +---user_management
+|   |   |   .env
+|   |   |   .gitignore
+|   |   |   alembic.ini
+|   |   |   Dockerfile
+|   |   |   dockerfile.debug
+|   |   |   entrypoint.sh
+|   |   |   requirements.txt
+|   |   |   
+|   |   +---app
+|   |   |   |   main.py
+|   |   |   |   
+|   |   |   +---api
+|   |   |   |   \---routes
+|   |   |   |       |   accountRouter.py
+|   |   |   |       |   profile.py
+|   |   |   |       |   profileRouter.py
+|   |   |   |       |   shiftaccountRouter.py
+|   |   |   |       |   user.py
+|   |   |   |       |   
+|   |   |   |               user.cpython-312.pyc
+|   |   |   |               
+|   |   |   +---core
+|   |   |   |   |   customAuth.py
+|   |   |   |   |   email.py
+|   |   |   |   |   security.py
+|   |   |   |   |   settings.py
+|   |   |   |   |   Test_db.py
+|   |   |   |   |   
+|   |   |   |           email.cpython-312.pyc
+|   |   |   |           settings.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---db
+|   |   |   |   |   session.py
+|   |   |   |   |   
+|   |   |   |   +---models
+|   |   |   |   |   |   actionType.py
+|   |   |   |   |   |   activities.py
+|   |   |   |   |   |   roleType.py
+|   |   |   |   |   |   shift.py
+|   |   |   |   |   |   shiftDay.py
+|   |   |   |   |   |   task.py
+|   |   |   |   |   |   user.py
+|   |   |   |   |   |   workHours.py
+|   |   |   |   |   |   __init__.py
+|   |   |   |   |   |   
+|   |   |   |   |           user.cpython-312.pyc
+|   |   |   |   |           
+|   |   |   |   +---schemas
+|   |   |   |   |       profile.py
+|   |   |   |   |       profileSchema.py
+|   |   |   |   |       user.py
+|   |   |   |   |       
+|   |   |   |           session.cpython-312.pyc
+|   |   |   |           
+|   |   |   +---responses
+|   |   |   |       base.py
+|   |   |   |       profile.py
+|   |   |   |       profileResponse.py
+|   |   |   |       user.py
+|   |   |   |       
+|   |   |   +---services
+|   |   |   |   |   accountservice.py
+|   |   |   |   |   accountShiftService.py
+|   |   |   |   |   activity.py
+|   |   |   |   |   email.py
+|   |   |   |   |   profile.py
+|   |   |   |   |   task.py
+|   |   |   |   |   user.py
+|   |   |   |   |   userReporting.py
+|   |   |   |   |   workHours.py
+|   |   |   |   |   
+|   |   |   |   \---profile_service
+|   |   |   |           profileService.py
+|   |   |   |           
+|   |   |   +---templates
+|   |   |   |   \---user
+|   |   |   |           account-verification-confirmation.html
+|   |   |   |           account-verification.html
+|   |   |   |           Airbus-Logo.png
+|   |   |   |           password-reset.html
+|   |   |   |           
+|   |   |   +---utils
+|   |   |   |       email_context.py
+|   |   |   |       string.py
+|   |   |   |       
+|   |   |           main.cpython-312.pyc
+|   |   |           
+|   |   \---migrations
+|   |       |   env.py
+|   |       |   README
+|   |       |   script.py.mako
+|   |       |   
+|   |       \---versions
+|   |               60dd1e6a5b11_create_the_user_mng_tables.py
+|   |               
+|   \---video_streaming
+|       |   .env
+|       |   .gitignore
+|       |   Dockerfile
+|       |   entrypoint.sh
+|       |   requirements.txt
+|       |   
+|       \---app
+|           |   main.py
+|           |   
+|           +---api
+|           |   \---route
+|           |           basic_video_streaming_router.py
+|           |           graceful_shutdown_endpoints.py
+|           |           videoStreamRouter.py
+|           |           videoStream_detection.py
+|           |           video_redis_router.py
+|           |           
+|           +---core
+|           |   |   customAuth.py
+|           |   |   settings.py
+|           |   |   
+|           |           settings.cpython-312.pyc
+|           |           
+|           +---db
+|           |   |   session.py
+|           |   |   
+|           |   \---models
+|           |           camera.py
+|           |           camera_settings.py
+|           |           
+|           \---service
+|               |   camera.py
+|               |   hardwareServiceClient.py
+|               |   redis_pubsub_diagnostic.py
+|               |   service_readiness_manager.py
+|               |   videoStreamingRedis.py
+|               |   videoStremManager.py
+|               |   video_streaming_service.py
+|               |   video_streaming_service_with_detection.py
+|               |   
+|               +---alternative
+|               |       basic_video_streaming_service.py
+|               |       
+|               \---testing
++---nginx
+|       default.conf
+|       
+\---shared_data
+    +---backup
+    +---dataset
+    |   +---dataset_custom
+            
+    |   \---piece
+    |       \---piece
+    |           +---E539
+    |           |   |   data.yaml
+    |           |   |   
+    |           |   +---E539.15264.000.00
+    |           |   |   +---images
+    |           |   |   |   +---train
+    |           |   |   |   \---valid
+    |           |   |   |           E539.15264.000.00_1.jpg
+    |           |   |   |           E539.15264.000.00_10.jpg
+    |           |   |   |           E539.15264.000.00_2.jpg
+    |           |   |   |           E539.15264.000.00_3.jpg
+    |           |   |   |           E539.15264.000.00_4.jpg
+    |           |   |   |           E539.15264.000.00_5.jpg
+    |           |   |   |           E539.15264.000.00_6.jpg
+    |           |   |   |           E539.15264.000.00_7.jpg
+    |           |   |   |           E539.15264.000.00_8.jpg
+    |           |   |   |           E539.15264.000.00_9.jpg
+    |           |   |   |           
+    |           |   |   \---labels
+    |           |   |       +---train
+    |           |   |       \---valid
+    |           |   |               E539.15264.000.00_1.txt
+    |           |   |               E539.15264.000.00_10.txt
+    |           |   |               E539.15264.000.00_2.txt
+    |           |   |               E539.15264.000.00_3.txt
+    |           |   |               E539.15264.000.00_4.txt
+    |           |   |               E539.15264.000.00_5.txt
+    |           |   |               E539.15264.000.00_6.txt
+    |           |   |               E539.15264.000.00_7.txt
+    |           |   |               E539.15264.000.00_8.txt
+    |           |   |               E539.15264.000.00_9.txt
+    |           |   |               
+    |           |   \---E539.15264.002.00
+    |           |       +---images
+    |           |       |   +---train
+    |           |       |   \---valid
+    |           |       |           E539.15264.002.00_1.jpg
+    |           |       |           E539.15264.002.00_10.jpg
+    |           |       |           E539.15264.002.00_2.jpg
+    |           |       |           E539.15264.002.00_3.jpg
+    |           |       |           E539.15264.002.00_4.jpg
+    |           |       |           E539.15264.002.00_5.jpg
+    |           |       |           E539.15264.002.00_6.jpg
+    |           |       |           E539.15264.002.00_7.jpg
+    |           |       |           E539.15264.002.00_8.jpg
+    |           |       |           E539.15264.002.00_9.jpg
+    |           |       |           
+    |           |       \---labels
+    |           |           +---train
+    |           |           \---valid
+    |           |                   E539.15264.002.00_1.txt
+    |           |                   E539.15264.002.00_10.txt
+    |           |                   E539.15264.002.00_2.txt
+    |           |                   E539.15264.002.00_3.txt
+    |           |                   E539.15264.002.00_4.txt
+    |           |                   E539.15264.002.00_5.txt
+    |           |                   E539.15264.002.00_6.txt
+    |           |                   E539.15264.002.00_7.txt
+    |           |                   E539.15264.002.00_8.txt
+    |           |                   E539.15264.002.00_9.txt
+    |           |                   
+    |           +---G053
+    |           |   |   data.yaml
+    |           |   |   
+    |           |   +---G053.42874.105.03
+    |           |   |   +---images
+    |           |   |   |   +---train
+    |           |   |   |   \---valid
+    |           |   |   |           G053.42874.105.03_1.jpg
+    |           |   |   |           G053.42874.105.03_10.jpg
+    |           |   |   |           G053.42874.105.03_2.jpg
+    |           |   |   |           G053.42874.105.03_3.jpg
+    |           |   |   |           G053.42874.105.03_4.jpg
+    |           |   |   |           G053.42874.105.03_5.jpg
+    |           |   |   |           G053.42874.105.03_6.jpg
+    |           |   |   |           G053.42874.105.03_7.jpg
+    |           |   |   |           G053.42874.105.03_8.jpg
+    |           |   |   |           G053.42874.105.03_9.jpg
+    |           |   |   |           
+    |           |   |   \---labels
+    |           |   |       +---train
+    |           |   |       \---valid
+    |           |   |               G053.42874.105.03_1.txt
+    |           |   |               G053.42874.105.03_10.txt
+    |           |   |               G053.42874.105.03_2.txt
+    |           |   |               G053.42874.105.03_3.txt
+    |           |   |               G053.42874.105.03_4.txt
+    |           |   |               G053.42874.105.03_5.txt
+    |           |   |               G053.42874.105.03_6.txt
+    |           |   |               G053.42874.105.03_7.txt
+    |           |   |               G053.42874.105.03_8.txt
+    |           |   |               G053.42874.105.03_9.txt
+    |           |   |               
+    |           |   +---G053.45622.103.03
+    |           |   |   +---images
+    |           |   |   |   +---train
+    |           |   |   |   \---valid
+    |           |   |   |           G053.45622.103.03_1.jpg
+    |           |   |   |           G053.45622.103.03_10.jpg
+    |           |   |   |           G053.45622.103.03_2.jpg
+    |           |   |   |           G053.45622.103.03_3.jpg
+    |           |   |   |           G053.45622.103.03_4.jpg
+    |           |   |   |           G053.45622.103.03_5.jpg
+    |           |   |   |           G053.45622.103.03_6.jpg
+    |           |   |   |           G053.45622.103.03_7.jpg
+    |           |   |   |           G053.45622.103.03_8.jpg
+    |           |   |   |           G053.45622.103.03_9.jpg
+    |           |   |   |           
+    |           |   |   \---labels
+    |           |   |       +---train
+    |           |   |       \---valid
+    |           |   |               G053.45622.103.03_1.txt
+    |           |   |               G053.45622.103.03_10.txt
+    |           |   |               G053.45622.103.03_2.txt
+    |           |   |               G053.45622.103.03_3.txt
+    |           |   |               G053.45622.103.03_4.txt
+    |           |   |               G053.45622.103.03_5.txt
+    |           |   |               G053.45622.103.03_6.txt
+    |           |   |               G053.45622.103.03_7.txt
+    |           |   |               G053.45622.103.03_8.txt
+    |           |   |               G053.45622.103.03_9.txt
+    |           |   |               
+    |           |   \---G053.47684.101.03
+    |           |       +---images
+    |           |       |   +---train
+    |           |       |   \---valid
+    |           |       |           G053.47684.101.03_1.jpg
+    |           |       |           G053.47684.101.03_10.jpg
+    |           |       |           G053.47684.101.03_2.jpg
+    |           |       |           G053.47684.101.03_3.jpg
+    |           |       |           G053.47684.101.03_4.jpg
+    |           |       |           G053.47684.101.03_5.jpg
+    |           |       |           G053.47684.101.03_6.jpg
+    |           |       |           G053.47684.101.03_7.jpg
+    |           |       |           G053.47684.101.03_8.jpg
+    |           |       |           G053.47684.101.03_9.jpg
+    |           |       |           
+    |           |       \---labels
+    |           |           +---train
+    |           |           \---valid
+    |           |                   G053.47684.101.03_1.txt
+    |           |                   G053.47684.101.03_10.txt
+    |           |                   G053.47684.101.03_2.txt
+    |           |                   G053.47684.101.03_3.txt
+    |           |                   G053.47684.101.03_4.txt
+    |           |                   G053.47684.101.03_5.txt
+    |           |                   G053.47684.101.03_6.txt
+    |           |                   G053.47684.101.03_7.txt
+    |           |                   G053.47684.101.03_8.txt
+    |           |                   G053.47684.101.03_9.txt
+    |           |                   
+    |           +---G123
+    |           |   \---G123.12345.123.12
+    |           |       +---images
+    |           |       |   \---valid
+    |           |       |           G123.12345.123.12_1.jpg
+    |           |       |           G123.12345.123.12_10.jpg
+    |           |       |           G123.12345.123.12_2.jpg
+    |           |       |           G123.12345.123.12_3.jpg
+    |           |       |           G123.12345.123.12_4.jpg
+    |           |       |           G123.12345.123.12_5.jpg
+    |           |       |           G123.12345.123.12_6.jpg
+    |           |       |           G123.12345.123.12_7.jpg
+    |           |       |           G123.12345.123.12_8.jpg
+    |           |       |           G123.12345.123.12_9.jpg
+    |           |       |           
+    |           |       \---labels
+    |           |           \---valid
+    |           \---K123
+    |                   data.yaml
+    |                   
+    +---logs
+    |       group_model_training_service.log
+    |       model_training_service.log
+    |       training.log
+    |       
+    +---models
+    |   |   model_E539.pt
+    |   |   model_G053.pt
+    |   |   model_K123.pt
+    |   |   yolov8n.pt
+    |   |   
+    |   +---cpu
+    |   |   +---E539
+    |   |   +---G053
+    |   |   +---H123
+    |   |   \---K123
+    |   \---gpu
+    |       +---E539
+    |       |   +---E539_epoch_1
+   
+    |       +---G053
+    |       |   +---G053_epoch_1
+  
+    |                       
+  
+        \---models
+                model_E539.pt
+                model_G053.pt
+                yolov8m.pt
+                

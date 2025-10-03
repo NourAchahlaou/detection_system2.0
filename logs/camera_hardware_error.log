@@ -1,0 +1,234 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\hp\\Desktop\\airbus2.0\\detection_system2.0\\backend\\cameraHardware']
+INFO:     Uvicorn running on http://127.0.0.1:8003 (Press CTRL+C to quit)
+INFO:     Started reloader process [9488] using WatchFiles
+2025-10-03 14:47:14,752 - INFO - Circuit breaker 'opencv_camera' initialized in CLOSED state
+2025-10-03 14:47:14,753 - INFO - Circuit breaker 'basler_camera' initialized in CLOSED state
+2025-10-03 14:47:14,753 - INFO - Circuit breaker 'detect_cameras' initialized in CLOSED state
+2025-10-03 14:47:14,753 - INFO - Circuit breaker 'image_capture' initialized in CLOSED state
+INFO:     Started server process [16120]
+INFO:     Waiting for application startup.
+2025-10-03 14:47:14,804 - INFO - Starting system profiling service...
+2025-10-03 14:47:17,354 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:47:17,355 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:47:17,372 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:47:19,928 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:47:19,929 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:47:19,929 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:47:19,929 - INFO - System profiling initialized - Mode: basic, Score: 88.98
+INFO:     Application startup complete.
+2025-10-03 14:47:42,409 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:47:42,410 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:47:42,410 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:47:42,415 - INFO - Starting camera detection process
+2025-10-03 14:47:42,415 - INFO - Detecting available cameras...
+2025-10-03 14:47:43,389 - INFO - Found 1 Basler cameras
+2025-10-03 14:47:43,389 - INFO - Searching for USB camera devices...
+2025-10-03 14:47:43,474 - INFO - Found 4 USB camera devices
+2025-10-03 14:47:43,474 - INFO -   Device 0: Microphone (HIK 1080P USB CAMERA-Audio)
+2025-10-03 14:47:43,474 - INFO -   Device 1: HIK 1080P USB CAMERA
+2025-10-03 14:47:43,475 - INFO -   Device 2: Basler ace USB3 Vision Camera
+2025-10-03 14:47:43,475 - INFO -   Device 3: HIK 1080P USB CAMERA-Audio
+2025-10-03 14:47:43,475 - INFO - Testing direct OpenCV camera detection...
+2025-10-03 14:47:44,009 - INFO - Found working camera at index 0
+[ WARN:0@29.827] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.830] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.831] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.831] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.832] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.833] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.834] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.835] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:0@29.836] global cap.cpp:480 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+2025-10-03 14:47:44,276 - INFO - Matching WMI camera info with OpenCV indices...
+2025-10-03 14:47:44,276 - WARNING - Mismatch: 3 WMI cameras vs 1 working OpenCV cameras
+2025-10-03 14:47:44,277 - INFO - Successfully matched 1 OpenCV cameras
+2025-10-03 14:47:44,277 - INFO - Total cameras detected: 2
+2025-10-03 14:47:44,277 - INFO -   Camera 1: acA5472-17um (Type: basler, Index: N/A)
+2025-10-03 14:47:44,277 - INFO -   Camera 2: Microphone (HIK 1080P USB CAMERA-Audio) (Type: regular, Index: 0)
+2025-10-03 14:47:44,278 - INFO - Available Cameras found: 2
+2025-10-03 14:47:44,278 - INFO - Camera 1 details: {'type': 'basler', 'device': <pypylon.pylon.DeviceInfo; proxy of <Swig Object of type 'Pylon::CDeviceInfo *' at 0x00000235F1813900> >, 'caption': 'acA5472-17um'}
+2025-10-03 14:47:44,278 - INFO - Camera 2 details: {'type': 'regular', 'index': 0, 'caption': 'Microphone (HIK 1080P USB CAMERA-Audio)'}
+2025-10-03 14:47:44,278 - INFO - Processing camera: acA5472-17um, Type: basler
+2025-10-03 14:47:44,279 - INFO - Processing Basler Camera: acA5472-17um
+2025-10-03 14:47:44,279 - INFO - Getting info for camera: acA5472-17um, Type: basler
+2025-10-03 14:47:44,279 - INFO - Attempting to get info for Basler camera acA5472-17um
+2025-10-03 14:47:44,508 - INFO - Created Basler InstantCamera object
+2025-10-03 14:47:44,517 - INFO - Successfully opened Basler camera
+2025-10-03 14:47:44,517 - INFO - Retrieved node map from Basler camera
+2025-10-03 14:47:44,521 - INFO - Successfully set exposure to 84058.0
+2025-10-03 14:47:44,521 - WARNING - Could not set exposure: module 'pypylon.pylon' has no attribute 'IsReadable'
+2025-10-03 14:47:44,523 - INFO - Successfully set gain to 1,30648
+2025-10-03 14:47:44,523 - WARNING - Could not set gain: module 'pypylon.pylon' has no attribute 'IsReadable'
+2025-10-03 14:47:44,524 - INFO - Successfully set acquisition mode to Continuous
+2025-10-03 14:47:44,524 - INFO - Successfully retrieved Basler camera info with serial number: 23964849
+2025-10-03 14:47:44,524 - INFO - Closing Basler camera connection
+2025-10-03 14:47:44,529 - INFO - Successfully retrieved Basler Camera Info: {'type': 'basler', 'caption': 'acA5472-17um', 'serial_number': '23964849', 'settings': {'exposure': 84058.0, 'contrast': None, 'brightness': None, 'focus': None, 'aperture': None, 'gain': 1, 'white_balance': None}, 'device': {'model_name': 'acA5472-17um', 'serial_number': '23964849', 'vendor_name': 'Basler', 'device_class': 'BaslerUsb', 'full_name': '\\\\?\\usb#vid_2676&pid_ba02&mi_00#6&246b3981&0&0000#{79bfeeca-947f-11e1-bc58-001b2163ef96}'}}
+2025-10-03 14:47:44,529 - INFO - Processing camera: Microphone (HIK 1080P USB CAMERA-Audio), Type: regular
+2025-10-03 14:47:44,529 - INFO - Processing OpenCV Camera with index: 0
+2025-10-03 14:47:49,593 - INFO - Successfully opened OpenCV Camera: Microphone (HIK 1080P USB CAMERA-Audio)
+2025-10-03 14:47:50,908 - INFO - Successfully read a frame from camera 0
+2025-10-03 14:47:50,908 - INFO - Getting info for camera: Microphone (HIK 1080P USB CAMERA-Audio), Type: regular
+2025-10-03 14:47:50,908 - INFO - Attempting to get info for OpenCV camera index 0
+2025-10-03 14:47:53,956 - INFO - Created VideoCapture object for index 0
+2025-10-03 14:47:53,957 - INFO - Camera property exposure: -1.0
+2025-10-03 14:47:53,958 - INFO - Camera property contrast: 128.0
+2025-10-03 14:47:53,959 - INFO - Camera property brightness: 128.0
+2025-10-03 14:47:53,959 - INFO - Camera property focus: -1.0
+2025-10-03 14:47:53,959 - INFO - Camera property aperture: -1.0
+2025-10-03 14:47:53,959 - INFO - Camera property gain: -1.0
+2025-10-03 14:47:53,959 - INFO - Camera property white_balance: 1.0
+2025-10-03 14:47:53,959 - INFO - Camera property width: 640.0
+2025-10-03 14:47:53,960 - INFO - Camera property height: 480.0
+2025-10-03 14:47:53,960 - INFO - Camera property fps: 30.0
+[ WARN:1@39.522] global cap_msmf.cpp:476 `anonymous-namespace'::SourceReaderCB::OnReadSample videoio(MSMF): OnReadSample() is called with error status: -1072873821
+[ WARN:1@39.522] global cap_msmf.cpp:488 `anonymous-namespace'::SourceReaderCB::OnReadSample videoio(MSMF): async ReadSample() call is failed with error status: -1072873821
+2025-10-03 14:47:53,988 - INFO - Successfully read test frame from camera 0
+2025-10-03 14:47:53,988 - INFO - Successfully retrieved OpenCV camera info: Microphone (HIK 1080P USB CAMERA-Audio)
+2025-10-03 14:47:53,990 - INFO - Released camera at index 0
+2025-10-03 14:47:53,991 - INFO - Successfully retrieved OpenCV Camera Info: {'type': 'regular', 'caption': 'Microphone (HIK 1080P USB CAMERA-Audio)', 'index': 0, 'settings': {'exposure': -1.0, 'contrast': 128.0, 'brightness': 128.0, 'focus': -1.0, 'aperture': -1.0, 'gain': -1.0, 'white_balance': 1.0, 'width': 640.0, 'height': 480.0, 'fps': 30.0}, 'can_capture_frame': True}
+2025-10-03 14:47:54,244 - INFO - Released camera at index 0
+2025-10-03 14:47:54,244 - INFO - Total cameras with retrieved information: 2
+2025-10-03 14:48:32,072 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:48:32,072 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:48:32,073 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:48:59,583 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:48:59,583 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:48:59,584 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:49:27,102 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:49:27,103 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:49:27,103 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:49:54,690 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:49:54,691 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:49:54,691 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:50:03,854 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:50:03,873 - INFO - Circuit breaker 'camera_stop' initialized in CLOSED state
+2025-10-03 14:50:03,873 - INFO - Circuit 'image_capture' manually reset to CLOSED state
+2025-10-03 14:50:03,886 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:50:22,196 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:50:22,196 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:50:22,197 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:50:29,268 - INFO - Circuit 'image_capture' manually reset to CLOSED state
+2025-10-03 14:50:49,756 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:50:49,756 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:50:49,757 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:50:59,301 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:50:59,319 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:50:59,326 - INFO - Circuit breaker 'camera_stop' initialized in CLOSED state
+2025-10-03 14:50:59,345 - INFO - Circuit 'image_capture' manually reset to CLOSED state
+2025-10-03 14:50:59,356 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:50:59,531 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:50:59,557 - INFO - Circuit breaker 'camera_stop' initialized in CLOSED state
+2025-10-03 14:50:59,557 - INFO - Circuit 'image_capture' manually reset to CLOSED state
+2025-10-03 14:50:59,571 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:51:05,968 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:51:05,978 - INFO - Circuit breaker 'camera_stop' initialized in CLOSED state
+2025-10-03 14:51:05,979 - INFO - Circuit 'image_capture' manually reset to CLOSED state
+2025-10-03 14:51:05,988 - INFO - Circuit breaker 'cleanup' initialized in CLOSED state
+2025-10-03 14:51:17,688 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:51:17,688 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:51:17,688 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:51:44,918 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:51:44,918 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:51:44,918 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:52:12,617 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:52:12,618 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:52:12,618 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:52:19,934 - INFO - Running periodic performance check...
+2025-10-03 14:52:22,475 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:52:22,475 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:52:22,475 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:52:25,015 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:52:25,015 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:52:25,016 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:52:40,220 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:52:40,221 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:52:40,222 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:52:43,789 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:52:43,789 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:52:43,790 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:53:07,736 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:53:07,737 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:53:07,737 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:53:35,343 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:53:35,343 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:53:35,344 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:54:02,902 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:54:02,902 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:54:02,903 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:54:30,469 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:54:30,471 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:54:30,471 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:54:58,029 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:54:58,030 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:54:58,030 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:55:25,555 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:55:25,556 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:55:25,556 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:55:53,171 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:55:53,171 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:55:53,172 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:56:20,741 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:56:20,741 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:56:20,742 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:56:48,224 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:56:48,225 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:56:48,225 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:57:15,882 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:57:15,882 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:57:15,882 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:57:25,018 - INFO - Running periodic performance check...
+2025-10-03 14:57:27,574 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:57:27,574 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:57:27,575 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:57:30,130 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:57:30,130 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:57:30,131 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:57:43,411 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:57:43,412 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:57:43,412 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:57:47,257 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:57:47,258 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:57:47,258 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:58:10,986 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:58:10,986 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:58:10,986 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:58:38,664 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:58:38,665 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:58:38,665 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:59:06,281 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:59:06,282 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:59:06,283 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 14:59:33,883 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 14:59:33,884 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 14:59:33,884 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:00:01,483 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:00:01,483 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:00:01,483 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:00:29,076 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:00:29,077 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:00:29,077 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:00:56,638 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:00:56,638 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:00:56,638 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:01:24,404 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:01:24,404 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:01:24,404 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:01:51,781 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:01:51,782 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:01:51,782 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:02:19,362 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:02:19,363 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:02:19,363 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:02:30,134 - INFO - Running periodic performance check...
+2025-10-03 15:02:32,675 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:02:32,675 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:02:32,675 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:02:35,211 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:02:35,211 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:02:35,211 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:02:46,964 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:02:46,965 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:02:46,965 - INFO - System profiling complete: low tier, basic mode, meets minimum: False
+2025-10-03 15:02:51,110 - INFO - GPU detected via nvidia-smi: NVIDIA T600 (4.0GB)
+2025-10-03 15:02:51,111 - WARNING - System does not meet minimum requirements: ['available_ram', 'cpu_frequency', 'gpu_memory']
+2025-10-03 15:02:51,111 - INFO - System profiling complete: low tier, basic mode, meets minimum: False

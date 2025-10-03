@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from artifact_keeper.app.db.session import get_session
-from artifact_keeper.app.services.statistic.statistics_service import get_piece_statistics
+from artifact_keeper.app.services.statistic.statistics_PieceService import piece_statistics_service
 
 router = APIRouter(
     prefix="/statistics",
@@ -17,4 +17,4 @@ def piece_statistics(db: Session = Depends(get_session)):
     - annotated pieces
     - trained pieces
     """
-    return get_piece_statistics(db)
+    return piece_statistics_service(db)

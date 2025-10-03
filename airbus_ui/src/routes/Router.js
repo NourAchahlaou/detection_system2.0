@@ -42,7 +42,7 @@ const router = createBrowserRouter([
   // Root redirect to dashboard
   {
     path: '/',
-    element: <Navigate to="/dashboard" replace />,
+    element: <Navigate to="/piecesGroupOverview" replace />,
   },
 
   // Protected layout and routes

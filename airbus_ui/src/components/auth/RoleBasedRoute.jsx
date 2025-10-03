@@ -53,7 +53,7 @@ const RoleBasedRoute = ({ children, allowedRoles }) => {
 
   if (!hasPermission()) {
     console.log('🚫 RoleBasedRoute: Access denied, redirecting to dashboard');
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/PiecesGroupOverview" replace />;
   }
 
   console.log('✅ RoleBasedRoute: Access granted');

@@ -165,7 +165,7 @@ export default function SignUpCard() {
       // Check if profile is complete (100%)
       if (response.data.completion_percentage === 100) {
         // Profile is complete, navigate to dashboard
-        navigate('/dashboard');
+        navigate('/PiecesGroupOverview');
       } else {
         // Profile is incomplete, navigate to profile completion page
         setSnackbar({

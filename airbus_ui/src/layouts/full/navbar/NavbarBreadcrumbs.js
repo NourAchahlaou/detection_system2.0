@@ -26,19 +26,19 @@ const StyledLink = styled(Link)(({ theme }) => ({
 
 // Define route configurations with breadcrumb labels
 const routeConfig = {
-  '/': { label: 'Dashboard', parent: null },
-  '/dashboard': { label: 'Dashboard', parent: null },
-  '/captureImage': { label: 'Capture Image', parent: '/dashboard' },
-  '/annotation': { label: 'Annotation', parent: '/dashboard' },
-  '/piecesOverview': { label: 'Pieces Overview', parent: '/dashboard' },
-  '/dataset': { label: 'Manage Dataset', parent: '/dashboard' },
-  '/detection': { label: 'Detection', parent: '/dashboard' },
-  '/detectionLotsOverview': { label: 'Verify Lot', parent: '/dashboard' },
-  '/identification': { label: 'Identify Piece', parent: '/dashboard' },
-  '/piecesGroupOverview': { label: 'Group Overview', parent: '/dashboard' },
-  '/pieceImageViewer': { label: 'Piece Image Viewer', parent: '/piecesOverview' },
-  '/lotSessionViewer': { label: 'Lot Session', parent: '/dashboard' },
-  '/profile': { label: 'Profile', parent: '/dashboard' },
+  // '/': { label: 'Dashboard', parent: null },
+  // '/dashboard': { label: 'Dashboard', parent: null },
+  '/captureImage': { label: 'Capture Image', parent: '/PiecesGroupOverview' },
+  '/annotation': { label: 'Annotation', parent: '/PiecesGroupOverview' },
+  '/piecesOverview': { label: 'Pieces Overview', parent: '/PiecesGroupOverview' },
+  '/dataset': { label: 'Manage Dataset', parent: '/PiecesGroupOverview' },
+  '/detection': { label: 'Detection', parent: '/PiecesGroupOverview' },
+  '/detectionLotsOverview': { label: 'Verify Lot', parent: '/PiecesGroupOverview' },
+  '/identification': { label: 'Identify Piece', parent: '/PiecesGroupOverview' },
+  '/piecesGroupOverview': { label: 'Group Overview', parent: '/PiecesGroupOverview' },
+  '/pieceImageViewer': { label: 'Piece Image Viewer', parent: '/PiecesGroupOverview' },
+  '/lotSessionViewer': { label: 'Lot Session', parent: '/PiecesGroupOverview' },
+  '/profile': { label: 'Profile', parent: '/PiecesGroupOverview' },
 };
 
 export default function NavbarBreadcrumbs() {
@@ -71,7 +71,7 @@ export default function NavbarBreadcrumbs() {
   const breadcrumbs = generateBreadcrumbs();
 
   // Don't render breadcrumbs if we don't have route config or if it's just dashboard
-  if (!breadcrumbs.length || (breadcrumbs.length === 1 && breadcrumbs[0].path === '/dashboard')) {
+  if (!breadcrumbs.length || (breadcrumbs.length === 1 && breadcrumbs[0].path === '/PiecesGroupOverview')) {
     return null;
   }
 

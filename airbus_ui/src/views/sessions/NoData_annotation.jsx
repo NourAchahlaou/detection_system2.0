@@ -243,7 +243,7 @@ export default function NoData() {
               variant="outlined"
               size="large"
               startIcon={<ArrowBack sx={{ fontSize: 18 }} />}
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/PiecesGroupOverview')}
               fullWidth
               sx={{ maxWidth: 320 }}
             >

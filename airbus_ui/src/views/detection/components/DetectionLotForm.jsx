@@ -205,7 +205,7 @@ const DetectionLotForm = ({
     } else {
       // Validate new lot creation
       if (!formData.lotName.trim()) {
-        newErrors.lotName = 'Lot name is required';
+        newErrors.lotName = 'OF(fabrication order) is required';
         valid = false;
       } else if (formData.lotName.length > 100) {
         newErrors.lotName = 'Lot name must be 100 characters or less';
@@ -458,12 +458,12 @@ const handleSubmit = () => {
 
           {/* Lot Name */}
           <TextField
-            label="Lot Name"
+            label="Fabrication Order (OF)"
             size="small"
             value={formData.lotName}
             onChange={(e) => handleFieldChange('lotName', e.target.value)}
             error={!!errors.lotName}
-            helperText={errors.lotName || 'Descriptive name for this lot'}
+            helperText={errors.lotName || 'Fabrication Order(OF) for this lot'}
             fullWidth
             required
             InputProps={{

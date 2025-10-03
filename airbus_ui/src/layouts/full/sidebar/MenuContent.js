@@ -56,17 +56,17 @@ const MenuContent = () => {
   };
 
   const menuSections = [
-    {
-      title: 'Main',
-      items: [
-        {
-          text: 'Dashboard',
-          icon: <HomeRoundedIcon />,
-          to: '/',
-          roles: [ROLES.DATA_MANAGER, ROLES.OPERATOR, ROLES.AUDITOR, ROLES.ADMIN]
-        },
-      ],
-    },
+    // {
+    //   title: 'Main',
+    //   items: [
+    //     {
+    //       text: 'Dashboard',
+    //       icon: <HomeRoundedIcon />,
+    //       to: '/',
+    //       roles: [ROLES.DATA_MANAGER, ROLES.OPERATOR, ROLES.AUDITOR, ROLES.ADMIN]
+    //     },
+    //   ],
+    // },
     {
       title: 'Training & Data Management',
       items: [

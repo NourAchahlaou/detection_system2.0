@@ -108,7 +108,7 @@ export default function SignInCard() {
       // Check if profile is complete (100%)
       if (response.data.completion_percentage === 100) {
         // Profile is complete, navigate to dashboard
-        navigate('/dashboard');
+        navigate('/PiecesGroupOverview');
       } else {
         // Profile is incomplete, navigate to profile completion page
         setSnackbar({
@@ -128,7 +128,7 @@ export default function SignInCard() {
     } catch (error) {
       console.error('Error checking profile completion:', error);
       // If completion check fails, still navigate to dashboard since user is authenticated
-      navigate('/dashboard');
+      navigate('/piecesGroupOverview');
     }
   };
   const handleSubmit = async (event) => {
