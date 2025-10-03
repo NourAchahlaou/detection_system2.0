@@ -1,0 +1,91 @@
+INFO:     127.0.0.1:54700 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54703 - "GET /camera/detect HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54838 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54863 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54884 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54892 - "GET /system/specs HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54893 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Camera is not running.
+INFO:     127.0.0.1:54894 - "POST /camera/stop HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54895 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54896 - "GET /system/specs HTTP/1.1" 200 OK
+Attempting to start Basler camera with serial number: 23964849
+Basler camera opened successfully.
+Starting camera grabbing...
+Camera grabbing started.
+Basler camera with serial number 23964849 started successfully.
+INFO:     127.0.0.1:54897 - "POST /camera/basler/start HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54898 - "GET /camera/video_feed HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54899 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54900 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54901 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54902 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54904 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54905 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54906 - "GET /system/specs HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54907 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54908 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54909 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Captured image for piece G123.12345.123.12 - returning frame data only
+INFO:     127.0.0.1:54910 - "GET /camera/capture_images/G123.12345.123.12 HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54911 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54912 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Basler camera stopped and resources released.
+Camera stopped and resources released.
+INFO:     127.0.0.1:54913 - "POST /camera/stop HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54914 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54919 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Camera is not running.
+INFO:     127.0.0.1:54920 - "POST /camera/stop HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54921 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54922 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+Camera is not running.
+INFO:     127.0.0.1:54923 - "POST /camera/stop HTTP/1.1" 200 OK
+Temporary photos list has been cleared.
+INFO:     127.0.0.1:54924 - "POST /camera/cleanup-temp-photos HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54926 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54932 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54933 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54934 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54935 - "GET /system/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54936 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54945 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54946 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54947 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54948 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54949 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54950 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54968 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54969 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54971 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54973 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54974 - "GET /system/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54975 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54981 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54984 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54994 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54996 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54997 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55000 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55003 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55005 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55007 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55010 - "GET /system/specs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55017 - "GET /system/health HTTP/1.1" 200 OK
